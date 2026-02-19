@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: coastLineWaveMat
+  m_Shader: {fileID: 4800000, guid: 6db57e789fdc37c41a1303a34bd4eca9, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _FormTexture:
+        m_Texture: {fileID: 2800000, guid: 8aca3123917e1e243bebd95a5d5ed4f4, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _OceanNorTex:
+        m_Texture: {fileID: 2800000, guid: 8aca3123917e1e243bebd95a5d5ed4f4, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _VectorDisMap:
+        m_Texture: {fileID: 2800000, guid: cb96667e6f0ada747afd9c9fe27b2395, type: 3}
+        m_Scale: {x: 4, y: 2}
+        m_Offset: {x: 0, y: 0}
+    - _VectorDisMapNormal:
+        m_Texture: {fileID: 2800000, guid: 53d575e1ffadbba468e3345fc41c1ce7, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _SineCount: 1.48
+    - _Speed: 0
+    - _VDMXOffset: 0
+    - _VDMXScale: 1.2
+    - _VDMYOffset: -0.5
+    - _VDMYScale: -0.39
+    - _VectorDisMapScale: 1
+    - _sineScale: 0.051
+    m_Colors:
+    - _DeepWaterCol: {r: 0, g: 0.5179733, b: 0.8050314, a: 1}
+    - _WaterCol: {r: 0.20467927, g: 0.7391196, b: 0.8238993, a: 1}
+  m_BuildTextureStacks: []

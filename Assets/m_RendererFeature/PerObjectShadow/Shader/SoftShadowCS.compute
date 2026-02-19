@@ -1,0 +1,66 @@
+// SoftShadowCompute.compute
+#pragma kernel CSSoftShadowBlur
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+// Blur 内容
+RWTexture2D<float>  CSShadow;
+Texture2D<float> _ScreenShadowMap;
+Texture2D<float> _CameraDepth;
+float SizeW;
+float SizeH;
+int sampleCount; // 模糊采样次数
+float blurStepSize; // 模糊采样步长
+
+
+SamplerState sampler_ScreenShadowMap_linear_clamp;
+//SamplerState sampler_point_clamp;
+
+
+// 负责模糊的CS，在最后调用
+[numthreads(8, 8, 1)]
+void CSSoftShadowBlur(uint3 id : SV_DispatchThreadID)
+{
+
+    float2 uv = float2(id.x / SizeW, id.y / SizeH);
+    float depth = _CameraDepth.Load(int3(id.xy, 0)).r;
+    float shadow = _ScreenShadowMap.Load(int3(id.xy,0)).r;
+    depth = LinearEyeDepth(depth,_ZBufferParams);
+   
+    // =================== 对PCF阴影进行模糊采样 =============================
+    float2 w = float2(1.0/SizeW,0.0); // 固定步长
+    float dd = clamp(depth,0.0,20)*2.0; // 限制深度
+    //dd = 0.4;
+    w.x /= dd; // 根据深度变换步长，越远越小
+    w.x *= blurStepSize;
+    //w = float2(0.2,0.0);
+
+    float s0 = _ScreenShadowMap.SampleLevel(sampler_ScreenShadowMap_linear_clamp, uv, 0).r;
+    
+    float count = 0.0; //记录有效点数
+    float total = 0.0; // 总数
+    int kenelC = sampleCount;
+    kenelC = 3;
+
+    for(float k = -kenelC; k<=kenelC ; k++)
+    {
+        for(float j = -kenelC ; j<=kenelC ;j++)
+        {
+            float2 newuv = uv + w.x*float2(k,j);
+            newuv = clamp(newuv,0.0,1.0);
+            float s1 = _ScreenShadowMap.SampleLevel(sampler_ScreenShadowMap_linear_clamp, newuv, 0).r;
+            // 只有在变化率小于0.5的地方才会采样，避免导致边缘模糊
+            // 不然会发生特定角度亮部与阴影相互污染的情况，中间会出现一条灰线
+            if(abs(s1-s0)<0.7)
+            {
+                count += 1.0;
+                total += s1;
+            }
+        }
+    }
+    float newShadow =  total/count;
+    //newShadow =  depth;
+    
+    CSShadow[id.xy] = newShadow;
+}

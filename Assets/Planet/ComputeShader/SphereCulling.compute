@@ -1,0 +1,88 @@
+#pragma kernel CSMain
+
+struct InstanceData
+{
+    float3 position;
+    float3 forward;
+    float3 right;
+    float3 up;
+    float scale;
+    int isVisible;
+};
+
+RWStructuredBuffer<InstanceData> _InstanceBuffer;
+RWStructuredBuffer<uint> _ArgsBuffer;
+RWStructuredBuffer<int> _CounterBuffer;
+
+float4 _FrustumPlanes[6];
+float3 _CameraPosition;
+float _CullDistance;
+int _InstanceCount;
+
+// 检查点是否在视锥内
+bool IsInFrustum(float3 worldPos)
+{
+    for (int i = 0; i < 6; i++)
+    {
+        float4 plane = _FrustumPlanes[i];
+        float distance = dot(plane.xyz, worldPos) + plane.w;
+        if (distance < -1.0)
+            return false;
+    }
+    return true;
+}
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    
+    if (idx == 0)
+    {
+        // 重置计数器
+        _CounterBuffer[0] = 0;
+        
+        // 重置绘制参数
+        uint numIndices = _ArgsBuffer[0];
+        _ArgsBuffer[1] = 0; // 实例数设为0
+    }
+    
+    // 等待所有线程完成重置
+    GroupMemoryBarrierWithGroupSync();
+    
+    if (idx >= _InstanceCount)
+        return;
+    
+    InstanceData data = _InstanceBuffer[idx];
+    
+    // 距离剔除
+    float dist = length(data.position - _CameraPosition);
+    if (dist > _CullDistance)
+    {
+        data.isVisible = 0;
+        _InstanceBuffer[idx] = data;
+        return;
+    }
+    
+    // 视锥剔除
+    bool visible = IsInFrustum(data.position);
+    
+    if (visible)
+    {
+        data.isVisible = 1;
+        _InstanceBuffer[idx] = data;
+        
+        // 增加可见实例计数
+        int count;
+        InterlockedAdd(_CounterBuffer[0], 1, count);
+        
+        // 更新绘制参数中的实例数
+        // 注意：这里需要原子操作更新_ArgsBuffer[1]
+        // 但为了简单，我们可以在C#中处理
+    }
+    else
+    {
+        data.isVisible = 0;
+        _InstanceBuffer[idx] = data;
+    }
+}

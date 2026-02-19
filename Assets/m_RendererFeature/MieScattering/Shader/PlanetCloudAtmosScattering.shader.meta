@@ -1,0 +1,17 @@
+fileFormatVersion: 2
+guid: f607150280242124eb735e2a8278056f
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures:
+  - _MainTex: {instanceID: 0}
+  - _BlueNTex: {fileID: 2800000, guid: 64396246f4e9d62478fef86585d90026, type: 3}
+  - _Cloud2Tex: {instanceID: 0}
+  - _PlanetAlbedo: {instanceID: 0}
+  - _PlanetAlbedoNight: {instanceID: 0}
+  - _planetOcean: {instanceID: 0}
+  - _CloudVoulumeTex: {fileID: 11700000, guid: d20f73c7253d46147af78adc9e63ab0f, type: 2}
+  - _VFX01: {instanceID: 0}
+  nonModifiableTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

@@ -1,0 +1,166 @@
+#pragma kernel ShallowWaterKernel
+//#pragma kernel BoundaryKernel
+
+// 模拟参数
+float gravity;       // 重力加速度
+float dt;            // 时间步长
+float dx;            // 网格尺寸
+float texSize;       // 纹理大小
+float friction;      // 底床摩擦系数
+
+// 浅水方程的三个守恒量
+RWTexture2D<float> HeightRead;    // 水深 h
+RWTexture2D<float> HeightWrite;   // 水深 h
+RWTexture2D<float2> MomentumRead; // 动量 (hu, hv)
+RWTexture2D<float2> MomentumWrite; // 动量 (hu, hv)
+Texture2D<float> BedHeight;       // 底床高度 b
+
+// 辅助缓冲区
+RWTexture2D<float2> Velocity;     // 速度 (u, v) = (hu/h, hv/h)
+RWTexture2D<float> WaterSurface; // 水面高度 η = h + b
+
+[numthreads(8, 8, 1)]
+void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    float2 uv = pos / texSize;
+    
+    // ============ 第1步：读取当前状态 ============
+    float h = HeightRead[pos];
+    float2 m = MomentumRead[pos];  // m.x = hu, m.y = hv
+    float b = BedHeight[pos];
+    
+    // 跳过干网格（无水区域）
+    if (h < 0.001)
+    {
+        HeightWrite[pos] = 0;
+        MomentumWrite[pos] = float2(0, 0);
+        return;
+    }
+    
+    // 计算速度
+    float2 vel = m / h;  // u = hu/h, v = hv/h
+    
+    // ============ 第2步：读取邻居值 ============
+    // 四邻域
+    float h_left = HeightRead[pos - uint2(1, 0)];
+    float h_right = HeightRead[pos + uint2(1, 0)];
+    float h_up = HeightRead[pos - uint2(0, 1)];
+    float h_down = HeightRead[pos + uint2(0, 1)];
+    
+    float2 m_left = MomentumRead[pos - uint2(1, 0)];
+    float2 m_right = MomentumRead[pos + uint2(1, 0)];
+    float2 m_up = MomentumRead[pos - uint2(0, 1)];
+    float2 m_down = MomentumRead[pos + uint2(0, 1)];
+    
+    float b_left = BedHeight[pos - uint2(1, 0)];
+    float b_right = BedHeight[pos + uint2(1, 0)];
+    float b_up = BedHeight[pos - uint2(0, 1)];
+    float b_down = BedHeight[pos + uint2(0, 1)];
+    
+    // 水面高度
+    float eta = h + b;
+    float eta_left = h_left + b_left;
+    float eta_right = h_right + b_right;
+    float eta_up = h_up + b_up;
+    float eta_down = h_down + b_down;
+    
+    // ============ 第3步：连续性方程 ============
+    // ∂h/∂t = -∂(hu)/∂x - ∂(hv)/∂y
+    
+    // 中心差分
+    float d_hu_dx = (m_right.x - m_left.x) / (2.0 * dx);
+    float d_hv_dy = (m_down.y - m_up.y) / (2.0 * dx);
+    
+    // 更新水深
+    float h_new = h - dt * (d_hu_dx + d_hv_dy);
+    
+    // ============ 第4步：x方向动量方程 ============
+    // ∂(hu)/∂t = -∂(hu² + gh²/2)/∂x - ∂(huv)/∂y - gh∂b/∂x
+    
+    // 1. 对流项：-∂(hu²)/∂x - ∂(huv)/∂y
+    // hu² = (hu) * u
+    float hu2_left = m_left.x * (m_left.x / h_left);
+    float hu2_right = m_right.x * (m_right.x / h_right);
+    float d_hu2_dx = (hu2_right - hu2_left) / (2.0 * dx);
+    
+    // huv = (hu) * v
+    float huv_up = m_up.x * (m_up.y / h_up);
+    float huv_down = m_down.x * (m_down.y / h_down);
+    float d_huv_dy = (huv_down - huv_up) / (2.0 * dx);
+    
+    // 2. 压力项：-∂(gh²/2)/∂x
+    // 这里用水面高度更稳定
+    float pressure_term_x = -gravity * h * (eta_right - eta_left) / (2.0 * dx);
+    
+    // 3. 底部摩擦：-C_f * u * |u| / h
+    float friction_x = -friction * vel.x * length(vel) / h;
+    
+    // 更新x方向动量
+    float hu_new = m.x - dt * (d_hu2_dx + d_huv_dy + pressure_term_x + friction_x);
+    
+    // ============ 第5步：y方向动量方程 ============
+    // 类似x方向
+    float hv2_up = m_up.y * (m_up.y / h_up);
+    float hv2_down = m_down.y * (m_down.y / h_down);
+    float d_hv2_dy = (hv2_down - hv2_up) / (2.0 * dx);
+    
+    float hvu_left = m_left.y * (m_left.x / h_left);
+    float hvu_right = m_right.y * (m_right.x / h_right);
+    float d_hvu_dx = (hvu_right - hvu_left) / (2.0 * dx);
+    
+    float pressure_term_y = -gravity * h * (eta_down - eta_up) / (2.0 * dx);
+    float friction_y = -friction * vel.y * length(vel) / h;
+    
+    float hv_new = m.y - dt * (d_hv2_dy + d_hvu_dx + pressure_term_y + friction_y);
+    
+    // ============ 第6步：写入结果 ============
+    // 防止负数水深
+    h_new = max(h_new, 0.0);
+    
+    // 如果水深接近0，动量为0
+    if (h_new < 0.001)
+    {
+        hu_new = 0;
+        hv_new = 0;
+    }
+    
+    HeightWrite[pos] = h_new;
+    MomentumWrite[pos] = float2(hu_new, hv_new);
+    
+    // 可选：计算速度用于可视化
+    float2 vel_new = float2(0, 0);
+    if (h_new > 0.001)
+    {
+        vel_new = float2(hu_new, hv_new) / h_new;
+    }
+    Velocity[pos] = vel_new;
+    WaterSurface[pos] = h_new + b;
+}
+// 假设场景：一个小山丘上的水
+/*
+  初始状态：
+  底床 b:  ━━━━━━━━━━━━━━━━━━━━━━━
+           低     高     低
+            小山丘形状
+          
+  水深 h:  ━━━━━━━━━━━━━━━━━━━━━━━
+           均匀水深，比如0.5米
+          
+  速度 u,v: 全为0
+*/
+
+// 模拟开始后：
+/*
+  1. 重力作用：水会从高处流向低处
+     - 山丘顶部：压力大 → 水被"推"向两侧
+     - 山丘两侧：水聚集 → 水深增加
+     
+  2. 惯性作用：水会继续流动
+     - 流过山丘后，由于惯性会继续向前
+     - 在另一侧形成"水跃"
+     
+  3. 摩擦作用：逐渐停止
+     - 底部摩擦消耗动能
+     - 最终水面会变平
+*/

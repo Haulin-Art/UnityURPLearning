@@ -1,0 +1,197 @@
+#pragma kernel AdvectionKernel
+#pragma kernel PressureKernel
+#pragma kernel ProjectionKernel
+#pragma kernel DyeKernel;
+
+#include "UnityCG.cginc"
+
+float texSize; // 纹理大小
+float dt; // 时间步长
+float4 penPos; // 当前位置 与 上一帧位置，xy是当前位置，zw是上一帧位置
+float3 Force;; // 力的向量 与 力的大小
+float radius; // 画笔半径
+bool keyDown; // 是否按下
+float advectSpeed; // 平流速度
+float2 attenuation; // 速度衰减与染料衰减
+
+// 纹理采样器（关键：线性插值）
+
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+//SamplerState samplerLinearClamp;
+
+
+RWTexture2D<float2> VelocityRead;
+RWTexture2D<float2> VelocityWrite;
+RWTexture2D<float> PressureRead;
+RWTexture2D<float> PressureWrite;
+RWTexture2D<float3> DyeRead;
+RWTexture2D<float3> DyeWrite;
+// 只读纹理，只有只读纹理才能使用采样器
+Texture2D<float2> VelocityTex;
+Texture2D<float> PressureTex;
+Texture2D<float3> DyeTex;
+
+
+/*
+struct MouseData
+{
+    float4 mouse;   // xy:鼠标位置, z:是否按下, w:最大笔半径
+    float4 pen;     // xy:上一帧鼠标位置, z:上一帧是否按下, w:笔压
+};
+StructuredBuffer<MouseData> mouseData;
+*/
+
+// 这个函数是用于鼠标移动过快时，鼠标的轨迹会被离散成几个点，用这个函数可以将他们连起来
+float drawLine(float2 uv, float2 endP, float2 startP, float width, float edgeSmooth)
+{
+    float2 dir = endP - startP;
+    float2 startUV = uv - startP;
+    float proj = clamp(dot(dir, startUV) / dot(dir, dir), 0.0, 1.0);
+    float2 projP = startP + proj * dir;
+    float distProjP = length(uv - projP);
+    float linee = smoothstep(width * 0.5, width * edgeSmooth, distProjP);
+    return linee;
+}
+
+[numthreads(8, 8, 1)]
+void AdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    // hlsl的SampleLevel函数默认uv坐标对应的是像素中心
+    // 而 SV_DispatchThreadID 是从整数0开始，所以假设纹理大小是512，uv坐标就是 0.5~511.5 
+    float2 uv = ((float2)id.xy + 0.5)/texSize; 
+    
+    // 1. 读取历史缓冲的像素颜色
+    //float2 old_color = VelocityRead[pixel_pos];
+    float2 old_color = VelocityTex.SampleLevel(samplerLinearClamp,uv,0).xy;
+    
+    // 平流 + 扩散，平滑采样上一步速度
+    float2 adUV = uv - advectSpeed * old_color * dt ;
+    adUV = clamp(adUV,0.0,1.0);
+    
+
+    float2 w = float2(1.0/texSize,0.0);
+    float2 adData= VelocityTex.SampleLevel(samplerLinearClamp,adUV,0).xy;
+    float2 adr = VelocityTex.SampleLevel(samplerLinearClamp,adUV+w.xy,0).xy;
+    float2 adl = VelocityTex.SampleLevel(samplerLinearClamp,adUV-w.xy,0).xy;
+    float2 add = VelocityTex.SampleLevel(samplerLinearClamp,adUV+w.yx,0).xy;
+    float2 adu = VelocityTex.SampleLevel(samplerLinearClamp,adUV-w.yx,0).xy;
+
+    //float bianjie = smoothstep(0.98,0.94,2.0*abs(uv.x-0.5)) * smoothstep(0.98,0.94,2.0*abs(uv.y-0.5));
+    float2 velocity = adData.xy ;
+    float2 kuosan = (adData + adr + adl + adu + add) * 0.2;
+    velocity = 0.9 * adData.xy + 0.1 * kuosan.xy;
+    
+    // 外力项
+    float2 ff = keyDown * Force.xy * drawLine(uv,penPos.xy,penPos.zw,radius,0.1);
+    velocity += ff * dt * Force.z;
+    //velocity -= float2(0.005,0.005)*dt;
+    // 速度限制
+    velocity = clamp(velocity, -5.0, 5.0);
+    
+    // 速度衰减
+    velocity = lerp(velocity, 0.0, attenuation.x);
+    
+    // 写入新缓冲
+    VelocityWrite[pixel_pos] = velocity;
+}
+
+float ComputeDivergence(uint2 pos)
+{
+    float2 u_right = VelocityTex[pos + int2(1, 0)];
+    float2 u_left = VelocityTex[pos - int2(1, 0)];
+    float2 u_up = VelocityTex[pos - int2(0, 1)];
+    float2 u_down = VelocityTex[pos + int2(0, 1)];
+
+    float dudx = (u_right.x - u_left.x) * 0.5;
+    float dvdy = (u_down.y - u_up.y) * 0.5;
+    
+    return dudx + dvdy;
+}
+
+[numthreads(8, 8, 1)]
+void PressureKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    // GetDimensions 可以获取纹理或缓冲器的维度信息，即在这里是像素大小
+    uint2 utexSize;
+    VelocityTex.GetDimensions(utexSize.x, utexSize.y);
+    
+    // 边界处理
+    if (pixel_pos.x <= 1 || pixel_pos.x >= utexSize.x - 2 || 
+        pixel_pos.y <= 1 || pixel_pos.y >= utexSize.y - 2)
+    {
+        PressureWrite[pixel_pos] = 0.0;
+        return;
+    }
+    
+    // 雅可比迭代核心公式
+    float p_left = PressureRead[pixel_pos - uint2(1, 0)].x;
+    float p_right = PressureRead[pixel_pos + uint2(1, 0)].x;
+    float p_up = PressureRead[pixel_pos - uint2(0, 1)].x;
+    float p_down = PressureRead[pixel_pos + uint2(0, 1)].x;
+
+    float div_u = ComputeDivergence(pixel_pos);
+    float p_new = (p_left + p_right + p_up + p_down - div_u) * 0.25;
+    
+    PressureWrite[pixel_pos] = p_new;
+}
+
+[numthreads(8, 8, 1)]
+void ProjectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    uint2 utexSize;
+    VelocityRead.GetDimensions(utexSize.x, utexSize.y);
+    
+    // 边缘像素直接保留原速度
+    if (pixel_pos.x <= 1 || pixel_pos.x >= utexSize.x - 2 || 
+        pixel_pos.y <= 1 || pixel_pos.y >= utexSize.y - 2)
+    {
+        float2 old_vel = VelocityRead[pixel_pos];
+        VelocityWrite[pixel_pos] = old_vel;
+        //VelocityWrite[pixel_pos] = float2(0.0,0.0);
+        return;
+    }
+    
+    // 计算压力梯度 ∇p
+    float p_right = PressureTex[pixel_pos + uint2(1, 0)];
+    float p_left = PressureTex[pixel_pos - uint2(1, 0)];
+    float p_up = PressureTex[pixel_pos - uint2(0, 1)];
+    float p_down = PressureTex[pixel_pos + uint2(0, 1)];
+
+
+    float dpdx = (p_right - p_left) * 0.5;
+    float dpdy = (p_down - p_up) * 0.5;
+    
+    // 投影修正：v_new = v_old - ∇p
+    float2 old_vel = VelocityRead[pixel_pos].xy;
+    float2 new_vel = old_vel - float2(dpdx, dpdy);
+    
+
+    VelocityWrite[pixel_pos] = new_vel;
+}
+[numthreads(8,8,1)]
+void DyeKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5)/texSize;    
+    // 1. 读取速度
+    //float2 old_vel = VelocityTex[pixel_pos];
+    float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp,uv,0).xy;
+    // 2. 设置新的UV
+    float2 adUV = uv - advectSpeed * old_vel * dt ;
+    adUV = clamp(adUV,0.0,1.0);
+    // 3. 通过新UV采样之前的染料场
+    float3 newCol = DyeTex.SampleLevel(samplerLinearClamp,adUV,0);
+    // 4. 根据当前的位置添加新的染料
+    float3 addCol = float3(uv,1)*drawLine(uv,penPos.xy,penPos.zw,radius,0.1);
+
+    // 4. 写入新的染料场
+    DyeWrite[pixel_pos] = newCol*(1.0-attenuation.y) + addCol * keyDown;
+}

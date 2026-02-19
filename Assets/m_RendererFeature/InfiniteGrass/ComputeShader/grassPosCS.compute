@@ -1,0 +1,151 @@
+#pragma kernel CSMain
+
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// ===================== 从C#脚本传入的变量 =====================
+float _spacing;                 // 草地采样间距
+float _drawDistance;            // 草地绘制距离
+float _textureUpdateThreshold;  // 纹理更新阈值
+//float _fullDetailDistance;      // 细节全开的距离
+int2 _gridStartIndex;           // 采样网格起始索引
+int2 _gridSize;                 // 采样网格尺寸
+float3 _camPosition;            // 主摄像机位置
+float2 _centerPos;              // 纹理渲染的中心点
+float3 _boundsMin;              // 采样区域包围盒最小点
+float3 _boundsMax;              // 采样区域包围盒最大点
+float4x4 _VPMatrix;             // 主摄像机的视图投影矩阵
+
+// 采样器状态：线性过滤 + 纹理坐标钳位（0~1 范围，避免采样到纹理外）
+SamplerState linearClampSampler;
+
+// 从 URP RendererFeature 传递的纹理（GPU 端纹理资源）
+Texture2D<float2> _grassHeightTex;  // 草地高度纹理（R 通道存储高度信息,G 通道存储草生长区域标记）
+//Texture2D<float> _CameraDepthTexture;
+
+// GPU 端缓冲区
+// AppendStructuredBuffer：GPU 端追加缓冲区，支持动态添加数据，带计数器（记录元素数量）
+// 存储类型：float3（草的世界位置 X/Y/Z）
+AppendStructuredBuffer<float3> _GrassPositions;
+
+// ====================================== 辅助函数：哈希函数（生成伪随机数） ======================================
+// MurmurHash3 哈希算法（简化版）：将整数输入转换为无符号整数哈希值，用于生成均匀的伪随机数
+uint murmurHash3(int input) {
+    uint h = abs(input);          // 取输入的绝对值（避免负数）
+    h ^= h >> 16;                 // 右移16位后异或，打乱高位
+    h *= 0x85ebca6b;              // 乘以大质数，增加随机性
+    h ^= h >> 13;                 // 右移13位后异或
+    h *= 0xc2b2ae3d;              // 乘以另一个大质数
+    h ^= h >> 16;                 // 最终异或，得到最终哈希值
+    return h;
+}
+// ====================================== 辅助函数：生成0~1的伪随机数 ======================================
+// 输入：索引值（网格的X/Z索引），输出：0~1的浮点数随机数
+float random(int index)
+{
+    // 将哈希值除以 uint 的最大值（4294967295=2^32-1），得到0~1的浮点数
+    return murmurHash3(index) / 4294967295.0;
+}
+// ====================================== 辅助函数：数值重映射 ======================================
+// 将输入值从 [InMinMax.x, InMinMax.y] 映射到 [OutMinMax.x, OutMinMax.y]
+float Remap(float In, float2 InMinMax, float2 OutMinMax)
+{
+    return OutMinMax.x + (In - InMinMax.x) * (OutMinMax.y - OutMinMax.x) / (InMinMax.y - InMinMax.x);
+}
+
+// [numthreads(8, 8, 1)]：定义线程组的大小（X=8，Y=8，Z=1）
+// 每个线程组包含 8*8*1=64 个线程，GPU 会按线程组调度（需与 C# 端的 Dispatch 线程组数匹配）
+// SV_DispatchThreadID：当前线程的全局ID（唯一标识，对应网格中的位置）
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // 1. 计算当前线程对应的草地网格索引（全局索引 = 网格起始索引 + 线程ID的XY分量）
+    int2 currentIndex = _gridStartIndex + id.xy;
+    // 2. 计算草的初始XZ世界位置（网格索引 * 草间距 = 基础位置）
+    float2 positionXZ = currentIndex * _spacing;
+    // 3. 添加随机偏移（避免草排列过于整齐，增加自然感）
+    // 生成两个随机数（基于网格索引，保证同一位置的随机数固定）
+    float2 randomOffset = float2(
+        random(currentIndex.x * 5542 + currentIndex.y),  // X偏移随机数（5542是随机质数，打乱索引）
+        random(currentIndex.y * 9824 + currentIndex.x)   // Y偏移随机数（9824是随机质数）
+    );
+    // 将随机数从0~1映射到-~Spacing~+Spacing，叠加到初始位置
+    positionXZ += (randomOffset * 2 - 1) * _spacing;
+
+    // 4. 计算高度图/掩码图的采样UV坐标（归一化到0~1范围）
+    // 步骤：(世界位置 - 纹理中心位置) / 纹理范围（绘制距离+更新阈值）→ 映射到-1~1 → 再映射到0~1
+    float2 uv = (positionXZ - _centerPos) / (_textureUpdateThreshold + _drawDistance); 
+    uv = uv * 0.5 + 0.5;  // 从[-1,1]映射到[0,1]
+
+    // 5. 采样高度图纹理（SampleLevel：指定mipmap层级为0，即最高分辨率）
+    // heightMap.r：高度值（0~1），heightMap.g：草生成区域标记（1=允许，0=禁止）
+    float2 heightMap = _grassHeightTex.SampleLevel(linearClampSampler, uv, 0).rg;
+    // 处理，让最外层一圈为纯黑色
+    float mask = (1.0-step(0.99,2.0*abs(uv.y-0.5)));//*(1.0-step(0.1,2.0*abs(uv.y-0.5)));
+    mask *= (1.0-step(0.99,2.0*abs(uv.x-0.5)));
+    heightMap *= mask;
+
+    // 6.0 遮罩密度信息，后续可以添加，这里只是设定为 0
+    //float maskValue = 0.0;
+
+    // 7. 掩码密度筛选：根据掩码值和随机数判断是否生成草（实现密度控制）
+    // 逻辑说明：
+    // - maskValue=0 → 随机数≥0 → 始终生成草（全密度）
+    // - maskValue=1 → 随机数≥1 → 永不生成草（无草）
+    // - maskValue=0.5 → 50%概率生成草（半密度）
+    // saturate：将值限制在0~1；-0.001是避免随机数刚好等于1的极端情况
+    //bool inMask = saturate(random(currentIndex.x * 9421 + currentIndex.y) - 0.001) >= maskValue;
+
+    // 8. 高度图区域筛选：只有高度图G通道为1（允许生成）且掩码筛选通过，才继续处理
+    if (step(0.001,heightMap.r) == 1)
+    {
+        // 9. 重构草的世界Y坐标（将高度图的0~1值映射到相机包围盒的Y轴范围）
+        float positionY = Remap(heightMap.r, float2(0, 1), float2(_boundsMin.y, _boundsMax.y));
+
+        // 10. 组合草的完整世界位置（X=positionXZ.x，Y=positionY，Z=positionXZ.y）
+        float3 positionWS = float3(positionXZ.x, positionY, positionXZ.y); 
+        float distanceFromCamera = length(_camPosition - positionWS);
+        // 11. 距离密度筛选：根据与相机的距离降低草的密度（性能优化）
+        // 这个之后添加，适用于根据相机距离随机剔除一些草，离得越远剔除概率越大，以达到优化性能
+        float disMaskValue = smoothstep(0.0*_drawDistance,_drawDistance,distanceFromCamera);
+        //disMaskValue *= disMaskValue*disMaskValue;
+        bool inDisLevel = saturate(random(currentIndex.x * 9421 + currentIndex.y) - 0.001) >= disMaskValue;
+
+        // 12. 密度级别筛选通过，继续视锥体裁剪
+        if (inDisLevel )
+        {
+            // 13. 视锥体裁剪（简化版，来自Colin Leung的优化方案）
+            // 原理：将世界位置转换为裁剪空间坐标（w分量是齐次坐标），通过判断坐标范围实现裁剪
+            float4 clipPos = mul(_VPMatrix, float4(positionWS, 1.0)); // 世界空间→裁剪空间
+            float4 absPosCS = abs(clipPos); // 取绝对值，简化裁剪判断
+
+            // 设置遮挡剔除参数
+            /*
+            float2 screenUV = (clipPos.xy / clipPos.w)*0.5+0.5;
+            float posDepth = clipPos.z / clipPos.w ;
+            posDepth = length(positionWS-_camPosition);
+            float depthMap = _CameraDepthTexture.SampleLevel(linearClampSampler,screenUV,0);
+            depthMap = Linear01Depth(depthMap,_ZBufferParams);
+            */
+            // 裁剪条件（宽松裁剪，避免边缘草被过度裁剪）：
+            // - z ≤ w：在相机近裁剪面之后
+            // - y ≤ w*1.5：Y轴范围放宽1.5倍
+            // - x ≤ w*1.1：X轴范围放宽1.1倍
+            // - w ≤ _DrawDistance：在绘制距离内
+            //if (absPosCS.z <= absPosCS.w && absPosCS.y <= absPosCS.w * 1.5 && absPosCS.x <= absPosCS.w * 1.1 && absPosCS.w <= _drawDistance)；
+            if (absPosCS.z <= absPosCS.w *1.2 && // 这个不知道，好像改了效果不明显
+                absPosCS.y <= absPosCS.w  * 1.5&& // 纵深近处剔除
+                absPosCS.x <= absPosCS.w  * 1.1 // 视线角度 
+                
+                //&& posDepth <= depthMap - 0.001 // 遮挡剔除
+                )
+                
+            {
+
+                // 14. 所有筛选通过，将草位置追加到缓冲区
+                _GrassPositions.Append(positionWS);
+            }
+        }
+
+    }
+}

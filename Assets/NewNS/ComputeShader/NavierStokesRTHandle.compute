@@ -1,0 +1,305 @@
+#pragma kernel Clear
+#pragma kernel AdvectVelocity
+#pragma kernel AdvectDye
+#pragma kernel AddForce
+#pragma kernel AddDye
+#pragma kernel ComputeDivergence
+#pragma kernel ComputePressure
+#pragma kernel ApplyPressure
+#pragma kernel ApplyDamping
+#pragma kernel Diffusion
+
+// 速度场：2通道 (x, y)
+RWTexture2D<float2> Velocity;
+RWTexture2D<float2> VelocityPrev;
+
+// 染料场：4通道 (R, G, B, A) - 用于显示颜色
+RWTexture2D<float4> Dye;
+RWTexture2D<float4> DyePrev;
+
+// 散度场和压力场：单通道
+RWTexture2D<float> Divergence;
+RWTexture2D<float> Pressure;
+RWTexture2D<float> PressurePrev;
+
+// 参数
+float DeltaTime;
+float Viscosity;
+float Damping;
+float DyeDiffusion;
+int Resolution;
+
+// 水源参数
+float2 SourcePosition;
+float2 SourceVelocity;
+float SourceIntensity;
+float SourceRadius;
+
+// 染料源参数
+float4 DyeColor;
+float2 DyePosition;
+float DyeIntensity;
+float DyeRadius;
+
+[numthreads(8,8,1)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    Velocity[coord] = float2(0, 0);
+    VelocityPrev[coord] = float2(0, 0);
+    Dye[coord] = float4(0, 0, 0, 1);
+    DyePrev[coord] = float4(0, 0, 0, 1);
+    Divergence[coord] = 0;
+    Pressure[coord] = 0;
+    PressurePrev[coord] = 0;
+}
+
+// 平流速度场
+[numthreads(8,8,1)]
+void AdvectVelocity(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x >= Resolution || coord.y >= Resolution)
+        return;
+    
+    float2 uv = (float2)coord / Resolution;
+    
+    // 采样当前速度
+    float2 vel = VelocityPrev[coord];
+    
+    // 半拉格朗日平流（Semi-Lagrangian advection）
+    // 通过速度场反向追踪，找到上一帧对应的位置
+    float2 prevUV = uv - vel * DeltaTime;
+    prevUV = clamp(prevUV, 0, 1);
+    
+    uint2 prevCoord = uint2(prevUV * Resolution);
+    prevCoord = clamp(prevCoord, uint2(0, 0), uint2(Resolution - 1, Resolution - 1));
+    
+    // 采样上一帧的速度
+    float2 prevVel = VelocityPrev[prevCoord];
+    
+    // 写入并应用粘度
+    Velocity[coord] = lerp(prevVel, vel, Viscosity);
+}
+
+// 平流染料场 - 关键！这才是真正的流体可视化
+[numthreads(8,8,1)]
+void AdvectDye(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x >= Resolution || coord.y >= Resolution)
+        return;
+    
+    float2 uv = (float2)coord / Resolution;
+    
+    // 采样当前速度（经过纳维斯托克斯方程计算后的速度）
+    float2 vel = Velocity[coord];
+    
+    // 半拉格朗日平流：染料随着速度场运动
+    float2 prevUV = uv - vel * DeltaTime;
+    prevUV = clamp(prevUV, 0, 1);
+    
+    uint2 prevCoord = uint2(prevUV * Resolution);
+    prevCoord = clamp(prevCoord, uint2(0, 0), uint2(Resolution - 1, Resolution - 1));
+    
+    // 采样上一帧的染料
+    float4 prevDye = DyePrev[prevCoord];
+    
+    // 当前染料的衰减
+    float4 currentDye = DyePrev[coord];
+    currentDye.rgb *= 0.999; // 轻微衰减，防止无限积累
+    
+    // 混合新旧染料（模拟染料的保持和扩散）
+    Dye[coord] = lerp(currentDye, prevDye, 0.95);
+}
+
+// 添加力（水源）
+[numthreads(8,8,1)]
+void AddForce(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x >= Resolution || coord.y >= Resolution)
+        return;
+    
+    float2 uv = (float2)coord / Resolution;
+    
+    // 获取当前速度
+    float2 vel = VelocityPrev[coord];
+    
+    // 添加水源力
+    float2 toSource = SourcePosition - uv;
+    float distToSource = length(toSource);
+    
+    if (distToSource < SourceRadius)
+    {
+        float falloff = 1.0 - smoothstep(0, SourceRadius, distToSource);
+        vel += SourceVelocity * SourceIntensity * falloff * DeltaTime;
+    }
+
+    float suanjian = smoothstep(0.99,0.9,2.0*abs(uv.x-0.5))*smoothstep(0.99,0.9,2.0*abs(uv.y-0.5));
+
+    Velocity[coord] = vel*suanjian;
+}
+
+// 添加染料源
+[numthreads(8,8,1)]
+void AddDye(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x >= Resolution || coord.y >= Resolution)
+        return;
+    
+    float2 uv = (float2)coord / Resolution;
+    
+    // 获取当前染料
+    float4 dye = DyePrev[coord];
+    
+    // 添加染料源
+    float2 toDyeSource = DyePosition - uv;
+    float distToDyeSource = length(toDyeSource);
+    
+    if (distToDyeSource < DyeRadius)
+    {
+        float falloff = 1.0 - smoothstep(0, DyeRadius, distToDyeSource);
+        float4 newDye = DyeColor * DyeIntensity * falloff;
+        
+        // 混合新染料（加性混合）
+        dye.rgb += newDye.rgb;
+        dye.rgb = clamp(dye.rgb, 0, 1);
+    }
+    
+    Dye[coord] = dye;
+}
+
+// 计算散度
+[numthreads(8,8,1)]
+void ComputeDivergence(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x <= 0 || coord.x >= Resolution - 1 || 
+        coord.y <= 0 || coord.y >= Resolution - 1)
+    {
+        Divergence[coord] = 0;
+        return;
+    }
+    
+    // 获取相邻速度
+    float2 velRight = Velocity[uint2(coord.x + 1, coord.y)];
+    float2 velLeft = Velocity[uint2(coord.x - 1, coord.y)];
+    float2 velUp = Velocity[uint2(coord.x, coord.y + 1)];
+    float2 velDown = Velocity[uint2(coord.x, coord.y - 1)];
+    
+    // 计算散度
+    float divergence = 0.5 * ((velRight.x - velLeft.x) + (velUp.y - velDown.y));
+    
+    Divergence[coord] = divergence;
+    Pressure[coord] = 0;
+}
+
+// 计算压力
+[numthreads(8,8,1)]
+void ComputePressure(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x == 0 || coord.x == Resolution - 1 || 
+        coord.y == 0 || coord.y == Resolution - 1)
+    {
+        Pressure[coord] = 0;
+        return;
+    }
+    
+    // 获取相邻压力
+    float pRight = PressurePrev[uint2(coord.x + 1, coord.y)];
+    float pLeft = PressurePrev[uint2(coord.x - 1, coord.y)];
+    float pUp = PressurePrev[uint2(coord.x, coord.y + 1)];
+    float pDown = PressurePrev[uint2(coord.x, coord.y - 1)];
+    
+    // 获取散度
+    float divergence = Divergence[coord];
+    
+    // 雅可比迭代求解泊松方程
+    float newPressure = (pLeft + pRight + pUp + pDown - divergence) * 0.25;
+    
+    Pressure[coord] = newPressure;
+}
+
+// 应用压力
+[numthreads(8,8,1)]
+void ApplyPressure(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x <= 0 || coord.x >= Resolution - 1 || 
+        coord.y <= 0 || coord.y >= Resolution - 1)
+    {
+        Velocity[coord] = float2(0, 0);
+        return;
+    }
+    
+    // 获取当前速度
+    float2 vel = VelocityPrev[coord];
+    
+    // 获取压力梯度
+    float pRight = Pressure[uint2(coord.x + 1, coord.y)];
+    float pLeft = Pressure[uint2(coord.x - 1, coord.y)];
+    float pUp = Pressure[uint2(coord.x, coord.y + 1)];
+    float pDown = Pressure[uint2(coord.x, coord.y - 1)];
+    
+    // 减去压力梯度（确保速度场无散）
+    vel.x -= 0.5 * (pRight - pLeft);
+    vel.y -= 0.5 * (pUp - pDown);
+    
+    Velocity[coord] = vel;
+}
+
+// 应用阻尼
+[numthreads(8,8,1)]
+void ApplyDamping(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x >= Resolution || coord.y >= Resolution)
+        return;
+        
+    float2 vel = Velocity[coord];
+    
+    // 应用阻尼
+    vel *= (1.0 - Damping);
+    
+    Velocity[coord] = vel;
+}
+
+// 染料扩散（模拟染料的分子扩散）
+[numthreads(8,8,1)]
+void Diffusion(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    
+    if (coord.x <= 0 || coord.x >= Resolution - 1 || 
+        coord.y <= 0 || coord.y >= Resolution - 1)
+    {
+        Dye[coord] = DyePrev[coord];
+        return;
+    }
+    
+    float4 dye = DyePrev[coord];
+    
+    // 获取相邻染料值
+    float4 dyeRight = DyePrev[uint2(coord.x + 1, coord.y)];
+    float4 dyeLeft = DyePrev[uint2(coord.x - 1, coord.y)];
+    float4 dyeUp = DyePrev[uint2(coord.x, coord.y + 1)];
+    float4 dyeDown = DyePrev[uint2(coord.x, coord.y - 1)];
+    
+    // 扩散计算（拉普拉斯算子）
+    float4 laplacian = (dyeRight + dyeLeft + dyeUp + dyeDown - 4.0 * dye);
+    
+    // 应用扩散
+    Dye[coord] = dye + DyeDiffusion * laplacian;
+}

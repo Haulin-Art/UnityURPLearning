@@ -1,0 +1,111 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Mi_AtmosScattering
+  m_Shader: {fileID: 4800000, guid: 5b648c11c08073e48aaf3d4ac43c66fa, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: _BlueNTex
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _AtmosBake:
+        m_Texture: {fileID: 2800000, guid: c24d378782c1d8b4f9a8e3a7d5dc8281, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _AtmosLUT:
+        m_Texture: {fileID: 2800000, guid: 0601a7b42acdba342bda1612dfbc71b6, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _AtmosUV:
+        m_Texture: {fileID: 2800000, guid: d567c50a74a9ac34ab6686b6e9bc4144, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _BlueNTex:
+        m_Texture: {fileID: 2800000, guid: 64396246f4e9d62478fef86585d90026, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _BlueNoise:
+        m_Texture: {fileID: 2800000, guid: 6968970b52bd3ee468dc5bce62c13f1a, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _CameraDepthTexture:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Cloud2Tex:
+        m_Texture: {fileID: 2800000, guid: f794ff64dfac47b448e25ba05a54bffe, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _CloudSDF:
+        m_Texture: {fileID: 2800000, guid: 0fa969282cadf89499561899d06d5c5a, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _CloudSDFVolume:
+        m_Texture: {fileID: 11700000, guid: 080af65c921b38248950e3225a50e262, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _CloudVoulumeTex:
+        m_Texture: {fileID: 11700000, guid: d20f73c7253d46147af78adc9e63ab0f, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _PlanetAlbedo:
+        m_Texture: {fileID: 2800000, guid: 7c2a296c286e5d34184deff686756ae8, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _PlanetAlbedoNight:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _SDFVolume:
+        m_Texture: {fileID: 11700000, guid: d20f73c7253d46147af78adc9e63ab0f, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _VFX01:
+        m_Texture: {fileID: 2800000, guid: 57ff40cb22f75564890e84031fe2441e, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _planetOcean:
+        m_Texture: {fileID: 2800000, guid: a0ce07227151c454d87247362c768a51, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _Altitude: 0
+    - _AtmosIntensity: 1.18
+    - _AtmosphereHeight: 0.5
+    - _Brightness: 10
+    - _MieExtinction: 0.00002
+    - _MieG: 0.639
+    - _MieScaleHeight: 0.033
+    - _MieScattering: 0.00002
+    - _NumSamples: 48
+    - _NumSamplesLight: 16
+    - _PlanetRadius: 10
+    - _RayleighScaleHeight: 0.03
+    - _Saturation: 3
+    - _TotalScale: 1
+    m_Colors:
+    - _PlanetCenter: {r: 0, g: 0, b: 0, a: 0}
+    - _RayleighScattering: {r: 0.000058, g: 0.000135, b: 0.00033, a: 0}
+    - _ScatterScale: {r: 10000, g: 10000, b: 1, a: 1}
+    - _SunColor: {r: 0.9025157, g: 0.9545073, b: 1, a: 1}
+  m_BuildTextureStacks: []

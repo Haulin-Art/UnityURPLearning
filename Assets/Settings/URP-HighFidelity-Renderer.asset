@@ -1,0 +1,185 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-7783706233956903524
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f186e895d6bc92c4582f2bdd4755eaac, type: 3}
+  m_Name: GrassRendererPass
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  settings:
+    renderLayer:
+      serializedVersion: 2
+      m_Bits: 8
+    textureSize: 256
+    customCam: {fileID: 0}
+    drawDistance: 100
+    textureUpdateThreshold: 1
+    spacing: 0.07
+    maxBufferCount: 7
+    depthMaterial: {fileID: 2100000, guid: d20aa97f7ae5eeb4692d6683cd9a5dab, type: 2}
+    showMat: {fileID: 2100000, guid: 3bbb4eccbc0a67d47a84b3a3dbf74ca8, type: 2}
+    computeShader: {fileID: 7200000, guid: 9b2227198b33b8749b0214995cda5c4d, type: 3}
+--- !u!114 &-6292269655307114990
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5fc10e76f76c1b347b90e749d12c0941, type: 3}
+  m_Name: MieScatteringFeature
+  m_EditorClassIdentifier: 
+  m_Active: 0
+  renderPassEvent: 600
+  featureMaterial: {fileID: 2100000, guid: c0be4d37c89af5f4f876513a67de283b, type: 2}
+--- !u!114 &-1341785516918380094
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 49deb0eb83ea70c409480f8ed856f332, type: 3}
+  m_Name: OutLine
+  m_EditorClassIdentifier: 
+  m_Active: 0
+  mat: {fileID: 2100000, guid: fc63600893fc2a748b50a0fe3c56555d, type: 2}
+  m_Tag: CES
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: de640fe3d0db1804a85f9fc8f5cadab6, type: 3}
+  m_Name: URP-HighFidelity-Renderer
+  m_EditorClassIdentifier: 
+  debugShaders:
+    debugReplacementPS: {fileID: 4800000, guid: cf852408f2e174538bcd9b7fda1c5ae7,
+      type: 3}
+    hdrDebugViewPS: {fileID: 4800000, guid: 573620ae32aec764abd4d728906d2587, type: 3}
+  m_RendererFeatures:
+  - {fileID: 1105617598985902463}
+  - {fileID: -1341785516918380094}
+  - {fileID: -6292269655307114990}
+  - {fileID: 6126066738960194231}
+  - {fileID: -7783706233956903524}
+  - {fileID: 5253342207327538554}
+  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed1226731c165eada8b7da0ee63d2904559c5501896bb8fa937a0d5377e79ee748
+  m_UseNativeRenderPass: 1
+  postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
+  xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
+  shaders:
+    blitPS: {fileID: 4800000, guid: c17132b1f77d20942aa75f8429c0f8bc, type: 3}
+    copyDepthPS: {fileID: 4800000, guid: d6dae50ee9e1bfa4db75f19f99355220, type: 3}
+    screenSpaceShadowPS: {fileID: 0}
+    samplingPS: {fileID: 4800000, guid: 04c410c9937594faa893a11dceb85f7e, type: 3}
+    stencilDeferredPS: {fileID: 4800000, guid: e9155b26e1bc55942a41e518703fe304, type: 3}
+    fallbackErrorPS: {fileID: 4800000, guid: e6e9a19c3678ded42a3bc431ebef7dbd, type: 3}
+    fallbackLoadingPS: {fileID: 4800000, guid: 7f888aff2ac86494babad1c2c5daeee2, type: 3}
+    materialErrorPS: {fileID: 4800000, guid: 5fd9a8feb75a4b5894c241777f519d4e, type: 3}
+    coreBlitPS: {fileID: 4800000, guid: 93446b5c5339d4f00b85c159e1159b7c, type: 3}
+    coreBlitColorAndDepthPS: {fileID: 4800000, guid: d104b2fc1ca6445babb8e90b0758136b,
+      type: 3}
+    blitHDROverlay: {fileID: 4800000, guid: a89bee29cffa951418fc1e2da94d1959, type: 3}
+    cameraMotionVector: {fileID: 4800000, guid: c56b7e0d4c7cb484e959caeeedae9bbf,
+      type: 3}
+    objectMotionVector: {fileID: 4800000, guid: 7b3ede40266cd49a395def176e1bc486,
+      type: 3}
+    dataDrivenLensFlare: {fileID: 4800000, guid: 6cda457ac28612740adb23da5d39ea92,
+      type: 3}
+    terrainDetailLitPS: {fileID: 4800000, guid: f6783ab646d374f94b199774402a5144,
+      type: 3}
+    terrainDetailGrassPS: {fileID: 4800000, guid: e507fdfead5ca47e8b9a768b51c291a1,
+      type: 3}
+    terrainDetailGrassBillboardPS: {fileID: 4800000, guid: 29868e73b638e48ca99a19ea58c48d90,
+      type: 3}
+  m_AssetVersion: 2
+  m_OpaqueLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_TransparentLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_DefaultStencilState:
+    overrideStencilState: 0
+    stencilReference: 0
+    stencilCompareFunction: 8
+    passOperation: 2
+    failOperation: 0
+    zFailOperation: 0
+  m_ShadowTransparentReceive: 1
+  m_RenderingMode: 0
+  m_DepthPrimingMode: 0
+  m_CopyDepthMode: 0
+  m_AccurateGbufferNormals: 0
+  m_IntermediateTextureMode: 1
+--- !u!114 &1105617598985902463
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 33e0f536fa7989647a905792cf9031fe, type: 3}
+  m_Name: PerObjectShadowRF
+  m_EditorClassIdentifier: 
+  m_Active: 0
+  layerMask:
+    serializedVersion: 2
+    m_Bits: 64
+  m_Tag: BG
+  SoftShadowMat: {fileID: 2100000, guid: cc6abd971ecd5e14b9aeb9555ebf9c16, type: 2}
+  BlurComputeShader: {fileID: 7200000, guid: 5f67dd338075a96469f161edef8aff26, type: 3}
+  ShadowFieldSize: 0.11
+  ShadowMapSize: 4096
+  UnsampleInt: 2
+  PoissonCount: 6
+  _initPCSS: 0.000362
+  _distancePCSS: 0.0145
+  blurSampleCount: 2
+  blurStepSize: 1
+--- !u!114 &5253342207327538554
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 96d2f03d9070910418ef733a49b43845, type: 3}
+  m_Name: DistanceFog
+  m_EditorClassIdentifier: 
+  m_Active: 0
+  renderPassEvent: 1000
+  featureMaterial: {fileID: 2100000, guid: 882febf2956997a43be5ef3f29aec3fd, type: 2}
+--- !u!114 &6126066738960194231
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 58dc9c295d1833d47894134d49b1e970, type: 3}
+  m_Name: Params
+  m_EditorClassIdentifier: 
+  m_Active: 0
