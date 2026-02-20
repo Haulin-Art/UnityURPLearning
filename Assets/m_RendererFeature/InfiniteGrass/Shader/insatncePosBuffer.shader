@@ -1,4 +1,4 @@
-Shader "Unlit/VATFlowerInstance"
+Shader "Unlit/insatncePosBuffer"
 {
     Properties
     {
@@ -91,7 +91,6 @@ Shader "Unlit/VATFlowerInstance"
             float4 _NSVelocityParams;
 
             // 实例的位置
-            StructuredBuffer<float3> _GrassPositions;
             StructuredBuffer<float3> _InstancePosition;
             // MurmurHash3 哈希算法（简化版）：将整数输入转换为无符号整数哈希值，用于生成均匀的伪随机数
             uint murmurHash3(int input) {
@@ -148,15 +147,15 @@ Shader "Unlit/VATFlowerInstance"
             {
                 v2f o;
                 int onlyInt = ceil(_InstancePosition[instanceID].x)+ceil(_InstancePosition[instanceID].z);
-                //float ran = random(onlyInt);
-                //float ranScale = pow(ran,0.5) + 0.4;;
+                float ran = random(onlyInt);
+                float ranScale = pow(ran,0.5) + 0.4;;
 
                 v.vertex *= 1.5;
                 //v.vertex *= ranScale * 1.5;
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
                 // 获取 Buffer 记录的偏移
-                float3 worldOffset = _InstancePosition[instanceID*100] ;//- float3(0,0,4); // test
+                float3 worldOffset = _InstancePosition[instanceID] ;//- float3(0,0,4); // test
                 
                 // ======================= Bill Board 部分，让草始终沿着y轴旋转 =============
                 float3 lookDir = _WorldSpaceCameraPos - worldOffset;
@@ -196,10 +195,38 @@ Shader "Unlit/VATFlowerInstance"
                 float2 actorForce = normalize(nsUV-0.5) * smoothstep(0.08,0.02,length(nsUV-0.5));
                 actorForce = clamp(0,1.0,actorForce) * nsUVMask;
                 
+                // 合并所有力
+                float2 force = nsVel + actorForce + windTex.xy*_WindStrength + clumpUVOffset*_ClumpPoint*10.0;
+                float maxForce = _MaxForce; // 限制最大力
+                force = length(force)>maxForce? normalize(force)*maxForce : force;
+                // 计算贝塞尔
+                float t = v.vertex.y * v.vertex.y ;
+                float3 endPoint = float3(-force.x,0.3,-force.y);
+                float3 midPoint = 0.5*endPoint;
+                float3 bezierOffset = QuadraticBezier(float3(0,0,0),midPoint,endPoint,t);
+                verPosWS += bezierOffset; // 应用力
+                verPosWS.y -= length(bezierOffset) * t * _GrassDown; // 长度守恒，偏移的越狠，高度越低
+
+                //// 计算变形后的法线
+                // 二次贝塞尔曲线公式：B(t) = (1-t)²P₀ + 2t(1-t)P₁ + t²P₂
+                // 导数：B'(t) = 2(1-t)(P₁-P₀) + 2t(P₂-P₁)
+                float3 tangent = 2*(1-t)*(midPoint-float3(0,0,0)) + 2*t*(endPoint-midPoint);
+                //float3 bitangent = normalize(cross(float3(bezierOffset.x,0,bezierOffset.z),float3(0,1,0)));
+                float3 bitangent = normalize(float3(-bezierOffset.z,0,bezierOffset.x));
+                float3 deNor = normalize(cross(tangent,bitangent));
+                deNor = normalize(float3(deNor.x,1.0-tangent.y,deNor.z));
+                
+                float3x3 deformNorMatrix = float3x3(rightDir,normalize(tangent),lookDir);
+                deNor = mul(float3(0,0,1),deformNorMatrix);
 
                 // ================== 最终传递 =========================================
                 float4 pp = TransformWorldToHClip( worldOffset +  verPosWS );
-                o.normal = normalize(v.normal);
+                //o.normal = TransformObjectToWorldNormal(v.normal);
+                //o.normal = lerp(lookDir,float3(0,1,0),smoothstep(0,1,length(bezierOffset)));
+                //o.normal = normalize(cross(tangent,rightDir));
+                //o.normal = mul(v.normal,BillBoardMatrix);
+                o.normal = normalize(deNor);
+                o.grassHeight = t;
                 o.vertex = pp;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 o.worldPos = worldOffset + verPosWS;
@@ -208,7 +235,6 @@ Shader "Unlit/VATFlowerInstance"
 
             float4 frag (v2f i, uint instanceID : SV_InstanceID) : SV_Target
             {
-                /*
                 float4 col = tex2D(_MainTex, i.uv);
 
 
@@ -229,11 +255,19 @@ Shader "Unlit/VATFlowerInstance"
                 float specular = pow(max(dot(i.normal,h),0.0),5.0);
                 specular = smoothstep(0.7,1.0,specular)*1.5;
 
+                //float2 nsUV = ( _NSVelocityParams.xy - i.worldPos.xz ) / 10.0;
+                //nsUV *= step(abs(nsUV.x),0.5) * step(abs(nsUV.y),0.5);
+                //nsUV += float2(0.5,0.5);
+                
+                //float2 ns = tex2D(_NSVelocityTex,nsUV).xy;
                 float3 albedo = lerp(_DownCol,_UpCol,i.grassHeight);
-                */
-                return float4(1,1,1,1);
-                //return float4((diff+specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
 
+                //return float4(i.normal*float3(1,1,1),1);
+                return float4((diff+specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
+                //return float4(()*float3(1,1,1),1);
+                //return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);
+                return float4(float3(i.cesCol),1);
+                return float4(0,1,0,1);
             }
             //ENDCG
             ENDHLSL

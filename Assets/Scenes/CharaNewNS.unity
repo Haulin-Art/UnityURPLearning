@@ -270,20 +270,11 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 933758564}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a2721467d10195b4c9d9b05869c8ab89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  drawDistance: 30
-  maxBufferCount: 1
-  cacheMesh: {fileID: -1119430988441025290, guid: 8f21c89d5d0208a4297cdfc7c098974b,
-    type: 3}
-  previewVisibleGrassCount: 0
-  cameraBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 1, y: 1, z: 1}
-  grassMaterial: {fileID: 2100000, guid: 44d75bd82c2b7e04b8ace8607e347224, type: 2}
 --- !u!4 &933758566
 Transform:
   m_ObjectHideFlags: 0
@@ -328,6 +319,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 53c3cbed0a747ed47bbf336e8b0182c6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  dataArray:
+  - drawDistance: 80
+    spacing: 0.1
+    mesh: {fileID: -1119430988441025290, guid: 8f21c89d5d0208a4297cdfc7c098974b, type: 3}
+    mat: {fileID: 2100000, guid: 61730fb741707694d9f78cd994a99c19, type: 2}
+    appearanceMask: {fileID: 0}
   textureSize: 256
   drawDistance: 100
   textureUpdateThreshold: 1
@@ -335,10 +332,8 @@ MonoBehaviour:
   maxBufferCount: 7
   cacheMesh: {fileID: -8023080413318814639, guid: 3a5a634de14282042beea4a46296b93b,
     type: 3}
-  meshArray: []
-  matArray: []
-  totalInstanceCounts: 0
-  previewVisibleGrassCount: 0
+  previewVisibleGrassCount: 1
+  counters: 0
   grassMaterial: {fileID: 2100000, guid: 93789f71b6e7882429a3b7c23ed9ddd0, type: 2}
   camBounds:
     m_Center: {x: 0, y: 0, z: -4}
@@ -606,6 +601,61 @@ PrefabInstance:
       addedObject: {fileID: 1530723944}
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 64dce48905ffd9b4293e595fa6941544, type: 3}
+--- !u!1 &1336707446
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1336707448}
+  - component: {fileID: 1336707447}
+  m_Layer: 0
+  m_Name: GrassCSData
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1336707447
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336707446}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 65c038ea51cf01940aea35e6806081f4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  textureSize: 512
+  drawDistance: 50
+  textureUpdateThreshold: 1
+  spacing: 0.07
+  maxBufferCount: 5
+  cacheMesh: {fileID: -8023080413318814639, guid: 3a5a634de14282042beea4a46296b93b,
+    type: 3}
+  grassMaterial: {fileID: 2100000, guid: 44d75bd82c2b7e04b8ace8607e347224, type: 2}
+  camBounds:
+    m_Center: {x: 0.20000458, y: 1.3750191, z: 46.1}
+    m_Extent: {x: 65.20588, y: 36.89706, z: 50.4}
+--- !u!4 &1336707448
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336707446}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.35734117, y: -1.7909629, z: 8.637309}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1530723943
 GameObject:
   m_ObjectHideFlags: 0
@@ -991,3 +1041,4 @@ SceneRoots:
   - {fileID: 940304410}
   - {fileID: 1685518733}
   - {fileID: 933758566}
+  - {fileID: 1336707448}
