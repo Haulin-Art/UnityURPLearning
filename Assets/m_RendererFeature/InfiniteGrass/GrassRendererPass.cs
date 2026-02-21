@@ -60,7 +60,8 @@ public class GrassRendererPass : ScriptableRendererFeature
     {
         private readonly string passName;
         private readonly Settings settings; // 传入的数据
-        private RTHandle depRT;// 创建一个用于储存深度值的RTHandle
+        private RTHandle depRT; // 创建一个用于储存深度值的RTHandle
+        
         private readonly List<ShaderTagId> shaderTagList = new List<ShaderTagId>();
         
         ComputeBuffer grassPosBuffer;
@@ -167,11 +168,12 @@ public class GrassRendererPass : ScriptableRendererFeature
 
             // 将Compute Shader的计算包装成一个函数
             ComputePosBuffer(ref cmd,ref grassPosBuffer,settings.computeShader,
-                centerPos,camBounds,2.0f);
+                centerPos,camBounds,1.0f);
 
             // 将草位置缓冲区设为全局，供实例化渲染Shader使用
             cmd.SetGlobalBuffer("_GrassPositions", grassPosBuffer);
-            //cmd.SetGlobalTexture("_GrassHeightMap",depRT);
+            cmd.SetGlobalTexture("_GrassHeightMap",depRT);
+            cmd.SetGlobalVector("_GrassUVParams",new Vector4(centerPos.x,centerPos.y,settings.textureUpdateThreshold,settings.drawDistance));
             
             if(myRendererData.instance != null){
                 // 将缓冲区计数器值复制到argsBuffer（DrawMeshInstancedIndirect需要的参数）
@@ -179,10 +181,13 @@ public class GrassRendererPass : ScriptableRendererFeature
                 // 这里的4是起始字节，不是元素索引，也就是说argsBuffer的第一项是0-3，第二项是4-7.....
                 cmd.CopyCounterValue(grassPosBuffer, myRendererData.instance.argsBuffer, 4);
                 // 预览草的数量：将计数器值复制到tBuffer
-
+                if (myRendererData.instance.previewVisibleGrassCount)
+                {
+                    cmd.CopyCounterValue(myRendererData.instance.dataArray[0].posBuffer, myRendererData.instance.tBuffer, 0);
+                }
             }
 
-            if(myRendererData.instance!=null && myRendererData.instance.dataArray.Length >0)
+            if( false && myRendererData.instance!=null && myRendererData.instance.dataArray.Length >0)
             {
                 myRendererData.instance.dataArray[0].posBuffer?.Release();
                 myRendererData.instance.dataArray[0].argsBuffer?.Release();
@@ -194,11 +199,6 @@ public class GrassRendererPass : ScriptableRendererFeature
                 cmd.SetGlobalBuffer("_InstancePosition",myRendererData.instance.dataArray[0].posBuffer);
                 cmd.CopyCounterValue(myRendererData.instance.dataArray[0].posBuffer, 
                     myRendererData.instance.argsBufferArray, 4);    
-
-                if (myRendererData.instance.previewVisibleGrassCount)
-                {
-                    cmd.CopyCounterValue(myRendererData.instance.dataArray[0].posBuffer, myRendererData.instance.tBuffer, 0);
-                }
             }
             
             //}
@@ -327,7 +327,7 @@ public class GrassRendererPass : ScriptableRendererFeature
             }
 
 
-            myRendererData.instance.dataArray[0].posBuffer?.Release();
+            //myRendererData.instance.dataArray[0].posBuffer?.Release();
 
         }
         // 用于获取变换后的摄像机包围盒的自定义函数

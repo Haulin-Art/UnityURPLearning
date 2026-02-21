@@ -107,32 +107,8 @@ public class myRendererData : MonoBehaviour
         // 7. 执行GPU实例化间接渲染（核心：百万级草叶渲染）
         // 参数：草叶网格、子网格索引、材质、渲染范围包围盒、间接参数缓冲区
         Graphics.DrawMeshInstancedIndirect(cacheMesh, 0, grassMaterial, cameraBounds, argsBuffer);
-        /*
-        if (true)
-        {
-            for(int t = 0; t < dataArray.Length; t++)
-            {
-                dataArray[t].argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
-                uint[] argsTemp = new uint[5];
-                // args[0]：网格的索引数量（每个草叶Mesh的三角形索引数）
-                argsTemp[0] = (uint)dataArray[t].mesh.GetIndexCount(0);
-                // args[1]：最大实例数（缓冲区容量，实际实例数由ComputeShader的计数器覆盖）
-                argsTemp[1] = (uint)(maxBufferCount * 10000);
-                //args2[1] = count[0]*50;
-                // args[2]：索引起始位置（默认0）
-                argsTemp[2] = (uint)dataArray[t].mesh.GetIndexStart(0);
-                // args[3]：基础顶点位置（默认0）
-                argsTemp[3] = (uint)dataArray[t].mesh.GetBaseVertex(0);
-                // args[4]：实际渲染的实例数（由ComputeShader的计数器更新，初始为0）
-                argsTemp[4] = 0;
-                // 将参数写入缓冲区
-                dataArray[t].argsBuffer.SetData(argsTemp);
-                dataArray[t].mat.SetBuffer("_InstancePosition",dataArray[t].posBuffer);
-                Graphics.DrawMeshInstancedIndirect(dataArray[t].mesh, 0, dataArray[t].mat, cameraBounds, dataArray[t].argsBuffer);
-            }
-        }
-        */
-        if (dataArray.Length != 0 && true)
+
+        if (dataArray.Length != 0 && false)
         {
             dataArray[0].argsBuffer?.Release();
             dataArray[0].argsBuffer=new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
@@ -153,9 +129,6 @@ public class myRendererData : MonoBehaviour
             argsBufferArray.SetData(args2);
             Graphics.DrawMeshInstancedIndirect(dataArray[0].mesh, 0, dataArray[0].mat, cameraBounds, argsBufferArray);
         }
-        
-        
-    
     }
     /// <summary>
     /// OnGUI：调试显示可见草叶数量和调度尺寸
