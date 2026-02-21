@@ -120,6 +120,7 @@ Material:
     - _ClearCoatSmoothness: 0
     - _ClumpPoint: 0.24
     - _ClumpUseCenter: 1
+    - _ClumpUseSamePos: 0
     - _Cull: 2
     - _Cutoff: 0.5
     - _DetailAlbedoMapScale: 1
@@ -131,10 +132,12 @@ Material:
     - _Glossiness: 0
     - _GlossyReflections: 0
     - _GrassDown: 4.36
+    - _GrassScale: 0.12
     - _MaxForce: 2.7
     - _Metallic: 0
     - _OcclusionStrength: 1
     - _Parallax: 0.005
+    - _PosOffset: 0.26
     - _QueueOffset: 0
     - _ReceiveShadows: 1
     - _Smoothness: 0.5
@@ -143,6 +146,7 @@ Material:
     - _SrcBlend: 1
     - _SrcBlendAlpha: 1
     - _Surface: 0
+    - _TerrainUpAxisScale: 1
     - _WindSpeed: 0.25
     - _WindStrength: 3.89
     - _WorkflowMode: 1
@@ -150,10 +154,10 @@ Material:
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
-    - _DownCol: {r: 0.017168587, g: 0, b: 0.1273585, a: 0}
+    - _DownCol: {r: 0.9622642, g: 0.66838026, b: 0.11347453, a: 0}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _EndCol: {r: 0.236, g: 0.335, b: 0.113, a: 0}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
     - _StartCol: {r: 0.269, g: 0.325, b: 0.156, a: 1}
-    - _UpCol: {r: 0.2688679, g: 0.550044, b: 1, a: 1}
+    - _UpCol: {r: 0.990566, g: 0.7097293, b: 0.16353682, a: 1}
   m_BuildTextureStacks: []

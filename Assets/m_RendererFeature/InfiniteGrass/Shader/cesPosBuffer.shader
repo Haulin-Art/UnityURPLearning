@@ -3,6 +3,8 @@ Shader "Unlit/cesPosBuffer"
     Properties
     {
         _MainTex ("颜色纹理", 2D) = "white" {}
+        _GrassScale ("大小缩放",Range(0.0,10.0)) = 1.5
+        _PosOffset ("高度偏移",Range(-2.0,2.0)) = 0.0
         _UpCol ("草尖颜色",Color) = (1,1,1,1)
         _DownCol ("草根颜色",Color) = (0,0,0,0)
         _TerrainUpAxisScale ("草朝向随地形法向强度",Range(0.0,1.0)) = 5.0
@@ -73,6 +75,8 @@ Shader "Unlit/cesPosBuffer"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
+            float _GrassScale;
+            float _PosOffset;
             float3 _UpCol;
             float3 _DownCol;
             float _TerrainUpAxisScale;
@@ -157,7 +161,7 @@ Shader "Unlit/cesPosBuffer"
                 float ran = random(onlyInt);
                 float ranScale = pow(ran,0.5) + 0.4;;
 
-                v.vertex *= 1.5;
+                v.vertex *= _GrassScale;
                 //v.vertex *= ranScale * 1.5;
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
@@ -240,7 +244,7 @@ Shader "Unlit/cesPosBuffer"
                 deNor = mul(float3(0,0,1),deformNorMatrix);
 
                 // ================== 最终传递 =========================================
-                float4 pp = TransformWorldToHClip( worldOffset +  verPosWS );
+                float4 pp = TransformWorldToHClip( worldOffset + _PosOffset*grassUPAxis +  verPosWS );
                 //o.normal = TransformObjectToWorldNormal(v.normal);
                 //o.normal = lerp(lookDir,float3(0,1,0),smoothstep(0,1,length(bezierOffset)));
                 //o.normal = normalize(cross(tangent,rightDir));
@@ -290,7 +294,7 @@ Shader "Unlit/cesPosBuffer"
                 float2 xyNor = float2(midDepth-rightDepth,midDepth-upDepth)*50.0;
                 float3 grassUPAxis = normalize(float3(xyNor.x,sqrt(1-dot(xyNor,xyNor)),xyNor.y));
 
-                //return float4(grassUPAxis*float3(1,1,1),1);
+
                 return float4((diff+specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
                 //return float4(()*float3(1,1,1),1);
                 //return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);

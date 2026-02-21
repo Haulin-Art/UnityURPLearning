@@ -18,8 +18,7 @@ MonoBehaviour:
       serializedVersion: 2
       m_Bits: 8
     textureSize: 256
-    customCam: {fileID: 0}
-    drawDistance: 100
+    drawDistance: 130
     textureUpdateThreshold: 1
     spacing: 0.07
     maxBufferCount: 7

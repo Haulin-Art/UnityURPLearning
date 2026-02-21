@@ -3,8 +3,11 @@ Shader "Unlit/insatncePosBuffer"
     Properties
     {
         _MainTex ("颜色纹理", 2D) = "white" {}
+        _GrassScale ("大小缩放",Range(0.0,10.0)) = 1.5
+        _PosOffset ("高度偏移",Range(-2.0,2.0)) = 0.0
         _UpCol ("草尖颜色",Color) = (1,1,1,1)
         _DownCol ("草根颜色",Color) = (0,0,0,0)
+        _TerrainUpAxisScale ("草朝向随地形法向强度",Range(0.0,1.0)) = 5.0
         _GrassDown ("草受力下垂程度",Range(0.0,5.0)) = 2.0
         _MaxForce ("最大力限制",Range(0.0,5.0)) = 0.8
         _ActorWindFieldStrangth ("角色风场强度",Range(0.0,2.0)) = 1.5
@@ -12,8 +15,9 @@ Shader "Unlit/insatncePosBuffer"
         _WindStrength ("风强度",Range(0.0,5.0)) = 2.0
         _WindSpeed ("风速",Range(0.0,1.0)) = 0.25
         _ClumpTex ("簇场" , 2D) = "black" {}
-        _ClumpPoint ("簇向心力",Range(0.0,2.0)) = 1.0
+        _ClumpPoint ("簇向心力",Range(-5.0,5.0)) = 1.0
         _ClumpUseCenter ("簇使用中间力",Range(0.0,2.0)) = 1.0
+        _ClumpUseSamePos ("同簇的位置接近程度",Range(-1.0,1.0)) = 0.0
     }
     SubShader
     {
@@ -71,8 +75,11 @@ Shader "Unlit/insatncePosBuffer"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
+            float _GrassScale;
+            float _PosOffset;
             float3 _UpCol;
             float3 _DownCol;
+            float _TerrainUpAxisScale;
             float _MaxForce;
             float _ActorWindFieldStrangth;
             float _GrassDown;
@@ -85,6 +92,7 @@ Shader "Unlit/insatncePosBuffer"
             float4 _ClumpTex_ST;
             float _ClumpPoint;
             float _ClumpUseCenter;
+            float _ClumpUseSamePos;
 
             // ns流体参数
             sampler2D _NSVelocityTex;
@@ -92,6 +100,8 @@ Shader "Unlit/insatncePosBuffer"
 
             // 实例的位置
             StructuredBuffer<float3> _InstancePosition;
+            sampler2D _GrassHeightMap;
+            float4 _GrassUVParams;
             // MurmurHash3 哈希算法（简化版）：将整数输入转换为无符号整数哈希值，用于生成均匀的伪随机数
             uint murmurHash3(int input) {
                 uint h = abs(input);          // 取输入的绝对值（避免负数）
@@ -150,20 +160,30 @@ Shader "Unlit/insatncePosBuffer"
                 float ran = random(onlyInt);
                 float ranScale = pow(ran,0.5) + 0.4;;
 
-                v.vertex *= 1.5;
+                v.vertex *= _GrassScale;
                 //v.vertex *= ranScale * 1.5;
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
                 // 获取 Buffer 记录的偏移
                 float3 worldOffset = _InstancePosition[instanceID] ;//- float3(0,0,4); // test
                 
+                // 根据地形法向更新草的上朝向，根据深度计算法线朝向，勾股定理
+                float2 grassWorldUV = (worldOffset.xz-_GrassUVParams.xy)/(_GrassUVParams.z+_GrassUVParams.w);
+                grassWorldUV = clamp(grassWorldUV*0.5+0.5,0,1);
+                float midDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV,0,0));
+                float rightDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV+float2(0.01,0.0),0,0));
+                float upDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV+float2(0.0,0.01),0,0));
+                float2 xyNor = float2(midDepth-rightDepth,midDepth-upDepth)*_TerrainUpAxisScale*50.0;
+                float3 grassUPAxis = normalize(float3(xyNor.x,sqrt(1-dot(xyNor,xyNor)),xyNor.y));
+
                 // ======================= Bill Board 部分，让草始终沿着y轴旋转 =============
                 float3 lookDir = _WorldSpaceCameraPos - worldOffset;
                 // 计算 lookDir 在 xz平面的投影的标准向量
                 //lookDir -= dot(lookDir,float3(0,1,0))*lookDir;
+                float3 upDir = grassUPAxis;
                 lookDir = normalize(float3(lookDir.x,0.0,lookDir.z));
-                float3 rightDir = normalize(cross(float3(0,1,0),lookDir));
-                float3x3 BillBoardMatrix = float3x3(rightDir,float3(0,1,0),lookDir);
+                float3 rightDir = normalize(cross(upDir,lookDir));
+                float3x3 BillBoardMatrix = float3x3(rightDir,upDir,lookDir);
                 
                 float3 verPosWS = mul( v.vertex.xyz,BillBoardMatrix);
 
@@ -171,7 +191,9 @@ Shader "Unlit/insatncePosBuffer"
                 float3 clumpTex = tex2Dlod(_ClumpTex,float4(worldOffset.xz/_ClumpTex_ST.x,0,0)).xyz;
                 float2 clumpUVOffset = (clumpTex.xy*2.0 - 0.5);
                 clumpUVOffset = float2(clumpUVOffset.x,-clumpUVOffset.y);
-                
+                // 受一簇草的影响，草比较靠近
+                worldOffset.xz -= clumpUVOffset*_ClumpUseSamePos;
+
                 // =============== 风场贴图力 ===============================
                 // 同一簇的草可以控制是否使用一个方向
                 float2 windUV = worldOffset.xz/_WindTex_ST.x + float2(_Time.x*_WindSpeed,0) - 
@@ -196,11 +218,11 @@ Shader "Unlit/insatncePosBuffer"
                 actorForce = clamp(0,1.0,actorForce) * nsUVMask;
                 
                 // 合并所有力
-                float2 force = nsVel + actorForce + windTex.xy*_WindStrength + clumpUVOffset*_ClumpPoint*10.0;
+                float2 force = nsVel + actorForce + windTex.xy *_WindStrength + clumpUVOffset*_ClumpPoint*10.0;
                 float maxForce = _MaxForce; // 限制最大力
                 force = length(force)>maxForce? normalize(force)*maxForce : force;
                 // 计算贝塞尔
-                float t = v.vertex.y * v.vertex.y ;
+                float t = v.vertex.y * v.vertex.y + 0.1;
                 float3 endPoint = float3(-force.x,0.3,-force.y);
                 float3 midPoint = 0.5*endPoint;
                 float3 bezierOffset = QuadraticBezier(float3(0,0,0),midPoint,endPoint,t);
@@ -220,7 +242,7 @@ Shader "Unlit/insatncePosBuffer"
                 deNor = mul(float3(0,0,1),deformNorMatrix);
 
                 // ================== 最终传递 =========================================
-                float4 pp = TransformWorldToHClip( worldOffset +  verPosWS );
+                float4 pp = TransformWorldToHClip( worldOffset + _PosOffset*grassUPAxis +  verPosWS );
                 //o.normal = TransformObjectToWorldNormal(v.normal);
                 //o.normal = lerp(lookDir,float3(0,1,0),smoothstep(0,1,length(bezierOffset)));
                 //o.normal = normalize(cross(tangent,rightDir));

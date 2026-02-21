@@ -16,8 +16,6 @@ public class GrassRendererPass : ScriptableRendererFeature
         public LayerMask renderLayer;
         [Tooltip("深度图的分辨率（建议2048/1024）")]
         public int textureSize = 2048;
-        [Tooltip("使用的摄像机，默认mainCamera")]
-        public Camera customCam;
         [Tooltip("深度图的绘制距离（和草的绘制距离一致）")]
         public float drawDistance = 300;
         [Tooltip("纹理更新阈值（减少频繁更新）")]
@@ -61,12 +59,17 @@ public class GrassRendererPass : ScriptableRendererFeature
         private readonly string passName;
         private readonly Settings settings; // 传入的数据
         private RTHandle depRT; // 创建一个用于储存深度值的RTHandle
+        private RTHandle camDepRT; // 正常视角下的摄像机深度
+        public int unsampleInt = 1;
         
         private readonly List<ShaderTagId> shaderTagList = new List<ShaderTagId>();
         
         ComputeBuffer grassPosBuffer;
         ComputeBuffer instancePosBuffer;
         
+        // 用于强制 MainCamera 裁剪的参数
+        //private ScriptableCullingParameters _cullingParams;
+
         public GrassPass(string name,Settings settings)// 构造函数
         {
             passName = name;
@@ -90,9 +93,18 @@ public class GrassRendererPass : ScriptableRendererFeature
         // 初始化渲染纹理
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
-            
+            // 安全校验
+            if(Camera.main == null||settings.depthMaterial == null || settings.computeShader == null) 
+            {
+                Debug.Log("请指定材质与CS");
+                return;
+            }
             RenderingUtils.ReAllocateIfNeeded(ref depRT,
                 new RenderTextureDescriptor(settings.textureSize,settings.textureSize,RenderTextureFormat.RFloat,32),
+                FilterMode.Bilinear);
+            RenderingUtils.ReAllocateIfNeeded(ref camDepRT,
+                new RenderTextureDescriptor( (int)(Camera.main.pixelWidth / unsampleInt) , 
+                (int)Camera.main.pixelHeight / unsampleInt, RenderTextureFormat.RFloat,16),
                 FilterMode.Bilinear);
             ConfigureTarget(depRT);
             // 配置清除规则：清除颜色为0（深度值0表示最近），清除深度和颜色
@@ -145,11 +157,40 @@ public class GrassRendererPass : ScriptableRendererFeature
                 context.DrawRenderers(renderingData.cullResults, ref drawSetting, ref filterSetting);
             }
             //Finally we reset the camera matricies to the original ones
-            cmd.SetViewProjectionMatrices(renderingData.cameraData.camera.worldToCameraMatrix, renderingData.cameraData.camera.projectionMatrix);
+            // 根据是否有自定义摄像机来设置矩阵
+            //cmd.SetViewProjectionMatrices(renderingData.cameraData.camera.worldToCameraMatrix, renderingData.cameraData.camera.projectionMatrix); 
             
+            // 这个是不论在运行状态还是在视图模式，都是场景中设置的主摄像机
+            cmd.SetViewProjectionMatrices(Camera.main.worldToCameraMatrix, Camera.main.projectionMatrix);               
+
+            
+            // 正常摄像机视角下的深度信息，不知道为什么， renderingData.cameraData.renderer.cameraDepthTargetHandle 结果不对
+            // 只能自己渲染一张
+
+            // 2. 【核心修复】强制使用 MainCamera 进行裁剪（Culling）
+            // 之前的代码用的是 renderingData.cullResults（编辑器相机的裁剪结果），这是错误的根源！
+            //if (!Camera.main.TryGetCullingParameters(out _cullingParams)) return;
+            //_cullingParams.cullingOptions = CullingOptions.None;
+            //CullingResults mainCamCullResults = context.Cull(ref _cullingParams);
+            using (new ProfilingScope(cmd, new ProfilingSampler("Cam Depth Map RT")))
+            {
+                cmd.SetRenderTarget(camDepRT);
+                cmd.ClearRenderTarget(true,true, new Color(0,0,0,0));
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
+                var drawSetting = CreateDrawingSettings(shaderTagList, ref renderingData, renderingData.cameraData.defaultOpaqueSortFlags);
+                var filterSetting = new FilteringSettings(RenderQueueRange.all, settings.renderLayer);
+                context.DrawRenderers(renderingData.cullResults, ref drawSetting, ref filterSetting);
+            }
+
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
             
+            // 这个是在运行模式是主摄像机，在视图模式是视图摄像机
+            cmd.SetViewProjectionMatrices(renderingData.cameraData.camera.worldToCameraMatrix, renderingData.cameraData.camera.projectionMatrix); 
+            context.ExecuteCommandBuffer(cmd);
+            cmd.Clear();
+
             // ================== 以下使用compute shader计算草地位置 ==================
             // 释放旧的缓冲区
             grassPosBuffer?.Release();
@@ -168,7 +209,7 @@ public class GrassRendererPass : ScriptableRendererFeature
 
             // 将Compute Shader的计算包装成一个函数
             ComputePosBuffer(ref cmd,ref grassPosBuffer,settings.computeShader,
-                centerPos,camBounds,1.0f);
+                centerPos,camBounds,1.0f,1.0f);
 
             // 将草位置缓冲区设为全局，供实例化渲染Shader使用
             cmd.SetGlobalBuffer("_GrassPositions", grassPosBuffer);
@@ -183,19 +224,19 @@ public class GrassRendererPass : ScriptableRendererFeature
                 // 预览草的数量：将计数器值复制到tBuffer
                 if (myRendererData.instance.previewVisibleGrassCount)
                 {
-                    cmd.CopyCounterValue(myRendererData.instance.dataArray[0].posBuffer, myRendererData.instance.tBuffer, 0);
+                    cmd.CopyCounterValue(grassPosBuffer, myRendererData.instance.tBuffer, 0);
                 }
             }
 
-            if( false && myRendererData.instance!=null && myRendererData.instance.dataArray.Length >0)
+            if( true && myRendererData.instance!=null && myRendererData.instance.dataArray.Length >0)
             {
                 myRendererData.instance.dataArray[0].posBuffer?.Release();
                 myRendererData.instance.dataArray[0].argsBuffer?.Release();
-                myRendererData.instance.dataArray[0].posBuffer = new ComputeBuffer((int)(100000 * settings.maxBufferCount), sizeof(float) * 3, ComputeBufferType.Append);
+                myRendererData.instance.dataArray[0].posBuffer = new ComputeBuffer((int)(10000 * settings.maxBufferCount), sizeof(float) * 3, ComputeBufferType.Append);
 
                 ComputePosBuffer(ref cmd,ref myRendererData.instance.dataArray[0].posBuffer,
                     settings.computeShader,
-                    centerPos,camBounds,5.0f);
+                    centerPos,camBounds,5.0f,1.0f);
                 cmd.SetGlobalBuffer("_InstancePosition",myRendererData.instance.dataArray[0].posBuffer);
                 cmd.CopyCounterValue(myRendererData.instance.dataArray[0].posBuffer, 
                     myRendererData.instance.argsBufferArray, 4);    
@@ -231,7 +272,8 @@ public class GrassRendererPass : ScriptableRendererFeature
 
             // =================== 可视化调试部分 ===================
             //settings.showMat.SetFloat("_KKK",0.5f);
-            settings.showMat.SetTexture("_MainTex",depRT);
+            // renderingData.cameraData.renderer.cameraDepthTargetHandle
+            settings.showMat.SetTexture("_MainTex",camDepRT);
             // 用于可视化包围盒
             if(myRendererData.instance != null)
             {
@@ -251,9 +293,10 @@ public class GrassRendererPass : ScriptableRendererFeature
 
         }
         public void ComputePosBuffer(ref CommandBuffer cmd , ref ComputeBuffer cb , ComputeShader cs,
-            Vector3 centerPos,Bounds camBounds,float spaciingScale)
+            Vector3 centerPos,Bounds camBounds,float spaciingScale,float drawDistanceScale)
         {
             float spacing = settings.spacing * spaciingScale;
+            float drawDistance = settings.drawDistance * drawDistanceScale;
             // 计算草的网格大小（XZ方向的网格数量）
             Vector2Int gridSize = new Vector2Int(
                 Mathf.CeilToInt(camBounds.size.x / spacing),
@@ -281,7 +324,7 @@ public class GrassRendererPass : ScriptableRendererFeature
             */
             // ========== 关键修改：使用CommandBuffer设置所有参数 ==========
             cmd.SetComputeFloatParam(cs, "_spacing", spacing);
-            cmd.SetComputeFloatParam(cs, "_drawDistance", settings.drawDistance);
+            cmd.SetComputeFloatParam(cs, "_drawDistance", drawDistance);
             cmd.SetComputeFloatParam(cs, "_textureUpdateThreshold", settings.textureUpdateThreshold);
             
             // Vector2需要转换为Vector4
@@ -294,9 +337,13 @@ public class GrassRendererPass : ScriptableRendererFeature
             cmd.SetComputeVectorParam(cs, "_boundsMin", new Vector4(camBounds.min.x, camBounds.min.y, camBounds.min.z, 0));
             cmd.SetComputeVectorParam(cs, "_boundsMax", new Vector4(camBounds.max.x, camBounds.max.y, camBounds.max.z, 0));
             cmd.SetComputeMatrixParam(cs, "_VPMatrix", Camera.main.projectionMatrix * Camera.main.worldToCameraMatrix);
-            
+            cmd.SetComputeMatrixParam(cs, "_VMatrix", Camera.main.worldToCameraMatrix);
+
             cmd.SetComputeTextureParam(cs, 0, "_grassHeightTex", depRT);
+            cmd.SetComputeTextureParam(cs,0,"_CameraDepthTexture",camDepRT);
             cmd.SetComputeBufferParam(cs, 0, "_GrassPositions", cb);
+
+
             // 重置Append缓冲区的计数器（必须）
             cb.SetCounterValue(0);
             // 调度ComputeShader执行（线程组数量：X=gridSize.x/8，Y=gridSize.y/8，Z=1）
@@ -384,5 +431,3 @@ public class GrassRendererPass : ScriptableRendererFeature
         
     }
 }
-
-

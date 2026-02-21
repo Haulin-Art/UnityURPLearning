@@ -20,7 +20,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: cesPosBuffer
+  m_Name: 2cesPosBuffer 2
   m_Shader: {fileID: 4800000, guid: 7f81c3f61fcdf734baa62ced5ed32089, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -132,7 +132,7 @@ Material:
     - _Glossiness: 0
     - _GlossyReflections: 0
     - _GrassDown: 2.82
-    - _GrassScale: 1.22
+    - _GrassScale: 2.82
     - _MaxForce: 2.7
     - _Metallic: 0
     - _OcclusionStrength: 1

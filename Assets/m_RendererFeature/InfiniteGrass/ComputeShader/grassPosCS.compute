@@ -15,13 +15,14 @@ float2 _centerPos;              // 纹理渲染的中心点
 float3 _boundsMin;              // 采样区域包围盒最小点
 float3 _boundsMax;              // 采样区域包围盒最大点
 float4x4 _VPMatrix;             // 主摄像机的视图投影矩阵
+float4x4 _VMatrix;              // 主摄像机的视图矩阵
 
 // 采样器状态：线性过滤 + 纹理坐标钳位（0~1 范围，避免采样到纹理外）
 SamplerState linearClampSampler;
 
 // 从 URP RendererFeature 传递的纹理（GPU 端纹理资源）
 Texture2D<float2> _grassHeightTex;  // 草地高度纹理（R 通道存储高度信息,G 通道存储草生长区域标记）
-//Texture2D<float> _CameraDepthTexture;
+Texture2D<float> _CameraDepthTexture;
 
 // GPU 端缓冲区
 // AppendStructuredBuffer：GPU 端追加缓冲区，支持动态添加数据，带计数器（记录元素数量）
@@ -119,14 +120,32 @@ void CSMain (uint3 id : SV_DispatchThreadID)
             float4 clipPos = mul(_VPMatrix, float4(positionWS, 1.0)); // 世界空间→裁剪空间
             float4 absPosCS = abs(clipPos); // 取绝对值，简化裁剪判断
 
+            //float4 viewPos = mul(unity_MatrixV, float4(positionWS, 1.0)); // 转换到视图空间
+            float4 viewPos = mul(_VMatrix, float4(positionWS, 1.0)); // 转换到视图空间
             // 设置遮挡剔除参数
-            /*
-            float2 screenUV = (clipPos.xy / clipPos.w)*0.5+0.5;
-            float posDepth = clipPos.z / clipPos.w ;
-            posDepth = length(positionWS-_camPosition);
-            float depthMap = _CameraDepthTexture.SampleLevel(linearClampSampler,screenUV,0);
-            depthMap = Linear01Depth(depthMap,_ZBufferParams);
-            */
+            // 正确的屏幕UV计算
+            float2 ndc = clipPos.xy / clipPos.w;  // 转换为NDC坐标[-1, 1]
+            //float2 screenUV = ndc * 0.5 + 0.5;    // 转换为[0, 1]
+            float4 screenPos = ComputeScreenPos(clipPos);
+            float2 screenUV = screenPos.xy / screenPos.w;
+            //float2 screenUV = (clipPos.xy / clipPos.w)*0.5+0.5;
+            //float posDepth = clipPos.z / clipPos.w ;
+            //float posDepth = length(positionWS-_camPosition);
+            // 处理平台差异：Y轴可能翻转
+            #if UNITY_UV_STARTS_AT_TOP
+                screenUV.y = 1.0 - screenUV.y;
+            #endif
+            screenUV = clamp(screenUV,0.0,1.0);
+
+            // 正确的深度比较：
+            // 1. 使用视图空间的深度（viewPos.z是负值，取绝对值）
+            float grassDepth = -viewPos.z;  // 相机空间线性深度
+            //grassDepth = length(positionWS-_camPosition);
+
+
+            float depthMap = _CameraDepthTexture.SampleLevel(linearClampSampler,screenUV/1.0,0);
+            depthMap = LinearEyeDepth(depthMap,_ZBufferParams);
+            
             // 裁剪条件（宽松裁剪，避免边缘草被过度裁剪）：
             // - z ≤ w：在相机近裁剪面之后
             // - y ≤ w*1.5：Y轴范围放宽1.5倍
@@ -137,7 +156,9 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                 absPosCS.y <= absPosCS.w  * 1.5&& // 纵深近处剔除
                 absPosCS.x <= absPosCS.w  * 1.1 // 视线角度 
                 
-                //&& posDepth <= depthMap - 0.001 // 遮挡剔除
+                //&& grassDepth <= depthMap
+                //&& depthMap <= 10.0 // 遮挡剔除
+                //&& grassDepth <= 10.0 // 遮挡剔除
                 )
                 
             {

@@ -67,5 +67,6 @@
         "*.sln": "*.csproj",
         "*.slnx": "*.csproj"
     },
-    "dotnet.defaultSolution": "UnityURPLearning.slnx"
+    "dotnet.defaultSolution": "UnityURPLearning.slnx",
+    "dotnet.preferCSharpExtension": true
 }

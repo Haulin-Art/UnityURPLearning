@@ -25,6 +25,7 @@ public class myRendererData : MonoBehaviour
     public float textureUpdateThreshold = 10.0f;
     public float spacing = 1.0f;
     public float maxBufferCount = 1.0f;
+    public GameObject customCam;
     [SerializeField]private Mesh cacheMesh;
 
     public bool previewVisibleGrassCount = false;
@@ -85,7 +86,7 @@ public class myRendererData : MonoBehaviour
         // args[0]：网格的索引数量（每个草叶Mesh的三角形索引数）
         args[0] = (uint)cacheMesh.GetIndexCount(0);
         // args[1]：最大实例数（缓冲区容量，实际实例数由ComputeShader的计数器覆盖）
-        args[1] = (uint)(maxBufferCount * 2000);
+        args[1] = (uint)(maxBufferCount * 10000);
         // args[2]：索引起始位置（默认0）
         args[2] = (uint)cacheMesh.GetIndexStart(0);
         // args[3]：基础顶点位置（默认0）
@@ -108,7 +109,7 @@ public class myRendererData : MonoBehaviour
         // 参数：草叶网格、子网格索引、材质、渲染范围包围盒、间接参数缓冲区
         Graphics.DrawMeshInstancedIndirect(cacheMesh, 0, grassMaterial, cameraBounds, argsBuffer);
 
-        if (dataArray.Length != 0 && false)
+        if (dataArray.Length != 0 && true)
         {
             dataArray[0].argsBuffer?.Release();
             dataArray[0].argsBuffer=new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
