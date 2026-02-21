@@ -5,8 +5,11 @@ Shader "Unlit/cesPosBuffer"
         _MainTex ("颜色纹理", 2D) = "white" {}
         _GrassScale ("大小缩放",Range(0.0,10.0)) = 1.5
         _PosOffset ("高度偏移",Range(-2.0,2.0)) = 0.0
+        [Space(15)]
         _UpCol ("草尖颜色",Color) = (1,1,1,1)
         _DownCol ("草根颜色",Color) = (0,0,0,0)
+        _ColRamp ("颜色渐变控制",Range(-2.0,2.0))=1.0
+        [Space(15)]
         _TerrainUpAxisScale ("草朝向随地形法向强度",Range(0.0,1.0)) = 5.0
         _GrassDown ("草受力下垂程度",Range(0.0,5.0)) = 2.0
         _MaxForce ("最大力限制",Range(0.0,5.0)) = 0.8
@@ -14,6 +17,7 @@ Shader "Unlit/cesPosBuffer"
         _WindTex ("风场贴图", 2D) = "black" {}
         _WindStrength ("风强度",Range(0.0,5.0)) = 2.0
         _WindSpeed ("风速",Range(0.0,1.0)) = 0.25
+        [Space(15)]
         _ClumpTex ("簇场" , 2D) = "black" {}
         _ClumpPoint ("簇向心力",Range(-5.0,5.0)) = 1.0
         _ClumpUseCenter ("簇使用中间力",Range(0.0,2.0)) = 1.0
@@ -79,6 +83,7 @@ Shader "Unlit/cesPosBuffer"
             float _PosOffset;
             float3 _UpCol;
             float3 _DownCol;
+            float _ColRamp;
             float _TerrainUpAxisScale;
             float _MaxForce;
             float _ActorWindFieldStrangth;
@@ -284,7 +289,10 @@ Shader "Unlit/cesPosBuffer"
                 //nsUV += float2(0.5,0.5);
                 
                 //float2 ns = tex2D(_NSVelocityTex,nsUV).xy;
-                float3 albedo = lerp(_DownCol,_UpCol,i.grassHeight);
+                float3 albedo = lerp(_DownCol,_UpCol,i.grassHeight*_ColRamp);
+                // 远处的暗部颜色变弱
+                float dep = length(i.worldPos-_WorldSpaceCameraPos);
+                albedo = lerp(albedo,_UpCol,smoothstep(20.0,50.0,dep)*0.08);
 
                 float2 grassWorldUV = (i.worldPos.xz-_GrassUVParams.xy)/(_GrassUVParams.z+_GrassUVParams.w);
                 grassWorldUV = clamp(grassWorldUV*0.5+0.5,0,1);

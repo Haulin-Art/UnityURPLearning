@@ -121,6 +121,7 @@ Material:
     - _ClumpPoint: -0.34
     - _ClumpUseCenter: 2
     - _ClumpUseSamePos: 0.4
+    - _ColRamp: 1.42
     - _Cull: 2
     - _Cutoff: 0.5
     - _DetailAlbedoMapScale: 1

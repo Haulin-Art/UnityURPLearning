@@ -209,7 +209,7 @@ public class GrassRendererPass : ScriptableRendererFeature
 
             // 将Compute Shader的计算包装成一个函数
             ComputePosBuffer(ref cmd,ref grassPosBuffer,settings.computeShader,
-                centerPos,camBounds,1.0f,1.0f);
+                centerPos,camBounds,1.0f,1000.0f);
 
             // 将草位置缓冲区设为全局，供实例化渲染Shader使用
             cmd.SetGlobalBuffer("_GrassPositions", grassPosBuffer);
@@ -236,7 +236,7 @@ public class GrassRendererPass : ScriptableRendererFeature
 
                 ComputePosBuffer(ref cmd,ref myRendererData.instance.dataArray[0].posBuffer,
                     settings.computeShader,
-                    centerPos,camBounds,5.0f,1.0f);
+                    centerPos,camBounds,5.0f,40.0f);
                 cmd.SetGlobalBuffer("_InstancePosition",myRendererData.instance.dataArray[0].posBuffer);
                 cmd.CopyCounterValue(myRendererData.instance.dataArray[0].posBuffer, 
                     myRendererData.instance.argsBufferArray, 4);    
@@ -293,10 +293,9 @@ public class GrassRendererPass : ScriptableRendererFeature
 
         }
         public void ComputePosBuffer(ref CommandBuffer cmd , ref ComputeBuffer cb , ComputeShader cs,
-            Vector3 centerPos,Bounds camBounds,float spaciingScale,float drawDistanceScale)
+            Vector3 centerPos,Bounds camBounds,float spaciingScale,float extraDistanceRemoval)
         {
             float spacing = settings.spacing * spaciingScale;
-            float drawDistance = settings.drawDistance * drawDistanceScale;
             // 计算草的网格大小（XZ方向的网格数量）
             Vector2Int gridSize = new Vector2Int(
                 Mathf.CeilToInt(camBounds.size.x / spacing),
@@ -324,8 +323,9 @@ public class GrassRendererPass : ScriptableRendererFeature
             */
             // ========== 关键修改：使用CommandBuffer设置所有参数 ==========
             cmd.SetComputeFloatParam(cs, "_spacing", spacing);
-            cmd.SetComputeFloatParam(cs, "_drawDistance", drawDistance);
+            cmd.SetComputeFloatParam(cs, "_drawDistance", settings.drawDistance);
             cmd.SetComputeFloatParam(cs, "_textureUpdateThreshold", settings.textureUpdateThreshold);
+            cmd.SetComputeFloatParam(cs, "_extraDistanceRemoval", extraDistanceRemoval);
             
             // Vector2需要转换为Vector4
             cmd.SetComputeVectorParam(cs, "_gridStartIndex", new Vector4(gridStartIndex.x, gridStartIndex.y, 0, 0));

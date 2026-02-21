@@ -16,6 +16,7 @@ float3 _boundsMin;              // 采样区域包围盒最小点
 float3 _boundsMax;              // 采样区域包围盒最大点
 float4x4 _VPMatrix;             // 主摄像机的视图投影矩阵
 float4x4 _VMatrix;              // 主摄像机的视图矩阵
+float _extraDistanceRemoval;    // 额外的距离剔除
 
 // 采样器状态：线性过滤 + 纹理坐标钳位（0~1 范围，避免采样到纹理外）
 SamplerState linearClampSampler;
@@ -109,6 +110,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
         // 11. 距离密度筛选：根据与相机的距离降低草的密度（性能优化）
         // 这个之后添加，适用于根据相机距离随机剔除一些草，离得越远剔除概率越大，以达到优化性能
         float disMaskValue = smoothstep(0.0*_drawDistance,_drawDistance,distanceFromCamera);
+        disMaskValue = pow(disMaskValue,0.3);
         //disMaskValue *= disMaskValue*disMaskValue;
         bool inDisLevel = saturate(random(currentIndex.x * 9421 + currentIndex.y) - 0.001) >= disMaskValue;
 
@@ -156,9 +158,10 @@ void CSMain (uint3 id : SV_DispatchThreadID)
                 absPosCS.y <= absPosCS.w  * 1.5&& // 纵深近处剔除
                 absPosCS.x <= absPosCS.w  * 1.1 // 视线角度 
                 
-                //&& grassDepth <= depthMap
+                && grassDepth <= depthMap
                 //&& depthMap <= 10.0 // 遮挡剔除
-                //&& grassDepth <= 10.0 // 遮挡剔除
+                //&& grassDepth <= 50.0 // 遮挡剔除
+                && grassDepth <= _extraDistanceRemoval // 额外的距离剔除
                 )
                 
             {

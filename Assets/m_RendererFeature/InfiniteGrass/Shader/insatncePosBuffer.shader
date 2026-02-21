@@ -229,6 +229,7 @@ Shader "Unlit/insatncePosBuffer"
                 verPosWS += bezierOffset; // 应用力
                 verPosWS.y -= length(bezierOffset) * t * _GrassDown; // 长度守恒，偏移的越狠，高度越低
 
+
                 //// 计算变形后的法线
                 // 二次贝塞尔曲线公式：B(t) = (1-t)²P₀ + 2t(1-t)P₁ + t²P₂
                 // 导数：B'(t) = 2(1-t)(P₁-P₀) + 2t(P₂-P₁)
@@ -239,7 +240,8 @@ Shader "Unlit/insatncePosBuffer"
                 deNor = normalize(float3(deNor.x,1.0-tangent.y,deNor.z));
                 
                 float3x3 deformNorMatrix = float3x3(rightDir,normalize(tangent),lookDir);
-                deNor = mul(float3(0,0,1),deformNorMatrix);
+                deNor = mul(TransformObjectToWorldNormal(v.normal),deformNorMatrix);
+
 
                 // ================== 最终传递 =========================================
                 float4 pp = TransformWorldToHClip( worldOffset + _PosOffset*grassUPAxis +  verPosWS );
@@ -247,7 +249,8 @@ Shader "Unlit/insatncePosBuffer"
                 //o.normal = lerp(lookDir,float3(0,1,0),smoothstep(0,1,length(bezierOffset)));
                 //o.normal = normalize(cross(tangent,rightDir));
                 //o.normal = mul(v.normal,BillBoardMatrix);
-                o.normal = normalize(deNor);
+                //o.normal = normalize(deNor);
+                o.normal = deNor;
                 o.grassHeight = t;
                 o.vertex = pp;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
