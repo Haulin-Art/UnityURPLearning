@@ -241,12 +241,14 @@ Shader "Unlit/cesPosBuffer"
                 // 导数：B'(t) = 2(1-t)(P₁-P₀) + 2t(P₂-P₁)
                 float3 tangent = 2*(1-t)*(midPoint-float3(0,0,0)) + 2*t*(endPoint-midPoint);
                 //float3 bitangent = normalize(cross(float3(bezierOffset.x,0,bezierOffset.z),float3(0,1,0)));
-                float3 bitangent = normalize(float3(-bezierOffset.z,0,bezierOffset.x));
-                float3 deNor = normalize(cross(tangent,bitangent));
-                deNor = normalize(float3(deNor.x,1.0-tangent.y,deNor.z));
-                
-                float3x3 deformNorMatrix = float3x3(rightDir,normalize(tangent),lookDir);
-                deNor = mul(float3(0,0,1),deformNorMatrix);
+                //float3 bitangent = normalize(float3(-bezierOffset.z,0,bezierOffset.x));
+                //float3 deNor = normalize(cross(tangent,bitangent));
+                //deNor = normalize(float3(deNor.x,1.0-tangent.y,deNor.z));
+                //
+                //float3x3 deformNorMatrix = float3x3(rightDir,normalize(tangent),lookDir);
+                //deNor = mul(float3(0,0,1),deformNorMatrix);
+
+                float3 deNor = normalize(cross(tangent,rightDir));
 
                 // ================== 最终传递 =========================================
                 float4 pp = TransformWorldToHClip( worldOffset + _PosOffset*grassUPAxis +  verPosWS );
@@ -281,14 +283,14 @@ Shader "Unlit/cesPosBuffer"
                 diff = lerp(diff,1.0,0.5)*(shadowAttenuation+ambient);
 
                 // ================= 高光 ===============================
-                float specular = pow(max(dot(i.normal,h),0.0),5.0);
+                float specular = pow(max(dot(i.normal,h),0.0),15.0);
                 specular = smoothstep(0.7,1.0,specular)*1.5;
 
                 //float2 nsUV = ( _NSVelocityParams.xy - i.worldPos.xz ) / 10.0;
                 //nsUV *= step(abs(nsUV.x),0.5) * step(abs(nsUV.y),0.5);
                 //nsUV += float2(0.5,0.5);
-                
                 //float2 ns = tex2D(_NSVelocityTex,nsUV).xy;
+
                 float3 albedo = lerp(_DownCol,_UpCol,i.grassHeight*_ColRamp);
                 // 远处的暗部颜色变弱
                 float dep = length(i.worldPos-_WorldSpaceCameraPos);
