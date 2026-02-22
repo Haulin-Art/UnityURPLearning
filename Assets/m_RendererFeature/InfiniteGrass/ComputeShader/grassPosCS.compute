@@ -30,6 +30,15 @@ Texture2D<float> _CameraDepthTexture;
 // 存储类型：float3（草的世界位置 X/Y/Z）
 AppendStructuredBuffer<float3> _GrassPositions;
 
+
+// 分段储存
+RWStructuredBuffer<float3> _SegmentedBuffer;
+RWStructuredBuffer<uint> _Counters; // 不同类型的实例数量的计数器
+// 线程组内的共享变量，这里可以理解为每个小组内的计数，最终会统计所有小组
+groupshared uint localCounter[2]; // 本线程各类型的数量
+groupshared uint offset[2]; // 本组内的索引偏移量
+
+
 // ====================================== 辅助函数：哈希函数（生成伪随机数） ======================================
 // MurmurHash3 哈希算法（简化版）：将整数输入转换为无符号整数哈希值，用于生成均匀的伪随机数
 uint murmurHash3(int input) {
@@ -55,12 +64,30 @@ float Remap(float In, float2 InMinMax, float2 OutMinMax)
     return OutMinMax.x + (In - InMinMax.x) * (OutMinMax.y - OutMinMax.x) / (InMinMax.y - InMinMax.x);
 }
 
+
 // [numthreads(8, 8, 1)]：定义线程组的大小（X=8，Y=8，Z=1）
 // 每个线程组包含 8*8*1=64 个线程，GPU 会按线程组调度（需与 C# 端的 Dispatch 线程组数匹配）
 // SV_DispatchThreadID：当前线程的全局ID（唯一标识，对应网格中的位置）
 [numthreads(8,8,1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID , uint groupIndex : SV_GroupThreadID )
 {
+    bool enable = false ; // 确定本线程计算出的位置是否加入
+    float3 finalPos = float3(0,0,0); // 最终位置
+    uint localIndex = 0 ; // 可用的数据的本组内的索引
+    uint type = 0; // 本数据的类型
+    
+    // 初始化局部计数,只在开头的索引执行
+    if (groupIndex == 0)
+    {
+        localCounter[0] = 0;
+        localCounter[1] = 0;
+    }
+    // 等待本线程组内的所有线程到达完成这一步
+    GroupMemoryBarrierWithGroupSync();
+
+
+
+
     // 1. 计算当前线程对应的草地网格索引（全局索引 = 网格起始索引 + 线程ID的XY分量）
     int2 currentIndex = _gridStartIndex + id.xy;
     // 2. 计算草的初始XZ世界位置（网格索引 * 草间距 = 基础位置）
@@ -122,17 +149,11 @@ void CSMain (uint3 id : SV_DispatchThreadID)
             float4 clipPos = mul(_VPMatrix, float4(positionWS, 1.0)); // 世界空间→裁剪空间
             float4 absPosCS = abs(clipPos); // 取绝对值，简化裁剪判断
 
-            //float4 viewPos = mul(unity_MatrixV, float4(positionWS, 1.0)); // 转换到视图空间
             float4 viewPos = mul(_VMatrix, float4(positionWS, 1.0)); // 转换到视图空间
-            // 设置遮挡剔除参数
-            // 正确的屏幕UV计算
+            // 设置遮挡剔除参数 正确的屏幕UV计算
             float2 ndc = clipPos.xy / clipPos.w;  // 转换为NDC坐标[-1, 1]
-            //float2 screenUV = ndc * 0.5 + 0.5;    // 转换为[0, 1]
             float4 screenPos = ComputeScreenPos(clipPos);
             float2 screenUV = screenPos.xy / screenPos.w;
-            //float2 screenUV = (clipPos.xy / clipPos.w)*0.5+0.5;
-            //float posDepth = clipPos.z / clipPos.w ;
-            //float posDepth = length(positionWS-_camPosition);
             // 处理平台差异：Y轴可能翻转
             #if UNITY_UV_STARTS_AT_TOP
                 screenUV.y = 1.0 - screenUV.y;
@@ -144,32 +165,76 @@ void CSMain (uint3 id : SV_DispatchThreadID)
             float grassDepth = -viewPos.z;  // 相机空间线性深度
             //grassDepth = length(positionWS-_camPosition);
 
-
             float depthMap = _CameraDepthTexture.SampleLevel(linearClampSampler,screenUV/1.0,0);
             depthMap = LinearEyeDepth(depthMap,_ZBufferParams);
             
             // 裁剪条件（宽松裁剪，避免边缘草被过度裁剪）：
-            // - z ≤ w：在相机近裁剪面之后
-            // - y ≤ w*1.5：Y轴范围放宽1.5倍
-            // - x ≤ w*1.1：X轴范围放宽1.1倍
-            // - w ≤ _DrawDistance：在绘制距离内
             //if (absPosCS.z <= absPosCS.w && absPosCS.y <= absPosCS.w * 1.5 && absPosCS.x <= absPosCS.w * 1.1 && absPosCS.w <= _drawDistance)；
             if (absPosCS.z <= absPosCS.w *1.2 && // 这个不知道，好像改了效果不明显
                 absPosCS.y <= absPosCS.w  * 1.5&& // 纵深近处剔除
                 absPosCS.x <= absPosCS.w  * 1.1 // 视线角度 
                 
-                && grassDepth <= depthMap
+                //&& grassDepth <= depthMap
                 //&& depthMap <= 10.0 // 遮挡剔除
                 //&& grassDepth <= 50.0 // 遮挡剔除
-                && grassDepth <= _extraDistanceRemoval // 额外的距离剔除
+                //&& grassDepth <= _extraDistanceRemoval // 额外的距离剔除
                 )
                 
             {
+                // 到这里是所有可用的位置，开始判断类型
+                // 我这里简单的用比例确定不同类型，类型A占30%，类型B占70%
+                // 根据类型后会获取在本组内的唯一索引
+                //uint myLocalNumber = 0;  // 我在本组内的排队号
+                float rate = saturate(random(currentIndex.x * 9421 + currentIndex.y) - 0.001);
+                if (grassDepth < 10.0)
+                {
+                    type = 0;
+                    InterlockedAdd(localCounter[type], 1, localIndex);
+                    // InterlockedAdd(A,B,C) 这个函数相当于这样运算 先计算 C = A + B ，之后 A = A + B 
+                }else
+                {
+                    type = 1;
+                    InterlockedAdd(localCounter[type], 1, localIndex);
+                }
+                enable = true;
+                finalPos = positionWS;
+
 
                 // 14. 所有筛选通过，将草位置追加到缓冲区
-                _GrassPositions.Append(positionWS);
+                _GrassPositions.Append(positionWS); // 这里是原始的，这里先不改
             }
         }
 
     }
+
+    
+    // 等待所有通过的完成
+    GroupMemoryBarrierWithGroupSync();
+
+
+    // 获取全局唯一索引
+    if (groupIndex == 0) 
+    {
+        uint prevCountA, prevCountB ;
+        InterlockedAdd(_Counters[0], localCounter[0], prevCountA);
+        InterlockedAdd(_Counters[1], localCounter[1], prevCountB);
+
+        offset[0] = prevCountA;
+        offset[1] = prevCountA + prevCountB ;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    
+    if (enable)
+    {
+        uint globalIndex = 0; // 全局索引
+
+        if (type == 0 )
+        {
+            globalIndex = offset[0] + localIndex;
+        }else{
+            globalIndex = offset[1] + localIndex;
+        }
+        _SegmentedBuffer[globalIndex] = finalPos;
+    }
+    
 }

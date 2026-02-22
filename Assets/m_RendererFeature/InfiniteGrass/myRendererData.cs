@@ -108,7 +108,7 @@ public class myRendererData : MonoBehaviour
         // 7. 执行GPU实例化间接渲染（核心：百万级草叶渲染）
         // 参数：草叶网格、子网格索引、材质、渲染范围包围盒、间接参数缓冲区
         Graphics.DrawMeshInstancedIndirect(cacheMesh, 0, grassMaterial, cameraBounds, argsBuffer);
-
+        /*
         if (dataArray.Length != 0 && true)
         {
             dataArray[0].argsBuffer?.Release();
@@ -130,6 +130,7 @@ public class myRendererData : MonoBehaviour
             argsBufferArray.SetData(args2);
             Graphics.DrawMeshInstancedIndirect(dataArray[0].mesh, 0, dataArray[0].mat, cameraBounds, argsBufferArray);
         }
+        */
     }
     /// <summary>
     /// OnGUI：调试显示可见草叶数量和调度尺寸

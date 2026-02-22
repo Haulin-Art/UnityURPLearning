@@ -259,13 +259,13 @@ MonoBehaviour:
   offsetScale: 8
   footHeight: 0.05
   size: 512
-  dt: 0.15
+  dt: 0.05
   penRadius: 0.008
   SpeedScale: 4.97
   advectSpeed: 0.25
   pressureIterations: 10
-  speedAttenuation: 0.005
-  colorAttenuation: 0.005
+  speedAttenuation: 0.0025
+  colorAttenuation: 0.0025
 --- !u!23 &135518588
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -415,7 +415,7 @@ MonoBehaviour:
   customCam: {fileID: 0}
   cacheMesh: {fileID: -1119430988441025290, guid: 8f21c89d5d0208a4297cdfc7c098974b,
     type: 3}
-  previewVisibleGrassCount: 0
+  previewVisibleGrassCount: 1
   counters: 0
   grassMaterial: {fileID: 2100000, guid: 93789f71b6e7882429a3b7c23ed9ddd0, type: 2}
   camBounds:

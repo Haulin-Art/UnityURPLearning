@@ -67,8 +67,15 @@ public class GrassRendererPass : ScriptableRendererFeature
         ComputeBuffer grassPosBuffer;
         ComputeBuffer instancePosBuffer;
         
-        // 用于强制 MainCamera 裁剪的参数
-        //private ScriptableCullingParameters _cullingParams;
+
+
+        // 实例数据
+        private ComputeBuffer _countersBuffer; // 储存每个类型的数量的Buffer
+        private ComputeBuffer _segmentedBuffer;
+
+
+
+
 
         public GrassPass(string name,Settings settings)// 构造函数
         {
@@ -205,26 +212,49 @@ public class GrassRendererPass : ScriptableRendererFeature
             // 重置计数器
             grassPosBuffer.SetCounterValue(0);
             instancePosBuffer.SetCounterValue(0);
+            
+            
+            // 
+            int typeCounters = 2; // 类型数量
+            _countersBuffer?.Release();
+            _countersBuffer = new ComputeBuffer(typeCounters, sizeof(uint)); 
+            // 重置计数器
+            uint[] zeroCounters = new uint[2] { 0, 0 };
+            _countersBuffer.SetData(zeroCounters);
+            _countersBuffer.SetCounterValue(0);
+
+            _segmentedBuffer?.Release();
+            _segmentedBuffer = new ComputeBuffer((int)(100000 * settings.maxBufferCount) , sizeof(float) * 3);
+
 
 
             // 将Compute Shader的计算包装成一个函数
             ComputePosBuffer(ref cmd,ref grassPosBuffer,settings.computeShader,
-                centerPos,camBounds,1.0f,1000.0f);
+                centerPos,camBounds,1.0f,1000.0f,   ref _segmentedBuffer , ref _countersBuffer  );
 
             // 将草位置缓冲区设为全局，供实例化渲染Shader使用
-            cmd.SetGlobalBuffer("_GrassPositions", grassPosBuffer);
+            //cmd.SetGlobalBuffer("_GrassPositions", grassPosBuffer);
             cmd.SetGlobalTexture("_GrassHeightMap",depRT);
             cmd.SetGlobalVector("_GrassUVParams",new Vector4(centerPos.x,centerPos.y,settings.textureUpdateThreshold,settings.drawDistance));
             
+            cmd.SetGlobalBuffer("_GrassPositions", _segmentedBuffer);
+            
+            uint[] finalCounters = new uint[2];
+            _countersBuffer.GetData(finalCounters);
+            Debug.Log($"类型A实例数: {finalCounters[0]}");
+            Debug.Log($"类型B实例数: {finalCounters[1]}");
+            
+
             if(myRendererData.instance != null){
                 // 将缓冲区计数器值复制到argsBuffer（DrawMeshInstancedIndirect需要的参数）
                 // argsBuffer结构：[0]顶点数 [1]实例数 [2]起始顶点 [3]起始实例 [4]实际实例数（由计数器提供）
                 // 这里的4是起始字节，不是元素索引，也就是说argsBuffer的第一项是0-3，第二项是4-7.....
-                cmd.CopyCounterValue(grassPosBuffer, myRendererData.instance.argsBuffer, 4);
+                //cmd.CopyCounterValue(grassPosBuffer, myRendererData.instance.argsBuffer, 4);
+                myRendererData.instance.argsBuffer.SetCounterValue((uint)finalCounters[0]);
                 // 预览草的数量：将计数器值复制到tBuffer
                 if (myRendererData.instance.previewVisibleGrassCount)
                 {
-                    cmd.CopyCounterValue(grassPosBuffer, myRendererData.instance.tBuffer, 0);
+                    cmd.CopyCounterValue(_countersBuffer, myRendererData.instance.tBuffer, 0);
                 }
             }
 
@@ -236,31 +266,11 @@ public class GrassRendererPass : ScriptableRendererFeature
 
                 ComputePosBuffer(ref cmd,ref myRendererData.instance.dataArray[0].posBuffer,
                     settings.computeShader,
-                    centerPos,camBounds,5.0f,40.0f);
+                    centerPos,camBounds,5.0f,40.0f,   ref _segmentedBuffer , ref _countersBuffer  );
                 cmd.SetGlobalBuffer("_InstancePosition",myRendererData.instance.dataArray[0].posBuffer);
                 cmd.CopyCounterValue(myRendererData.instance.dataArray[0].posBuffer, 
                     myRendererData.instance.argsBufferArray, 4);    
-            }
-            
-            //}
-            /*
-            // =================================================== 每个都运行一遍 ============================================================
-            if(myRendererData.instance.dataArray.Length != 0)
-            {
-                for (int t = 0 ; t < myRendererData.instance.dataArray.Length ; t++)
-                {
-                    myRendererData.instance.dataArray[t].posBuffer?.Release();
-                    myRendererData.instance.dataArray[t].argsBuffer?.Release();
-                    myRendererData.instance.dataArray[t].posBuffer = new ComputeBuffer((int)(100000 * settings.maxBufferCount), sizeof(float) * 3, ComputeBufferType.Append);
-                    ComputePosBuffer(ref cmd,ref myRendererData.instance.dataArray[t].posBuffer,settings.computeShader,
-                        centerPos,camBounds,5.0f);
-                    cmd.CopyCounterValue(myRendererData.instance.dataArray[t].posBuffer, myRendererData.instance.dataArray[t].argsBuffer, 4);
-                }
-            }
-            */
-            
-            //GrassInstance.instance.grassPosBuffer = instancePosBuffer;
-            //}
+            }          
             
             // 执行ComputeShader相关命令
             context.ExecuteCommandBuffer(cmd);
@@ -293,7 +303,8 @@ public class GrassRendererPass : ScriptableRendererFeature
 
         }
         public void ComputePosBuffer(ref CommandBuffer cmd , ref ComputeBuffer cb , ComputeShader cs,
-            Vector3 centerPos,Bounds camBounds,float spaciingScale,float extraDistanceRemoval)
+            Vector3 centerPos,Bounds camBounds,float spaciingScale,float extraDistanceRemoval ,
+            ref ComputeBuffer segmentedBuffer , ref ComputeBuffer countersBuffer)
         {
             float spacing = settings.spacing * spaciingScale;
             // 计算草的网格大小（XZ方向的网格数量）
@@ -343,6 +354,9 @@ public class GrassRendererPass : ScriptableRendererFeature
             cmd.SetComputeTextureParam(cs,0,"_CameraDepthTexture",camDepRT);
             cmd.SetComputeBufferParam(cs, 0, "_GrassPositions", cb);
 
+
+            cmd.SetComputeBufferParam(cs, 0, "_Counters", countersBuffer);
+            cmd.SetComputeBufferParam(cs, 0, "_SegmentedBuffer", segmentedBuffer);
 
             // 重置Append缓冲区的计数器（必须）
             cb.SetCounterValue(0);

@@ -305,6 +305,11 @@ Shader "Unlit/cesPosBuffer"
                 float3 grassUPAxis = normalize(float3(xyNor.x,sqrt(1-dot(xyNor,xyNor)),xyNor.y));
 
 
+
+                float3 cool = instanceID < 20 ? float3(1,0,0) : float3(0,0,1);
+                return float4(cool,1.0);
+
+
                 return float4((diff+specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
                 //return float4(()*float3(1,1,1),1);
                 //return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);
