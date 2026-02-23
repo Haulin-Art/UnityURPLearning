@@ -99,7 +99,7 @@ Shader "Unlit/insatncePosBuffer"
             float4 _NSVelocityParams;
 
             // 实例的位置
-            StructuredBuffer<float3> _InstancePosition;
+            StructuredBuffer<float3> _GrassPositions;
             sampler2D _GrassHeightMap;
             float4 _GrassUVParams;
             // MurmurHash3 哈希算法（简化版）：将整数输入转换为无符号整数哈希值，用于生成均匀的伪随机数
@@ -156,7 +156,7 @@ Shader "Unlit/insatncePosBuffer"
             v2f vert (appdata v, uint instanceID : SV_InstanceID)
             {
                 v2f o;
-                int onlyInt = ceil(_InstancePosition[instanceID].x)+ceil(_InstancePosition[instanceID].z);
+                int onlyInt = ceil(_GrassPositions[instanceID].x)+ceil(_GrassPositions[instanceID].z);
                 float ran = random(onlyInt);
                 float ranScale = pow(ran,0.5) + 0.4;;
 
@@ -165,7 +165,7 @@ Shader "Unlit/insatncePosBuffer"
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
                 // 获取 Buffer 记录的偏移
-                float3 worldOffset = _InstancePosition[instanceID] ;//- float3(0,0,4); // test
+                float3 worldOffset = _GrassPositions[instanceID] ;//- float3(0,0,4); // test
                 
                 // 根据地形法向更新草的上朝向，根据深度计算法线朝向，勾股定理
                 float2 grassWorldUV = (worldOffset.xz-_GrassUVParams.xy)/(_GrassUVParams.z+_GrassUVParams.w);
