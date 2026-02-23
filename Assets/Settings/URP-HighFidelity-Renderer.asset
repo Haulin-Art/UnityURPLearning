@@ -22,7 +22,8 @@ MonoBehaviour:
     textureUpdateThreshold: 1
     spacing: 0.07
     maxBufferCount: 7
-    depthMaterial: {fileID: 2100000, guid: d20aa97f7ae5eeb4692d6683cd9a5dab, type: 2}
+    topOrthDepMat: {fileID: 2100000, guid: d20aa97f7ae5eeb4692d6683cd9a5dab, type: 2}
+    viewSpaceDepMat: {fileID: 2100000, guid: b435141ef14a0944da757ca86a7f76a4, type: 2}
     showMat: {fileID: 2100000, guid: 3bbb4eccbc0a67d47a84b3a3dbf74ca8, type: 2}
     computeShader: {fileID: 7200000, guid: 9b2227198b33b8749b0214995cda5c4d, type: 3}
 --- !u!114 &-6292269655307114990

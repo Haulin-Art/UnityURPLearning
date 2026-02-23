@@ -3,7 +3,10 @@ Shader "Unlit/cesPosBuffer"
     Properties
     {
         _MainTex ("颜色纹理", 2D) = "white" {}
-        _GrassScale ("大小缩放",Range(0.0,10.0)) = 1.5
+        _NorTex ("法线贴图",2D) = "blue" {}
+        [Space(15)]
+        _TotalScale ("整体大小缩放",Range(0.0,5.0)) = 1.0
+        _GrassScale ("大小缩放",Vector) = (1,1,1,1)
         _PosOffset ("高度偏移",Range(-2.0,2.0)) = 0.0
         [Space(15)]
         _UpCol ("草尖颜色",Color) = (1,1,1,1)
@@ -13,7 +16,7 @@ Shader "Unlit/cesPosBuffer"
         _TerrainUpAxisScale ("草朝向随地形法向强度",Range(0.0,1.0)) = 5.0
         _GrassDown ("草受力下垂程度",Range(0.0,5.0)) = 2.0
         _MaxForce ("最大力限制",Range(0.0,5.0)) = 0.8
-        _ActorWindFieldStrangth ("角色风场强度",Range(0.0,2.0)) = 1.5
+        _ActorWindFieldStrangth ("角色风场强度",Range(0.0,10.0)) = 1.5
         _WindTex ("风场贴图", 2D) = "black" {}
         _WindStrength ("风强度",Range(0.0,5.0)) = 2.0
         _WindSpeed ("风速",Range(0.0,1.0)) = 0.25
@@ -71,15 +74,19 @@ Shader "Unlit/cesPosBuffer"
                 float2 uv : TEXCOORD0;
                 float4 vertex : SV_POSITION;
                 float3 normal : TEXCOORD1;
+                float3 tangent : TEXCOORD5;
                 float3 worldPos : TEXCOORD2;
+                float3 cesCol : TEXCOORD3;
                 float grassHeight : TEXCOORD4;
 
-                float3 cesCol : TEXCOORD3;
+                
             };
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
-            float _GrassScale;
+            sampler2D _NorTex;
+            float _TotalScale;
+            float3 _GrassScale;
             float _PosOffset;
             float3 _UpCol;
             float3 _DownCol;
@@ -167,7 +174,7 @@ Shader "Unlit/cesPosBuffer"
                 float ran = random(onlyInt);
                 float ranScale = pow(ran,0.5) + 0.4;;
 
-                v.vertex *= _GrassScale;
+                v.vertex.xyz *= _GrassScale * _TotalScale;
                 //v.vertex *= ranScale * 1.5;
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
@@ -177,9 +184,9 @@ Shader "Unlit/cesPosBuffer"
                 // 根据地形法向更新草的上朝向，根据深度计算法线朝向，勾股定理
                 float2 grassWorldUV = (worldOffset.xz-_GrassUVParams.xy)/(_GrassUVParams.z+_GrassUVParams.w);
                 grassWorldUV = clamp(grassWorldUV*0.5+0.5,0,1);
-                float midDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV,0,0));
-                float rightDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV+float2(0.01,0.0),0,0));
-                float upDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV+float2(0.0,0.01),0,0));
+                float midDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV,0,0)).r;
+                float rightDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV+float2(0.01,0.0),0,0)).r;
+                float upDepth = tex2Dlod(_GrassHeightMap,float4(grassWorldUV+float2(0.0,0.01),0,0)).r;
                 float2 xyNor = float2(midDepth-rightDepth,midDepth-upDepth)*_TerrainUpAxisScale*50.0;
                 float3 grassUPAxis = normalize(float3(xyNor.x,sqrt(1-dot(xyNor,xyNor)),xyNor.y));
 
@@ -231,7 +238,7 @@ Shader "Unlit/cesPosBuffer"
                 force = length(force)>maxForce? normalize(force)*maxForce : force;
                 // 计算贝塞尔
                 float t = v.vertex.y * v.vertex.y ;
-                float3 endPoint = float3(-force.x,0.3,-force.y);
+                float3 endPoint = float3(-force.x,1.0,-force.y);
                 float3 midPoint = 0.5*endPoint;
                 float3 bezierOffset = QuadraticBezier(float3(0,0,0),midPoint,endPoint,t);
                 verPosWS += bezierOffset; // 应用力
@@ -241,23 +248,13 @@ Shader "Unlit/cesPosBuffer"
                 // 二次贝塞尔曲线公式：B(t) = (1-t)²P₀ + 2t(1-t)P₁ + t²P₂
                 // 导数：B'(t) = 2(1-t)(P₁-P₀) + 2t(P₂-P₁)
                 float3 tangent = 2*(1-t)*(midPoint-float3(0,0,0)) + 2*t*(endPoint-midPoint);
-                //float3 bitangent = normalize(cross(float3(bezierOffset.x,0,bezierOffset.z),float3(0,1,0)));
-                //float3 bitangent = normalize(float3(-bezierOffset.z,0,bezierOffset.x));
-                //float3 deNor = normalize(cross(tangent,bitangent));
-                //deNor = normalize(float3(deNor.x,1.0-tangent.y,deNor.z));
-                //
-                //float3x3 deformNorMatrix = float3x3(rightDir,normalize(tangent),lookDir);
-                //deNor = mul(float3(0,0,1),deformNorMatrix);
-
-                float3 deNor = normalize(cross(tangent,rightDir));
+                float3 deNor = normalize(cross(rightDir,tangent));
 
                 // ================== 最终传递 =========================================
                 float4 pp = TransformWorldToHClip( worldOffset + _PosOffset*grassUPAxis +  verPosWS );
-                //o.normal = TransformObjectToWorldNormal(v.normal);
-                //o.normal = lerp(lookDir,float3(0,1,0),smoothstep(0,1,length(bezierOffset)));
-                //o.normal = normalize(cross(tangent,rightDir));
-                //o.normal = mul(v.normal,BillBoardMatrix);
-                o.normal = normalize(deNor);
+
+                o.normal = deNor;
+                o.tangent = tangent;
                 o.grassHeight = t;
                 o.vertex = pp;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
@@ -269,6 +266,9 @@ Shader "Unlit/cesPosBuffer"
             {
                 float4 col = tex2D(_MainTex, i.uv);
 
+                float3 nor = UnpackNormal(tex2D(_NorTex,i.uv));
+                float3x3 TBNMatrix = float3x3(normalize(cross(i.normal,i.tangent)),i.tangent,i.normal);
+                nor = mul(TBNMatrix,nor);
 
                 Light mainLight = GetMainLight(TransformWorldToShadowCoord(i.worldPos));
                 float3 lightDir = normalize(mainLight.direction); // 灯光方向（从采样点指向灯光）
@@ -280,12 +280,12 @@ Shader "Unlit/cesPosBuffer"
                 
                 // ================= 漫反射 ==============================
                 float3 ambient = 0.1;//UNITY_LIGHTMODEL_AMBIENT.rgb;
-                float diff = max(0.0,dot(i.normal,lightDir));
-                diff = lerp(diff,1.0,0.5)*(shadowAttenuation+ambient);
+                float diff = max(0.0,dot(nor,lightDir));
+                diff = lerp(diff,1.0,0.25)*(shadowAttenuation + ambient);
 
                 // ================= 高光 ===============================
-                float specular = pow(max(dot(i.normal,h),0.0),15.0);
-                specular = smoothstep(0.7,1.0,specular)*0.5;
+                float specular = pow(max(dot(nor,h),0.0),15.0);
+                specular = smoothstep(0.9,1.0,specular)*1.0;
 
                 //float2 nsUV = ( _NSVelocityParams.xy - i.worldPos.xz ) / 10.0;
                 //nsUV *= step(abs(nsUV.x),0.5) * step(abs(nsUV.y),0.5);
@@ -299,9 +299,9 @@ Shader "Unlit/cesPosBuffer"
 
                 float2 grassWorldUV = (i.worldPos.xz-_GrassUVParams.xy)/(_GrassUVParams.z+_GrassUVParams.w);
                 grassWorldUV = clamp(grassWorldUV*0.5+0.5,0,1);
-                float midDepth = tex2D(_GrassHeightMap,grassWorldUV);
-                float rightDepth = tex2D(_GrassHeightMap,grassWorldUV+float2(0.01,0.0));
-                float upDepth = tex2D(_GrassHeightMap,grassWorldUV+float2(0.0,0.01));
+                float midDepth = tex2D(_GrassHeightMap,grassWorldUV).r;
+                float rightDepth = tex2D(_GrassHeightMap,grassWorldUV+float2(0.01,0.0)).r;
+                float upDepth = tex2D(_GrassHeightMap,grassWorldUV+float2(0.0,0.01)).r;
                 float2 xyNor = float2(midDepth-rightDepth,midDepth-upDepth)*50.0;
                 float3 grassUPAxis = normalize(float3(xyNor.x,sqrt(1-dot(xyNor,xyNor)),xyNor.y));
 
@@ -310,8 +310,8 @@ Shader "Unlit/cesPosBuffer"
                 float3 cool = instanceID < 20 ? float3(1,0,0) : float3(0,0,1);
                 //return float4(cool,1.0);
 
-
-                return float4((diff+specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
+                //return float4(col*float3(1,1,1),1.0);
+                return float4((diff + specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
                 //return float4(()*float3(1,1,1),1);
                 return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);
                 return float4(float3(i.cesCol),1);
