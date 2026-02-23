@@ -10,13 +10,9 @@ public class myRendererData : MonoBehaviour
     [System.Serializable]
     public struct Datas
     {
-        public float drawDistance;
         public float spacing;
         public Mesh mesh;
         public Material mat;
-        public Texture2D appearanceMask;
-        public ComputeBuffer argsBuffer;
-        public ComputeBuffer posBuffer;
     }
     public Datas[] dataArray;
 
@@ -27,17 +23,25 @@ public class myRendererData : MonoBehaviour
     public float maxBufferCount = 1.0f;
     public GameObject customCam;
     [SerializeField]private Mesh cacheMesh;
+    public Mesh[] meshArray;
+    public float[] scale;
 
     public bool previewVisibleGrassCount = false;
     // 间接渲染参数缓冲区：存储DrawMeshInstancedIndirect所需的参数（索引数、实例数等）
     public ComputeBuffer argsBuffer;
-    public ComputeBuffer argsBufferArray;
+    public ComputeBuffer[] argsBufferArray;
     public int counters;
     // 临时缓冲区：用于预览可见草叶数量（调试用，性能开销大）
     public ComputeBuffer tBuffer;
     // 草叶渲染材质（关联前文的GrassBladeShader）
     public Material grassMaterial;
     [HideInInspector] public static myRendererData instance;
+
+    void Awake()
+    {
+        if (argsBufferArray == null)
+            argsBufferArray = new ComputeBuffer[2];
+    }
     void OnEnable()
     {
         instance = this;
@@ -45,12 +49,32 @@ public class myRendererData : MonoBehaviour
     void OnDisable()
     {
         instance = null;
-        // 释放缓冲区：?. 避免空引用异常
-        argsBuffer?.Release();
-        tBuffer?.Release();
+        // 释放单个 argsBuffer
+        if (argsBuffer != null)
+        {
+            argsBuffer.Release();
+            argsBuffer = null;
+        }
 
-        argsBufferArray?.Release();
-        dataArray[0].argsBuffer?.Release();
+        // 释放临时缓冲区
+        if (tBuffer != null)
+        {
+            tBuffer.Release();
+            tBuffer = null;
+        }
+
+        // 安全释放 argsBufferArray 内的每一个
+        if (argsBufferArray != null)
+        {
+            for (int t = 0; t < argsBufferArray.Length; t++)
+            {
+                if (argsBufferArray[t] != null)
+                {
+                    argsBufferArray[t].Release();
+                    argsBufferArray[t] = null;
+                }
+            }
+        }
         
     }
 
@@ -58,11 +82,12 @@ public class myRendererData : MonoBehaviour
     {
         //perTypeInstance = new ComputeBuffer[meshArray.Length];
         // 先释放旧的缓冲区（每帧重建，避免缓冲区大小不匹配）
-        argsBuffer?.Release();
-        tBuffer?.Release();
+        //argsBuffer?.Release();
+        //tBuffer?.Release();
 
-        argsBufferArray?.Release();
-
+        // 安全检查：Camera.main 和必须资源
+        if (Camera.main == null)
+            return;
         // 安全检查：间距为0或材质为空时，直接返回（避免无效操作）
         if (spacing == 0 || grassMaterial == null || cacheMesh == null) return;
         // 1. 计算相机的包围盒（基于绘制距离，确定草叶的渲染范围）
@@ -75,66 +100,62 @@ public class myRendererData : MonoBehaviour
         // 3. 初始化间接渲染参数缓冲区（argsBuffer）
         // 缓冲区大小：1个元素，每个元素包含5个uint（间接渲染的5个参数）
         // 缓冲区类型：IndirectArguments（专门用于间接渲染的参数缓冲区）
-        argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
-        argsBufferArray = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
-        
-        // 初始化临时调试缓冲区（存储可见草叶数量，1个uint）
-        tBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Raw);
-    
-        // 4. 填充间接渲染参数数组
-        uint[] args = new uint[5];
-        // args[0]：网格的索引数量（每个草叶Mesh的三角形索引数）
-        args[0] = (uint)cacheMesh.GetIndexCount(0);
-        // args[1]：最大实例数（缓冲区容量，实际实例数由ComputeShader的计数器覆盖）
-        args[1] = (uint)(maxBufferCount * 10000);
-        // args[2]：索引起始位置（默认0）
-        args[2] = (uint)cacheMesh.GetIndexStart(0);
-        // args[3]：基础顶点位置（默认0）
-        args[3] = (uint)cacheMesh.GetBaseVertex(0);
-        // args[4]：实际渲染的实例数（由ComputeShader的计数器更新，初始为0）
-        args[4] = 0;
-        // 将参数写入缓冲区
-        argsBuffer.SetData(args);
-
-        // 5. 传递密度纹理到材质（示例中未核心使用，可扩展密度控制）
-        //grassMaterial.SetTexture("_DensityTexture", densityTexture);
-        //grassMaterial.SetTextureScale("_DensityTexture", new Vector2(1, 1));
-
-        // 6. 传递全局参数到材质（与Shader/ComputeShader共享）
-        //grassMaterial.SetVector("_CenterPos", centerPos);
-        //grassMaterial.SetFloat("_DrawDistance", drawDistance);
-        //grassMaterial.SetFloat("_TextureUpdateThreshold", textureUpdateThreshold);
-
-        // 7. 执行GPU实例化间接渲染（核心：百万级草叶渲染）
-        // 参数：草叶网格、子网格索引、材质、渲染范围包围盒、间接参数缓冲区
-        Graphics.DrawMeshInstancedIndirect(cacheMesh, 0, grassMaterial, cameraBounds, argsBuffer);
-
-        if (dataArray.Length != 0 && true)
+        // 3. 确保 argsBuffer 已创建（如果已经存在则复用）
+        if (argsBuffer == null)
         {
-            dataArray[0].argsBuffer?.Release();
-            dataArray[0].argsBuffer=new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
+            argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
+        }
+
+
+        int typeCounts = dataArray.Length;
+        // 确保 argsBufferArray 中每一项也被创建（如果需要2个）
+        if (argsBufferArray == null)
+            argsBufferArray = new ComputeBuffer[typeCounts];
+        for (int t = 0; t < argsBufferArray.Length; t++)
+        {
+            if (argsBufferArray[t] == null)
+                argsBufferArray[t] = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
+        }
+        // 4. 临时调试缓冲区（只在不存在时创建）
+        if (tBuffer == null)
+            tBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Raw);
+    
+
+        for ( int t = 0 ; t < typeCounts ; t++)
+        {
+            Mesh mesh = dataArray[t].mesh;
             // 4. 填充间接渲染参数数组
-            uint[] args2 = new uint[5];
+            uint[] args = new uint[5];
             // args[0]：网格的索引数量（每个草叶Mesh的三角形索引数）
-            args2[0] = (uint)dataArray[0].mesh.GetIndexCount(0);
+            args[0] = (uint)mesh.GetIndexCount(0);
             // args[1]：最大实例数（缓冲区容量，实际实例数由ComputeShader的计数器覆盖）
-            args2[1] = (uint)(maxBufferCount * 10000);
-            //args2[1] = count[0]*50;
+            //args[1] = (uint)(maxBufferCount * 10000);
+            args[1] = (uint)(2 * 10000);
             // args[2]：索引起始位置（默认0）
-            args2[2] = (uint)dataArray[0].mesh.GetIndexStart(0);
+            args[2] = (uint)mesh.GetIndexStart(0);
             // args[3]：基础顶点位置（默认0）
-            args2[3] = (uint)dataArray[0].mesh.GetBaseVertex(0);
+            args[3] = (uint)mesh.GetBaseVertex(0);
             // args[4]：实际渲染的实例数（由ComputeShader的计数器更新，初始为0）
-            args2[4] = 0;
+            args[4] = 0;
             // 将参数写入缓冲区
-            argsBufferArray.SetData(args2);
-            Graphics.DrawMeshInstancedIndirect(dataArray[0].mesh, 0, dataArray[0].mat, cameraBounds, argsBufferArray);
+            //argsBuffer.SetData(args);
+            argsBufferArray[t].SetData(args);
+
+
+            // 7. 执行GPU实例化间接渲染（核心：百万级草叶渲染）
+            // 参数：草叶网格、子网格索引、材质、渲染范围包围盒、间接参数缓冲区
+            MaterialPropertyBlock mpb = new MaterialPropertyBlock();
+            mpb.SetInt("_Grass_Instance_Offset",t*50000);
+            //mpb.SetFloat("_GrassScale",scale[t]);
+            Graphics.DrawMeshInstancedIndirect(mesh, 0, dataArray[t].mat, cameraBounds, argsBufferArray[t],0,mpb);
+
         }
     }
+
     /// <summary>
     /// OnGUI：调试显示可见草叶数量和调度尺寸
     /// </summary>
-    
+    /*
     private void OnGUI()
     {
         if (previewVisibleGrassCount)
@@ -159,7 +180,7 @@ public class myRendererData : MonoBehaviour
             GUI.Label(new Rect(50, 80, 400, 200), "Visible Grass Count : " + count[0], style);
         }
     }
-    
+    */
     
     public Bounds camBounds;
 

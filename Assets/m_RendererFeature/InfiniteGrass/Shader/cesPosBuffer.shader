@@ -107,6 +107,7 @@ Shader "Unlit/cesPosBuffer"
             StructuredBuffer<float3> _GrassPositions;
             sampler2D _GrassHeightMap;
             float4 _GrassUVParams;
+            int _Grass_Instance_Offset;
 
             // MurmurHash3 哈希算法（简化版）：将整数输入转换为无符号整数哈希值，用于生成均匀的伪随机数
             uint murmurHash3(int input) {
@@ -171,7 +172,7 @@ Shader "Unlit/cesPosBuffer"
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
                 // 获取 Buffer 记录的偏移
-                float3 worldOffset = _GrassPositions[instanceID] ;//- float3(0,0,4); // test
+                float3 worldOffset = _GrassPositions[instanceID + _Grass_Instance_Offset] ;//- float3(0,0,4); // test
                 
                 // 根据地形法向更新草的上朝向，根据深度计算法线朝向，勾股定理
                 float2 grassWorldUV = (worldOffset.xz-_GrassUVParams.xy)/(_GrassUVParams.z+_GrassUVParams.w);
@@ -284,7 +285,7 @@ Shader "Unlit/cesPosBuffer"
 
                 // ================= 高光 ===============================
                 float specular = pow(max(dot(i.normal,h),0.0),15.0);
-                specular = smoothstep(0.7,1.0,specular)*1.5;
+                specular = smoothstep(0.7,1.0,specular)*0.5;
 
                 //float2 nsUV = ( _NSVelocityParams.xy - i.worldPos.xz ) / 10.0;
                 //nsUV *= step(abs(nsUV.x),0.5) * step(abs(nsUV.y),0.5);
@@ -305,9 +306,14 @@ Shader "Unlit/cesPosBuffer"
                 float3 grassUPAxis = normalize(float3(xyNor.x,sqrt(1-dot(xyNor,xyNor)),xyNor.y));
 
 
+
+                float3 cool = instanceID < 20 ? float3(1,0,0) : float3(0,0,1);
+                //return float4(cool,1.0);
+
+
                 return float4((diff+specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
                 //return float4(()*float3(1,1,1),1);
-                //return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);
+                return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);
                 return float4(float3(i.cesCol),1);
                 return float4(0,1,0,1);
             }
