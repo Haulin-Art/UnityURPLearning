@@ -1,9 +1,8 @@
-Shader "Unlit/ShowShader"
+Shader "Unlit/NewUnlitShader"
 {
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-        _KKK ("Test Float", Float) = 1.0 
     }
     SubShader
     {
@@ -35,8 +34,6 @@ Shader "Unlit/ShowShader"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
-            float _KKK;
-            sampler2D _CameraDepthTexture;
 
             v2f vert (appdata v)
             {
@@ -51,12 +48,9 @@ Shader "Unlit/ShowShader"
             {
                 // sample the texture
                 fixed4 col = tex2D(_MainTex, i.uv);
-                //fixed4 col = tex2D(_CameraDepthTexture, i.uv);
                 // apply fog
-                fixed dep = LinearEyeDepth(col.x);
                 UNITY_APPLY_FOG(i.fogCoord, col);
-                //return fixed4(_KKK,0,0,1);
-                return col*float4(1,1,1,1);
+                return col;
             }
             ENDCG
         }

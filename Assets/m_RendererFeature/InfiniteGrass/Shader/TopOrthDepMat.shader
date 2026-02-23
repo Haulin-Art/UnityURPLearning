@@ -1,4 +1,4 @@
-Shader "InfiniteGrass/TopOrthDepMat"
+Shader "InfiniteGrass/HeightMapShader"
 {
     Properties
     {

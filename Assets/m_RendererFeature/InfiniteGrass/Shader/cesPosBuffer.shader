@@ -285,7 +285,7 @@ Shader "Unlit/cesPosBuffer"
 
                 // ================= 高光 ===============================
                 float specular = pow(max(dot(i.normal,h),0.0),15.0);
-                specular = smoothstep(0.7,1.0,specular)*1.5;
+                specular = smoothstep(0.7,1.0,specular)*0.5;
 
                 //float2 nsUV = ( _NSVelocityParams.xy - i.worldPos.xz ) / 10.0;
                 //nsUV *= step(abs(nsUV.x),0.5) * step(abs(nsUV.y),0.5);

@@ -3,7 +3,6 @@
 
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
-// Create a RenderTexture with enableRandomWrite flag and set it
 // ===================== 从C#脚本传入的变量 =====================
 float _spacing;                 // 草地采样间距
 float _drawDistance;            // 草地绘制距离
@@ -26,18 +25,9 @@ SamplerState linearClampSampler;
 Texture2D<float2> _grassHeightTex;  // 草地高度纹理（R 通道存储高度信息,G 通道存储草生长区域标记）
 Texture2D<float> _CameraDepthTexture;
 
-// GPU 端缓冲区
-// AppendStructuredBuffer：GPU 端追加缓冲区，支持动态添加数据，带计数器（记录元素数量）
-// 存储类型：float3（草的世界位置 X/Y/Z）
-AppendStructuredBuffer<float3> _GrassPositions; // 这部分是之前的遗留，不影响
-
 // 分段储存
 RWStructuredBuffer<float3> _SegmentedBuffer;
 RWStructuredBuffer<uint> _Counters; // 不同类型的实例数量的计数器
-// 线程组内的共享变量，这里可以理解为每个小组内的计数，最终会统计所有小组
-//groupshared uint localCounter[2]; // 本线程各类型的数量
-//groupshared uint offset[2]; // 本组内的索引偏移量
-
 
 // ====================================== 辅助函数：哈希函数（生成伪随机数） ======================================
 // MurmurHash3 哈希算法（简化版）：将整数输入转换为无符号整数哈希值，用于生成均匀的伪随机数
@@ -74,7 +64,6 @@ void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID ,
     float3 finalPos = float3(0,0,0); // 最终位置
     uint type = 0; // 本数据的类型
     
-
     // 1. 计算当前线程对应的草地网格索引（全局索引 = 网格起始索引 + 线程ID的XY分量）
     int2 currentIndex = _gridStartIndex + id.xy;
     // 2. 计算草的初始XZ世界位置（网格索引 * 草间距 = 基础位置）
@@ -140,9 +129,8 @@ void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID ,
             // 正确的深度比较：
             // 1. 使用视图空间的深度（viewPos.z是负值，取绝对值）
             float grassDepth = -viewPos.z;  // 相机空间线性深度
-
-            float depthMap = _CameraDepthTexture.SampleLevel(linearClampSampler,screenUV/1.0,0);
-            depthMap = LinearEyeDepth(depthMap,_ZBufferParams);
+            // 这个也是之前写入的 相机空间的线性深度，所以也得加负号
+            float depthMap = -_CameraDepthTexture.SampleLevel(linearClampSampler,screenUV/1.0,0);
             
             // 裁剪条件（宽松裁剪，避免边缘草被过度裁剪）：
             //if (absPosCS.z <= absPosCS.w && absPosCS.y <= absPosCS.w * 1.5 && absPosCS.x <= absPosCS.w * 1.1 && absPosCS.w <= _drawDistance)；
@@ -150,53 +138,40 @@ void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID ,
                 absPosCS.y <= absPosCS.w  * 1.5&& // 纵深近处剔除
                 absPosCS.x <= absPosCS.w  * 1.1 // 视线角度 
                 
-                && grassDepth <= depthMap
-                && grassDepth <= _extraDistanceRemoval // 额外的距离剔除
+                && grassDepth <= depthMap + 0.001 // 遮挡剔除
+                //&& grassDepth <= _extraDistanceRemoval // 额外的距离剔除
                 )
-                
             {
                 // 到这里是所有可用的位置，开始判断类型
-                // 根据类型后会获取在本组内的唯一索引
-                //uint myLocalNumber = 0;  // 我在本组内的排队号
                 float rate = saturate(random(currentIndex.x * 9401 + currentIndex.y*224) - 0.001);
-                //if (grassDepth < 10.0)
                 if (rate < 0.2)
                 {
                     type = 0;
-                    //InterlockedAdd(localCounter[type], 1, localIndex);
-                    // InterlockedAdd(A,B,C) 这个函数相当于这样运算 先计算 C = A + B ，之后 A = A + B 
                 }else
                 {
                     type = 1;
-                    //InterlockedAdd(localCounter[type], 1, localIndex);
                 }
                 enable = true;
                 finalPos = positionWS;
 
-                // 14. 所有筛选通过，将草位置追加到缓冲区
-                //_GrassPositions.Append(positionWS); // 这里是原始的，这里先不改
+                // 最终计数以及写入部分
+                uint localIndex = 0 ; // 局部索引，样本在该类型的位置
+                uint globalIndex = 0; // 全局索引，样本在其类型内的索引 加上 类型索引偏移量
+
+                if (type == 0 )
+                {
+                    InterlockedAdd(_Counters[0],1,localIndex); // 原子操作，更新计数器以及获取局部索引
+                    globalIndex = localIndex ; // 第一个样本没有偏移量
+                }else{
+                    InterlockedAdd(_Counters[1],1,localIndex);
+                    globalIndex = 50000 + localIndex ;
+                }
+                _SegmentedBuffer[globalIndex] = finalPos;
             }
         }
 
     }
-    
-    if (enable)
-    {
-        uint localIndex = 0 ; // 局部索引，样本在该类型的位置
-        uint globalIndex = 0; // 全局索引，样本在其类型内的索引 加上 类型索引偏移量
-
-        if (type == 0 )
-        {
-            InterlockedAdd(_Counters[0],1,localIndex); // 原子操作，更新计数器以及获取局部索引
-            globalIndex = localIndex ; // 第一个样本没有偏移量
-        }else{
-            InterlockedAdd(_Counters[1],1,localIndex);
-            globalIndex = 50000 + localIndex ;
-        }
-        _SegmentedBuffer[globalIndex] = finalPos;
-    }
 }
-
 
 
 
@@ -209,5 +184,10 @@ void CopyToArgs(uint3 id : SV_DispatchThreadID)
 {
     uint cnt = _CountersR[_TypeIndex];
     _Args[1] = cnt;
-    _Args[4] = (_TypeIndex)*(50000-1); // 每种类型的偏移量是50000
+    // args[4]（startInstanceLocation / baseInstance）在不同平台/驱动/Unity 
+    // 后端上行为不一致或并不被传递（尤其当用间接绘制 + Unity 的封装时），
+    //所以即便你在 GPU 上把它写了，最终底层 Draw 调用可能没有把它用作 gl_BaseInstance/StartInstanceLocation。
+    // 另外一个关键是时序：如果你在 CPU 的 LateUpdate 发起 Draw，但真正写 argsBuffer 的
+    //  compute 是在后面的 render pass，Draw 会读到旧值。
+    //_Args[4] = (_TypeIndex)*(50000-1); // 每种类型的偏移量是50000
 }   

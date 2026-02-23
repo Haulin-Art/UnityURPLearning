@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: depMat
+  m_Name: Mi_TopOrthDepMat
   m_Shader: {fileID: 4800000, guid: bae5567379c2f19449f802cd7ae60360, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
