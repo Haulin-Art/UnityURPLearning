@@ -3,18 +3,19 @@ Shader "Unlit/ViewSpaceDepth"
     SubShader
     {
         Tags { "RenderType"="Opaque" "RenderPipeline"="UniversalPipeline" }
-        
         Pass
         {
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             
+            
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                float4 normal : NORMAL ;
             };
             
             struct Varyings
@@ -26,6 +27,7 @@ Shader "Unlit/ViewSpaceDepth"
             Varyings vert(Attributes input)
             {
                 Varyings output;
+                //input.positionOS.xyz -= 0.05 * input.normal.xyz;
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
                 float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 float3 positionVS = TransformWorldToView(positionWS);

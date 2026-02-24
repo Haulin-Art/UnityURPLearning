@@ -64,6 +64,7 @@ public class GrassRendererPass : ScriptableRendererFeature
         private readonly Settings settings; // 传入的数据
         private RTHandle topOrthographicDepth; // 创建一个用于从上方往下看的储存深度值的RTHandle
         private RTHandle camDepRT; // 正常视角下的摄像机的线性深度，这里渲染一张，不用深度缓冲，因为变换了摄像机的话，其参数不同，会导致编辑器视角与游戏视角的效果不一致
+        private RTHandle tempDepRT; // 用于深度测试的RT，避免摄像机视角空间深度写入时错误
         public int unsampleInt = 2;
         
         private readonly List<ShaderTagId> shaderTagList = new List<ShaderTagId>();
@@ -108,6 +109,11 @@ public class GrassRendererPass : ScriptableRendererFeature
                 new RenderTextureDescriptor( (int)(Camera.main.pixelWidth / unsampleInt) , 
                 (int)Camera.main.pixelHeight / unsampleInt, RenderTextureFormat.RFloat,0),
                 FilterMode.Bilinear);
+            RenderingUtils.ReAllocateIfNeeded(ref tempDepRT,
+                new RenderTextureDescriptor( (int)(Camera.main.pixelWidth / unsampleInt) , 
+                (int)Camera.main.pixelHeight / unsampleInt, RenderTextureFormat.RFloat,8),
+                FilterMode.Bilinear);
+
 
             ConfigureTarget(topOrthographicDepth);
             // 配置清除规则：清除颜色为0（深度值0表示最近），清除深度和颜色
@@ -166,13 +172,14 @@ public class GrassRendererPass : ScriptableRendererFeature
             // 只能自己渲染一张 视图空间的线性深度信息
             using (new ProfilingScope(cmd, new ProfilingSampler("Cam Depth Map RT")))
             {
-                cmd.SetRenderTarget(camDepRT);
+                cmd.SetRenderTarget(camDepRT,tempDepRT);
                 cmd.ClearRenderTarget(true,true, Color.black);
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
                 var drawSetting = CreateDrawingSettings(shaderTagList, ref renderingData, renderingData.cameraData.defaultOpaqueSortFlags);
                 drawSetting.overrideMaterial = settings.viewSpaceDepMat;
-                var filterSetting = new FilteringSettings(RenderQueueRange.all, settings.renderLayer);
+                //var filterSetting = new FilteringSettings(RenderQueueRange.all, settings.renderLayer);
+                var filterSetting = new FilteringSettings(RenderQueueRange.all);
                 context.DrawRenderers(renderingData.cullResults, ref drawSetting, ref filterSetting);
             }
 
