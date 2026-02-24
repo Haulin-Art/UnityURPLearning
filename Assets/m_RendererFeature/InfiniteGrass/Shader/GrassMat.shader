@@ -3,6 +3,7 @@ Shader "Unlit/cesPosBuffer"
     Properties
     {
         _MainTex ("颜色纹理", 2D) = "white" {}
+        [Toggle]_UseNorTex ("使用法线贴图",int) = 1
         _NorTex ("法线贴图",2D) = "blue" {}
         [Space(15)]
         _TotalScale ("整体大小缩放",Range(0.0,5.0)) = 1.0
@@ -13,6 +14,8 @@ Shader "Unlit/cesPosBuffer"
         _DownCol ("草根颜色",Color) = (0,0,0,0)
         _ColRamp ("颜色渐变控制",Range(-2.0,2.0))=1.0
         [Space(15)]
+        [Toggle]_UseBillBoard ("使用广告牌变形",int) = 1
+        [Toggle]_OnlyMove ("随力移动的同时发生变形",int) = 1
         _TerrainUpAxisScale ("草朝向随地形法向强度",Range(0.0,1.0)) = 5.0
         _GrassDown ("草受力下垂程度",Range(0.0,5.0)) = 2.0
         _MaxForce ("最大力限制",Range(0.0,5.0)) = 0.8
@@ -73,8 +76,9 @@ Shader "Unlit/cesPosBuffer"
             {
                 float2 uv : TEXCOORD0;
                 float4 vertex : SV_POSITION;
-                float3 normal : TEXCOORD1;
-                float3 tangent : TEXCOORD5;
+                float3 normal : TEXCOORD6;
+                float3 bezNormal : TEXCOORD1;
+                float3 bezTangent : TEXCOORD5;
                 float3 worldPos : TEXCOORD2;
                 float3 cesCol : TEXCOORD3;
                 float grassHeight : TEXCOORD4;
@@ -84,27 +88,38 @@ Shader "Unlit/cesPosBuffer"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
+
             sampler2D _NorTex;
-            float _TotalScale;
-            float3 _GrassScale;
-            float _PosOffset;
-            float3 _UpCol;
-            float3 _DownCol;
-            float _ColRamp;
-            float _TerrainUpAxisScale;
-            float _MaxForce;
-            float _ActorWindFieldStrangth;
-            float _GrassDown;
+            CBUFFER_START(UnityPerMaterial)
+                float _TotalScale;
+                float3 _GrassScale;
+                int _UseNorTex;
+                float _PosOffset;
+                float3 _UpCol;
+                float3 _DownCol;
+                float _ColRamp;
+
+                int _UseBillBoard;
+                int _OnlyMove;
+                float _TerrainUpAxisScale;
+                float _MaxForce;
+                float _ActorWindFieldStrangth;
+                float _GrassDown;
+
+                float _WindStrength;
+                float _WindSpeed;
+
+                float _ClumpPoint;
+                float _ClumpUseCenter;
+                float _ClumpUseSamePos;
+            CBUFFER_END
+
             sampler2D _WindTex;
             float4 _WindTex_ST;
-            float _WindStrength;
-            float _WindSpeed;
 
             sampler2D _ClumpTex;
             float4 _ClumpTex_ST;
-            float _ClumpPoint;
-            float _ClumpUseCenter;
-            float _ClumpUseSamePos;
+
 
             // ns流体参数
             sampler2D _NSVelocityTex;
@@ -174,8 +189,11 @@ Shader "Unlit/cesPosBuffer"
                 float ran = random(onlyInt);
                 float ranScale = pow(ran,0.5) + 0.4;;
 
+                
                 v.vertex.xyz *= _GrassScale * _TotalScale;
-                //v.vertex *= ranScale * 1.5;
+                float height = v.vertex.y;
+                //height = v.uv.x;
+                //v.vertex *= ranScale ;
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
                 // 获取 Buffer 记录的偏移
@@ -192,16 +210,17 @@ Shader "Unlit/cesPosBuffer"
 
 
                 // ======================= Bill Board 部分，让草始终沿着y轴旋转 =============
+                float3 verPosWS = v.vertex;
                 float3 lookDir = _WorldSpaceCameraPos - worldOffset;
                 // 计算 lookDir 在 xz平面的投影的标准向量
                 //lookDir -= dot(lookDir,float3(0,1,0))*lookDir;
                 float3 upDir = grassUPAxis;
                 lookDir = normalize(float3(lookDir.x,0.0,lookDir.z));
                 float3 rightDir = normalize(cross(upDir,lookDir));
-                float3x3 BillBoardMatrix = float3x3(rightDir,upDir,lookDir);
-                
-                float3 verPosWS = mul( v.vertex.xyz,BillBoardMatrix);
-
+                if (_UseBillBoard){
+                    float3x3 BillBoardMatrix = float3x3(rightDir,upDir,lookDir);
+                    verPosWS = mul( v.vertex.xyz,BillBoardMatrix);
+                }
                 // =============== 采样簇贴图 =================================
                 float3 clumpTex = tex2Dlod(_ClumpTex,float4(worldOffset.xz/_ClumpTex_ST.x,0,0)).xyz;
                 float2 clumpUVOffset = (clumpTex.xy*2.0 - 0.5);
@@ -237,29 +256,33 @@ Shader "Unlit/cesPosBuffer"
                 float maxForce = _MaxForce; // 限制最大力
                 force = length(force)>maxForce? normalize(force)*maxForce : force;
                 // 计算贝塞尔
-                float t = v.vertex.y * v.vertex.y ;
+                float t = (_PosOffset + height*_OnlyMove) * (_PosOffset + height*_OnlyMove) ;
                 float3 endPoint = float3(-force.x,1.0,-force.y);
-                float3 midPoint = 0.5*endPoint;
+                float3 midPoint = float3(-force.x * 0.5, 0.5, -force.y * 0.5);;
                 float3 bezierOffset = QuadraticBezier(float3(0,0,0),midPoint,endPoint,t);
                 verPosWS += bezierOffset; // 应用力
                 verPosWS.y -= length(bezierOffset) * t * _GrassDown; // 长度守恒，偏移的越狠，高度越低
-
+                float tanY = sqrt(1-bezierOffset.x*bezierOffset.x-bezierOffset.z*bezierOffset.z);
+                float3 tttt = normalize(float3(bezierOffset.x,tanY*0.005,bezierOffset.z));
                 //// 计算变形后的法线
                 // 二次贝塞尔曲线公式：B(t) = (1-t)²P₀ + 2t(1-t)P₁ + t²P₂
                 // 导数：B'(t) = 2(1-t)(P₁-P₀) + 2t(P₂-P₁)
-                float3 tangent = 2*(1-t)*(midPoint-float3(0,0,0)) + 2*t*(endPoint-midPoint);
-                float3 deNor = normalize(cross(rightDir,tangent));
+                //float3 tangent = 2*(1-t)*(midPoint-float3(0,0,0)) + 2*t*(endPoint-midPoint);
+                //float3 zhixiang = lerp(lerp(float3(0,0,0),midPoint,t),lerp(midPoint,endPoint,t),t);
+                float3 deNor = normalize(cross(float3(1,0,0),tttt));
 
                 // ================== 最终传递 =========================================
                 float4 pp = TransformWorldToHClip( worldOffset + _PosOffset*grassUPAxis +  verPosWS );
 
-                o.normal = deNor;
-                o.tangent = tangent;
+                o.normal = TransformObjectToWorldNormal(v.normal);
+                o.bezNormal = deNor;
+                o.bezTangent = tttt;
                 o.grassHeight = t;
                 o.vertex = pp;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 o.worldPos = worldOffset + verPosWS;
                 return o;
+                
             }
 
             float4 frag (v2f i, uint instanceID : SV_InstanceID) : SV_Target
@@ -267,8 +290,9 @@ Shader "Unlit/cesPosBuffer"
                 float4 col = tex2D(_MainTex, i.uv);
 
                 float3 nor = UnpackNormal(tex2D(_NorTex,i.uv));
-                float3x3 TBNMatrix = float3x3(normalize(cross(i.normal,i.tangent)),i.tangent,i.normal);
-                nor = mul(TBNMatrix,nor);
+                float3x3 TBNMatrix = float3x3(normalize(cross(i.bezNormal,i.bezTangent)),i.bezTangent,i.bezNormal);
+                nor = -mul(nor,TBNMatrix);
+                if (_UseNorTex == 0 ) nor = -mul(i.normal,TBNMatrix);
 
                 Light mainLight = GetMainLight(TransformWorldToShadowCoord(i.worldPos));
                 float3 lightDir = normalize(mainLight.direction); // 灯光方向（从采样点指向灯光）
@@ -285,32 +309,21 @@ Shader "Unlit/cesPosBuffer"
 
                 // ================= 高光 ===============================
                 float specular = pow(max(dot(nor,h),0.0),15.0);
-                specular = smoothstep(0.9,1.0,specular)*1.0;
-
-                //float2 nsUV = ( _NSVelocityParams.xy - i.worldPos.xz ) / 10.0;
-                //nsUV *= step(abs(nsUV.x),0.5) * step(abs(nsUV.y),0.5);
-                //nsUV += float2(0.5,0.5);
-                //float2 ns = tex2D(_NSVelocityTex,nsUV).xy;
+                specular = smoothstep(0.0,1.0,specular)*1.0;
 
                 float3 albedo = lerp(_DownCol,_UpCol,i.grassHeight*_ColRamp);
                 // 远处的暗部颜色变弱
                 float dep = length(i.worldPos-_WorldSpaceCameraPos);
                 albedo = lerp(albedo,_UpCol,smoothstep(20.0,50.0,dep)*0.08);
-
-                float2 grassWorldUV = (i.worldPos.xz-_GrassUVParams.xy)/(_GrassUVParams.z+_GrassUVParams.w);
-                grassWorldUV = clamp(grassWorldUV*0.5+0.5,0,1);
-                float midDepth = tex2D(_GrassHeightMap,grassWorldUV).r;
-                float rightDepth = tex2D(_GrassHeightMap,grassWorldUV+float2(0.01,0.0)).r;
-                float upDepth = tex2D(_GrassHeightMap,grassWorldUV+float2(0.0,0.01)).r;
-                float2 xyNor = float2(midDepth-rightDepth,midDepth-upDepth)*50.0;
-                float3 grassUPAxis = normalize(float3(xyNor.x,sqrt(1-dot(xyNor,xyNor)),xyNor.y));
-
+                specular = specular*(1.0-smoothstep(10.0,40.0,dep)); // 远处高光消失
 
 
                 float3 cool = instanceID < 20 ? float3(1,0,0) : float3(0,0,1);
                 //return float4(cool,1.0);
 
-                //return float4(col*float3(1,1,1),1.0);
+                //return float4(specular*float3(1,1,1),1.0);
+                //return float4(nor.y*float3(1,1,1),1.0);
+                //return float4(i.bezTangent.y*float3(1,1,1),1.0);
                 return float4((diff + specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
                 //return float4(()*float3(1,1,1),1);
                 return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);

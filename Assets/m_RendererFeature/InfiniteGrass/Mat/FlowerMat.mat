@@ -20,12 +20,13 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: cesPosBuffer
+  m_Name: FlowerMat
   m_Shader: {fileID: 4800000, guid: 7f81c3f61fcdf734baa62ced5ed32089, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
-  m_InvalidKeywords: []
+  m_InvalidKeywords:
+  - _ONLYMOVE_ON
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
@@ -73,7 +74,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: e1dceb80571b19c43b8d6b674ebbf796, type: 3}
+        m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MetallicGlossMap:
@@ -81,7 +82,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _NorTex:
-        m_Texture: {fileID: 2800000, guid: a0399ed0cf0ce8645bdef856bbb93738, type: 3}
+        m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _OcclusionMap:
@@ -141,8 +142,9 @@ Material:
     - _MaxForce: 2.44
     - _Metallic: 0
     - _OcclusionStrength: 1
+    - _OnlyMove: 1
     - _Parallax: 0.005
-    - _PosOffset: 0
+    - _PosOffset: 0.29
     - _QueueOffset: 0
     - _ReceiveShadows: 1
     - _Smoothness: 0.5
@@ -152,7 +154,9 @@ Material:
     - _SrcBlendAlpha: 1
     - _Surface: 0
     - _TerrainUpAxisScale: 0.61
-    - _TotalScale: 1
+    - _TotalScale: 0.13
+    - _UseBillBoard: 0
+    - _UseNorTex: 0
     - _WindSpeed: 0.19
     - _WindStrength: 3.89
     - _WorkflowMode: 1
@@ -160,12 +164,12 @@ Material:
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
-    - _DownCol: {r: 0.0017354898, g: 0.122641504, b: 0.027687782, a: 0}
+    - _DownCol: {r: 0.8490566, g: 0.7893313, b: 0.30838373, a: 0}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _EndCol: {r: 0.236, g: 0.335, b: 0.113, a: 0}
-    - _GrassScale: {r: 0.23, g: 0.5, b: 0.5, a: 1}
+    - _GrassScale: {r: 1, g: 1, b: 1, a: 1}
     - _PosOffset: {r: 0, g: 0, b: 0, a: 0}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
     - _StartCol: {r: 0.269, g: 0.325, b: 0.156, a: 1}
-    - _UpCol: {r: 0.6370381, g: 0.9056604, b: 0.34603062, a: 1}
+    - _UpCol: {r: 0.9406174, g: 1, b: 0.2216981, a: 1}
   m_BuildTextureStacks: []

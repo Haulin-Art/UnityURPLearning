@@ -24,13 +24,13 @@ Shader "Unlit/ObjectAtmosLUT"
         // 第一个Pass用于写入深度，避免深度错误
         Pass
         {
-            Tags{"LightMode" = "SRPDefaultUnlit"}
+            Tags{"LightMode" = "SRPDefaultUnlit"  "Queue"="Transparent"}
             ZWrite On
             ColorMask 0
         }
         // 第二个则是主函数
         Pass{
-            Tags{ "LightMode" = "UniversalForward"}
+            Tags{ "LightMode" = "UniversalForward" "Queue"="Transparent"}
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 

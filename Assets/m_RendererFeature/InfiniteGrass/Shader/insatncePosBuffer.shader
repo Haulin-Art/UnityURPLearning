@@ -161,7 +161,7 @@ Shader "Unlit/insatncePosBuffer"
                 float ranScale = pow(ran,0.5) + 0.4;;
 
                 v.vertex *= _GrassScale;
-                //v.vertex *= ranScale * 1.5;
+                v.vertex *= ranScale * 1.0;
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
                 // 获取 Buffer 记录的偏移
@@ -277,7 +277,7 @@ Shader "Unlit/insatncePosBuffer"
                 diff = lerp(diff,1.0,0.5)*(shadowAttenuation+ambient);
 
                 // ================= 高光 ===============================
-                float specular = pow(max(dot(i.normal,h),0.0),5.0);
+                float specular = pow(max(dot(i.normal,h),0.0),15.0);
                 specular = smoothstep(0.7,1.0,specular)*1.5;
 
                 //float2 nsUV = ( _NSVelocityParams.xy - i.worldPos.xz ) / 10.0;
