@@ -120,7 +120,7 @@ public class myRendererData : MonoBehaviour
         if (tBuffer == null)
             tBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Raw);
     
-
+        typeCounts = 2;
         for ( int t = 0 ; t < typeCounts ; t++)
         {
             Mesh mesh = dataArray[t].mesh;
@@ -148,7 +148,32 @@ public class myRendererData : MonoBehaviour
             mpb.SetInt("_Grass_Instance_Offset",t*50000);
             //mpb.SetFloat("_GrassScale",scale[t]);
             Graphics.DrawMeshInstancedIndirect(mesh, 0, dataArray[t].mat, cameraBounds, argsBufferArray[t],0,mpb);
-
+        }
+        bool ces = true;
+        if (ces)
+        {
+            Mesh mesh = dataArray[2].mesh;
+            uint[] args = new uint[5];
+            args[0] = (uint)mesh.GetIndexCount(0);
+            args[1] = (uint)(64);
+            args[2] = (uint)mesh.GetIndexStart(0);
+            args[3] = (uint)mesh.GetBaseVertex(0);
+            args[4] = 0;
+            argsBufferArray[2].SetData(args);
+            Graphics.DrawMeshInstancedIndirect(mesh, 0, dataArray[2].mat, cameraBounds, argsBufferArray[2]);
+        }
+        bool ces2 = true;
+        if (ces2)
+        {
+            Mesh mesh = dataArray[3].mesh;
+            uint[] args = new uint[5];
+            args[0] = (uint)mesh.GetIndexCount(0);
+            args[1] = (uint)(64*100);
+            args[2] = (uint)mesh.GetIndexStart(0);
+            args[3] = (uint)mesh.GetBaseVertex(0);
+            args[4] = 0;
+            argsBufferArray[3].SetData(args);
+            Graphics.DrawMeshInstancedIndirect(mesh, 0, dataArray[3].mat, cameraBounds, argsBufferArray[3]);
         }
     }
 
