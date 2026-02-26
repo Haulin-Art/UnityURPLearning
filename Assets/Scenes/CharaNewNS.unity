@@ -583,7 +583,7 @@ MonoBehaviour:
     mat: {fileID: 2100000, guid: 03a5d03d961bc494f84caef7b990ebf3, type: 2}
   textureSize: 256
   drawDistance: 130
-  textureUpdateThreshold: 1
+  textureUpdateThreshold: 22
   spacing: 0.07
   maxBufferCount: 7
   customCam: {fileID: 0}
@@ -599,7 +599,7 @@ MonoBehaviour:
   counters: 0
   grassMaterial: {fileID: 2100000, guid: 93789f71b6e7882429a3b7c23ed9ddd0, type: 2}
   camBounds:
-    m_Center: {x: -18, y: 0, z: -19}
+    m_Center: {x: -22, y: 0, z: -22}
     m_Extent: {x: 149.61742, y: 47.816113, z: 149.61742}
 --- !u!4 &940304410
 Transform:
@@ -1254,13 +1254,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1564573388}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.2754886, y: -0.24806923, z: 0.07381693, w: 0.9258072}
+  m_LocalRotation: {x: 0.24045384, y: -0.25067136, z: 0.0644294, w: 0.93551844}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 33.142, y: -30, z: 0}
+  m_LocalEulerAnglesHint: {x: 28.829, y: -30, z: 0}
 --- !u!114 &1564573391
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -1,7 +1,7 @@
 #pragma kernel SegmentedBufferData // 这个用于第二次过滤细
 #pragma kernel CopyToArgs // 这个核用于将用于记录每个类型的Buffer的计数复制到ArgsBuffer
 #pragma kernel TileFilteringBufferData // 这个用于第一次粗过滤
-#pragma kernel EachTileIsRefinedAndSegmented // 每个Tile细化并写入分段Buffer
+#pragma kernel CopyToUint3 // 这个用于通过有效瓦片数，决定最终的间接调用线程数
 
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
@@ -20,8 +20,8 @@ float4x4 _VPMatrix;             // 主摄像机的视图投影矩阵
 float4x4 _VMatrix;              // 主摄像机的视图矩阵
 // =================== Tile ================================
 bool _useTileFiltering;         // 是否使用Tile过滤
-float _tileSpacing;
 int2 _tileGridStartIndex;
+StructuredBuffer<uint> _TileActivationStatusR ; // 瓦片激活状态
 
 // 采样器状态：线性过滤 + 纹理坐标钳位（0~1 范围，避免采样到纹理外）
 SamplerState linearClampSampler;
@@ -90,14 +90,19 @@ bool OcclusionCulling(float3 grassPos)
 [numthreads(8,8,1)]
 void SegmentedBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID , uint groupIndex : SV_GroupThreadID )
 {
-    bool enable = false ; // 确定本线程计算出的位置是否加入
-    float3 finalPos = float3(0,0,0); // 最终位置
-    uint type = 0; // 本数据的类型
-    
+    // 根据瓦片激活状态判断是否需要早退
     // 1. 计算当前线程对应的草地网格索引（全局索引 = 网格起始索引 + 线程ID的XY分量）
     int2 currentIndex = _gridStartIndex + id.xy;
     // 2. 计算草的初始XZ世界位置（网格索引 * 草间距 = 基础位置）
     float2 positionXZ = currentIndex * _spacing;
+    int2 correspondingTileIndex = floor((positionXZ + 22.0*0.5+ 22.0*4 -_centerPos)/22.0);
+    if (_TileActivationStatusR[correspondingTileIndex.x + 8*correspondingTileIndex.y]==0) return;
+
+
+    bool enable = false ; // 确定本线程计算出的位置是否加入
+    float3 finalPos = float3(0,0,0); // 最终位置
+    uint type = 0; // 本数据的类型
+    
     // 3. 添加随机偏移（避免草排列过于整齐，增加自然感）
     // 生成两个随机数（基于网格索引，保证同一位置的随机数固定）
     float2 randomOffset = float2(
@@ -223,29 +228,24 @@ void CopyToArgs(uint3 id : SV_DispatchThreadID)
 
 RWStructuredBuffer<float3> _TileFilteringBuffer;
 RWStructuredBuffer<uint> _TileActivationStatus; // 瓦片激活状态
+RWStructuredBuffer<uint> _numberOfValidTiles; // 有效瓦片数
+RWStructuredBuffer<float3> _validTilePosition; // 有效瓦片的位置
+float _tileSpacing;
+float2 _tileArrayCenterPos;
 // [numthreads(8, 8, 1)]：定义线程组的大小（X=8，Y=8，Z=1）
 // 每个线程组包含 8*8*1=64 个线程，GPU 会按线程组调度（需与 C# 端的 Dispatch 线程组数匹配）
 // SV_DispatchThreadID：当前线程的全局ID（唯一标识，对应网格中的位置）
-float3 calPosWS(float2 positionXZ)
-{
-    float2 uv = (positionXZ - _centerPos) / (_textureUpdateThreshold + _drawDistance); 
-    uv = uv * 0.5 + 0.5;  // 从[-1,1]映射到[0,1]
-    float2 heightMap = _grassHeightTex.SampleLevel(linearClampSampler, uv, 0).rg;
-    // 处理，让最外层一圈为纯黑色
-    float mask = (1.0-step(0.99,2.0*abs(uv.y-0.5)));//*(1.0-step(0.1,2.0*abs(uv.y-0.5)));
-    mask *= (1.0-step(0.99,2.0*abs(uv.x-0.5)));
-    heightMap *= mask;
-    // 重构草的世界Y坐标（将高度图的0~1值映射到相机包围盒的Y轴范围）
-    float positionY = Remap(heightMap.r, float2(0, 1), float2(_boundsMin.y, _boundsMax.y));
-    return float3(positionXZ.x, positionY, positionXZ.y) ;
-}
 [numthreads(8,8,1)]
 void TileFilteringBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID , uint groupIndex : SV_GroupThreadID )
 {
-    _TileActivationStatus[id.x + 8*id.y] = 0;
+    // bounds check：如果当前线程超出 grid 范围直接返回（防止越界写）
+    if (id.x >= 8 || id.y >= 8) return;
+    _TileActivationStatus[id.x + _gridSize.x*id.y] = 0;
     // 1. 计算当前线程对应的草地网格索引（全局索引 = 网格起始索引 + 线程ID的XY分量）
     int2 currentIndex = _gridStartIndex + id.xy;
-    float2 positionXZ = currentIndex * _spacing;
+    //float2 positionXZ = float2(currentIndex.x * _spacingX , currentIndex.y * _spacingZ);
+    float2 positionXZ = (id.xy) * _tileSpacing - _tileSpacing*_gridSize.x*0.5*float2(1,1) + _centerPos;//_tileArrayCenterPos;
+    float _spacing = _tileSpacing;
 
     // 4. 计算高度图/掩码图的采样UV坐标（归一化到0~1范围）
     // 步骤：(世界位置 - 纹理中心位置) / 纹理范围（绘制距离+更新阈值）→ 映射到-1~1 → 再映射到0~1
@@ -285,125 +285,23 @@ void TileFilteringBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : S
             frustumCullingLD || frustumCullingLU || frustumCullingRD || frustumCullingRU
             || nearTheCamera)
         {
+            int vIndex = 0;
+            InterlockedAdd(_numberOfValidTiles[0],1,vIndex);
+            _validTilePosition[vIndex] = positionWS ;
             _TileActivationStatus[id.x + 8*id.y] = 1;
         }
 
     }
 }
 
-uint _TileEdgeCounts ; // Tile方阵的每边数
-StructuredBuffer<uint> _TileActivationStatusR ; // 瓦片激活状态
-StructuredBuffer<float3> _TileCenterPosBuffer ; // 瓦片中心位置
-int _SubdivisionFactor ; // 用于定义一个Tile内有多少个采样点，数量为 (8*_SubdivisionFactor)^2
-RWStructuredBuffer<float3> _RefinePosBuffer ; 
-RWStructuredBuffer<uint> _AllCountersBuffer ; 
-[numthreads(8,8,1)]
-void EachTileIsRefinedAndSegmented (
-    uint3 id : SV_DispatchThreadID,
-    uint3 groupThreadID : SV_GroupThreadID, // 组内线程索引 (0..TX-1, 0..TY-1)
-    uint3 groupID : SV_GroupID) // 当前 thread group 的索引（0..groupsX-1, 0..groupsY-1）
+uint numberPerSide;
+StructuredBuffer<uint> _numberOfValidTilesR; // 有效瓦片数
+RWStructuredBuffer<uint> _numberOfThreadsToCall; // 最终调用线程组数
+[numthreads(1,1,1)]
+void CopyToUint3(uint3 id : SV_DispatchThreadID)
 {
-    // 如果不是激活状态，直接退出
-    // 计算瓦片索引，默认8*8个
-    uint tileX = groupID.x/_SubdivisionFactor ; // uint单位自动Floor
-    uint tileY = groupID.y/_SubdivisionFactor ;
-    if (tileX >= _TileEdgeCounts || tileY >= _TileEdgeCounts) return ; // 超出网格范围
-    uint tileIndex = tileY * _TileEdgeCounts + tileX ; 
-    if (_TileActivationStatusR[tileIndex] == 0 ) return; // 当当前Tile没被激活，早退
+    _numberOfThreadsToCall[0] = _numberOfValidTilesR[0]*numberPerSide;
+    _numberOfThreadsToCall[1] = _numberOfValidTilesR[0]*numberPerSide;
+    _numberOfThreadsToCall[2] = 1;
 
-    // 计算当前线程在本Tile中的子索引
-    uint subX = groupID.x % _SubdivisionFactor ; // 求余数，也就是当groupID.x = _SubdivisionFactor+1 的时候，他其实第二瓦片的第一个
-    uint subY = groupID.y % _SubdivisionFactor ; 
-    // 也就是加入瓦片数量为8*8，调用线程组为32*32，也就是说每四个线程组是一个瓦片，
-    // 一个瓦片 4*8 * 4*8 = 1024个采样点，这样的话线程组（2,2,1）内的线程（2,1,1）的瓦片坐标就是
-    // 第一个瓦片的 （2+（2%4）* 8 ， 1+（2%4）* 8 ），也就是（18,17），也就是第 18 +（4*8*17）= 562个索引
-    uint sampleX_inTile = groupThreadID.x + subX * 8 ; 
-    uint sampleY_inTile = groupThreadID.y + subY * 8 ;
-    // 如果最后一列/最后一行 tile 不是完整尺寸，需要 bounds 检查
-    uint finePerTile = 8 * _SubdivisionFactor;
-    if (sampleX_inTile >= finePerTile || sampleY_inTile >= finePerTile) return;
-
-    // 计算对应的世界坐标 = 采样点间距 * (起始的世界网格索引 + Tile索引*每个Tile的采样点数 + 本Tile内采样点索引)
-    int2 currentIndex = _gridStartIndex + int2(tileX,tileY)*finePerTile + 
-            int2(sampleX_inTile,sampleY_inTile);
-    //float2 positionXZ = _spacing * currentIndex;
-
-    float2 positionXZ = _TileCenterPosBuffer[tileIndex].xz;
-
-
-    uint type = 0; // 本数据的类型
-    
-    // 1. 计算当前线程对应的草地网格索引（全局索引 = 网格起始索引 + 线程ID的XY分量）
-    //int2 currentIndex = _gridStartIndex + id.xy;
-    // 2. 计算草的初始XZ世界位置（网格索引 * 草间距 = 基础位置）
-    //float2 positionXZ = currentIndex * _spacing;
-    // 3. 添加随机偏移（避免草排列过于整齐，增加自然感）
-    // 生成两个随机数（基于网格索引，保证同一位置的随机数固定）
-    float2 randomOffset = float2(
-        random(currentIndex.x * 5542 + currentIndex.y),  // X偏移随机数（5542是随机质数，打乱索引）
-        random(currentIndex.y * 9824 + currentIndex.x)   // Y偏移随机数（9824是随机质数）
-    );
-    // 将随机数从0~1映射到-~_spacing~+Spacing，叠加到初始位置
-    positionXZ += (randomOffset * 2 - 1) * _spacing * 11.0;
-
-    // 4. 计算高度图/掩码图的采样UV坐标（归一化到0~1范围）
-    // 步骤：(世界位置 - 纹理中心位置) / 纹理范围（绘制距离+更新阈值）→ 映射到-1~1 → 再映射到0~1
-    float2 uv = (positionXZ - _centerPos) / (_textureUpdateThreshold + _drawDistance); 
-    uv = uv * 0.5 + 0.5;  // 从[-1,1]映射到[0,1]
-
-    // 5. 采样高度图纹理（SampleLevel：指定mipmap层级为0，即最高分辨率）
-    // heightMap.r：高度值（0~1），heightMap.g：草生成区域标记（1=允许，0=禁止）
-    float2 heightMap = _grassHeightTex.SampleLevel(linearClampSampler, uv, 0).rg;
-    // 处理，让最外层一圈为纯黑色
-    float mask = (1.0-step(0.99,2.0*abs(uv.y-0.5)));//*(1.0-step(0.1,2.0*abs(uv.y-0.5)));
-    mask *= (1.0-step(0.99,2.0*abs(uv.x-0.5)));
-    heightMap *= mask;
-
-
-    
-    // 8. 高度图区域筛选：只有高度图G通道为1（允许生成）且掩码筛选通过，才继续处理
-    if (step(0.001,heightMap.r) == 1)
-    {
-        // 9. 重构草的世界Y坐标（将高度图的0~1值映射到相机包围盒的Y轴范围）
-        float positionY = Remap(heightMap.r, float2(0, 1), float2(_boundsMin.y, _boundsMax.y));
-
-        // 10. 组合草的完整世界位置（X=positionXZ.x，Y=positionY，Z=positionXZ.y）
-        float3 positionWS = float3(positionXZ.x, positionY, positionXZ.y); 
-        float3 positionWS2 = float3(positionXZ.x, positionY, positionXZ.y)+float3(0,0.5,0); 
-
-
-        //uint globalIndex = 0;
-        //InterlockedAdd(_AllCountersBuffer[0],1,globalIndex);
-        //_RefinePosBuffer[globalIndex] = positionWS;
-
-        
-        float distanceFromCamera = length(_camPosition - positionWS);
-        // 11. 距离密度筛选：根据与相机的距离降低草的密度（性能优化）
-        // 这个之后添加，适用于根据相机距离随机剔除一些草，离得越远剔除概率越大，以达到优化性能
-        float disMaskValue = smoothstep(0.0*_drawDistance,_drawDistance,distanceFromCamera);
-        disMaskValue = pow(disMaskValue,0.3);
-        //disMaskValue *= disMaskValue*disMaskValue;
-        bool distanceCulling = saturate(random(currentIndex.x * 9421 + currentIndex.y) - 0.001) >= disMaskValue;
-        //inDisLevel = true;
-        // 12. 密度级别筛选通过，继续视锥体裁剪
-        if (distanceCulling )
-        {
-            bool frustumCulling = FrustumCulling(positionWS);
-            float depOffset = 0.5;
-            bool occlusionCulling = OcclusionCulling(positionWS) || 
-                    OcclusionCulling(positionWS+float3(0,depOffset,0)) ||
-                    OcclusionCulling(positionWS-float3(0,depOffset,0)) ||
-                    OcclusionCulling(positionWS+float3(depOffset,0,0)) ;
-
-            if (frustumCulling && occlusionCulling)
-            {
-                uint globalIndex = 0;
-                InterlockedAdd(_AllCountersBuffer[0],1,globalIndex);
-                _RefinePosBuffer[globalIndex] = positionWS;
-            }
-        }
-        
-
-    }
-    
 }
