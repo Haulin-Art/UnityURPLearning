@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
+using Unity.Mathematics;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.VFX;
 
 public class GrassRendererPass : ScriptableRendererFeature
 {
@@ -70,6 +72,11 @@ public class GrassRendererPass : ScriptableRendererFeature
         private readonly List<ShaderTagId> shaderTagList = new List<ShaderTagId>();
         
         // 实例数据
+        private ComputeBuffer _tileFilteringBuffer; // 用于存储所有瓦片位置
+        private ComputeBuffer _TileActivationStatus ; // 瓦片的激活状态，所有瓦片
+        private ComputeBuffer _numberOfValidTiles ; // 有效的瓦片数量，用于确定细化时的线程数
+        private ComputeBuffer _validTilePosition; // 有效瓦片位置
+        private ComputeBuffer _numberOfThreadsToCall; // 由有效瓦片数决定的总调用线程组数量
         private ComputeBuffer _countersBuffer; // 储存每个类型的数量的Buffer
         private ComputeBuffer _segmentedBuffer;
 
@@ -203,25 +210,73 @@ public class GrassRendererPass : ScriptableRendererFeature
             _segmentedBuffer?.Release();
             _segmentedBuffer = new ComputeBuffer((int)(100000 * settings.maxBufferCount) , sizeof(float) * 3);
 
+            // 粗筛的采用Append类型的Compute Buffer，自带一个计数器
+            _tileFilteringBuffer?.Release();
+            _tileFilteringBuffer = new ComputeBuffer(64, sizeof(float) * 3);
+            _TileActivationStatus?.Release();
+            _TileActivationStatus = new ComputeBuffer(64,sizeof(int)); // 总计64个Tile
+            _numberOfValidTiles?.Release();
+            _numberOfValidTiles = new ComputeBuffer(1,sizeof(uint)); // 记录有多少个Tile是激活状态
+            _numberOfThreadsToCall?.Release();
+            _numberOfThreadsToCall = new ComputeBuffer(1,3*sizeof(uint),ComputeBufferType.IndirectArguments);
+            _validTilePosition?.Release();
+            _validTilePosition = new ComputeBuffer(64,sizeof(float) * 3);
+
+            // 第一遍Tile过滤
+            ComputeTileFilteringPosBuffer(ref cmd,ref _TileActivationStatus,ref _tileFilteringBuffer,
+                ref _numberOfValidTiles,ref _validTilePosition,settings.computeShader,
+                centerPos,camBounds);
+            cmd.SetGlobalBuffer("_CES", _tileFilteringBuffer); // 每个tile的中心点
+            cmd.SetGlobalBuffer("_CES2", _TileActivationStatus);
+            context.ExecuteCommandBuffer(cmd);
+            cmd.Clear();
+
+            /*
+            // 根据粗过滤的有效瓦片数确定最终调用线程数
+            int kernelIDCD = settings.computeShader.FindKernel("CopyToUint3");
+            cmd.SetComputeIntParam(settings.computeShader,"numberPerSide",2);
+            cmd.SetComputeBufferParam(settings.computeShader,kernelIDCD,"_numberOfValidTilesR",_numberOfValidTiles);
+            cmd.SetComputeBufferParam(settings.computeShader,kernelIDCD,"_numberOfThreadsToCall",_numberOfThreadsToCall);
+            cmd.DispatchCompute(settings.computeShader,kernelIDCD,1,1,1);
+            */
 
             // 将Compute Shader的计算包装成一个函数
             ComputePosBuffer(ref cmd,settings.computeShader,
-                centerPos,camBounds,1.0f,1000.0f,   ref _segmentedBuffer , ref _countersBuffer  );
+                centerPos,camBounds,1.0f, ref _segmentedBuffer , ref _countersBuffer,
+                ref _TileActivationStatus ,ref _numberOfThreadsToCall);
 
             // 将草位置缓冲区设为全局，供实例化渲染Shader使用
             cmd.SetGlobalTexture("_GrassHeightMap",topOrthographicDepth);
             cmd.SetGlobalVector("_GrassUVParams",new Vector4(centerPos.x,centerPos.y,settings.textureUpdateThreshold,settings.drawDistance));
             cmd.SetGlobalBuffer("_GrassPositions", _segmentedBuffer);
 
+            /*
+            ComputeTileRefinement(ref cmd,settings.computeShader,centerPos,camBounds,
+                ref _RefinePosBuffer,ref _TileActivationStatus,ref _AllCountersBuffer,ref _tileFilteringBuffer);
+            int kernelIDC = settings.computeShader.FindKernel("CopyToArgs");
+            cmd.SetGlobalBuffer("_CES3", _RefinePosBuffer);
+            cmd.SetGlobalBuffer("_CES2", _TileActivationStatus);
             if(myRendererData.instance != null)
             {
+                if (myRendererData.instance.argsBufferArray[3] != null)
+                {
+                    cmd.SetComputeBufferParam(settings.computeShader,kernelIDC,"_CountersR",_AllCountersBuffer);
+                    cmd.SetComputeBufferParam(settings.computeShader,kernelIDC,"_Args",myRendererData.instance.argsBufferArray[3]);
+                    cmd.SetComputeIntParam(settings.computeShader,"_TypeIndex",0);
+                    cmd.DispatchCompute(settings.computeShader,kernelIDC,1,1,1);
+                } 
+            }
+            */
+            if(myRendererData.instance != null)
+            {
+                int kernelID = settings.computeShader.FindKernel("CopyToArgs");
                 // 传递最大实例数跟单例
                 for (int t = 0 ; t < 2 ; t ++)
                 {
-                    cmd.SetComputeBufferParam(settings.computeShader,1,"_CountersR",_countersBuffer);
-                    cmd.SetComputeBufferParam(settings.computeShader,1,"_Args",myRendererData.instance.argsBufferArray[t]);
+                    cmd.SetComputeBufferParam(settings.computeShader,kernelID,"_CountersR",_countersBuffer);
+                    cmd.SetComputeBufferParam(settings.computeShader,kernelID,"_Args",myRendererData.instance.argsBufferArray[t]);
                     cmd.SetComputeIntParam(settings.computeShader,"_TypeIndex",t);
-                    cmd.DispatchCompute(settings.computeShader,1,1,1, 1);
+                    cmd.DispatchCompute(settings.computeShader,kernelID,1,1,1);
                 }
 
                 if (myRendererData.instance.previewVisibleGrassCount)
@@ -239,7 +294,7 @@ public class GrassRendererPass : ScriptableRendererFeature
 
 
             // =================== 可视化调试部分 ===================
-            settings.showMat.SetTexture("_MainTex",camDepRT);
+            settings.showMat.SetTexture("_MainTex",topOrthographicDepth);
             // 用于可视化包围盒
             if(myRendererData.instance != null)
             {
@@ -257,10 +312,58 @@ public class GrassRendererPass : ScriptableRendererFeature
                 );
             }
         }
-        public void ComputePosBuffer(ref CommandBuffer cmd , ComputeShader cs,
-            Vector3 centerPos,Bounds camBounds,float spaciingScale,float extraDistanceRemoval ,
-            ref ComputeBuffer segmentedBuffer , ref ComputeBuffer countersBuffer)
+        public void ComputeTileFilteringPosBuffer(ref CommandBuffer cmd ,ref ComputeBuffer cb,
+            ref ComputeBuffer posCb, ref ComputeBuffer vCb,ref ComputeBuffer vPosCb,
+            ComputeShader cs,Vector3 centerPos,Bounds camBounds)
         {
+            int kernelID = cs.FindKernel("TileFilteringBufferData");
+            int tileEdgeCount = 8; // 需要的 tile 数（可改）
+            float spacingX = camBounds.size.x / (float)tileEdgeCount;
+            float spacingZ = camBounds.size.z / (float)tileEdgeCount;
+            // 计算草的网格大小（XZ方向的网格数量）
+            Vector2Int gridSize = new Vector2Int(tileEdgeCount,tileEdgeCount);
+            // 计算网格的起始索引（定位草的网格位置）
+            Vector2Int gridStartIndex = new Vector2Int(
+                Mathf.FloorToInt(camBounds.min.x / spacingX),
+                Mathf.FloorToInt(camBounds.min.z / spacingZ)
+            );
+            Debug.Log(gridStartIndex);
+            // ========== 关键修改：使用CommandBuffer设置所有参数 ==========
+            cmd.SetComputeFloatParam(cs, "_tileSpacing", 22.0f);
+            cmd.SetComputeFloatParam(cs, "_drawDistance", settings.drawDistance);
+            cmd.SetComputeFloatParam(cs, "_textureUpdateThreshold", settings.textureUpdateThreshold);
+            ///cmd.SetComputeVectorParam(cs, "_tileArrayCenterPos", new Vector4(gridStartIndex.x, gridStartIndex.y, 0, 0));
+            
+            // Vector2需要转换为Vector4
+            cmd.SetComputeVectorParam(cs, "_gridStartIndex", new Vector4(gridStartIndex.x, gridStartIndex.y, 0, 0));
+            cmd.SetComputeVectorParam(cs, "_gridSize", new Vector4(gridSize.x, gridSize.y, 0, 0));
+            cmd.SetComputeVectorParam(cs, "_camPosition", new Vector4(Camera.main.transform.position.x, 
+                                                                       Camera.main.transform.position.y, 
+                                                                       Camera.main.transform.position.z, 0));
+            cmd.SetComputeVectorParam(cs, "_centerPos", new Vector4(centerPos.x, centerPos.y, 0, 0));
+            cmd.SetComputeVectorParam(cs, "_boundsMin", new Vector4(camBounds.min.x, camBounds.min.y, camBounds.min.z, 0));
+            cmd.SetComputeVectorParam(cs, "_boundsMax", new Vector4(camBounds.max.x, camBounds.max.y, camBounds.max.z, 0));
+            cmd.SetComputeMatrixParam(cs, "_VPMatrix", Camera.main.projectionMatrix * Camera.main.worldToCameraMatrix);
+            cmd.SetComputeMatrixParam(cs, "_VMatrix", Camera.main.worldToCameraMatrix);
+
+            cmd.SetComputeTextureParam(cs, kernelID, "_grassHeightTex", topOrthographicDepth);
+
+            cmd.SetComputeBufferParam(cs, kernelID, "_TileActivationStatus", cb);
+            cmd.SetComputeBufferParam(cs, kernelID, "_TileFilteringBuffer", posCb);
+            cmd.SetComputeBufferParam(cs, kernelID,"_numberOfValidTiles",vCb );
+            cmd.SetComputeBufferParam(cs, kernelID,"_validTilePosition",vPosCb );
+            // 调度ComputeShader执行（线程组数量：X=gridSize.x/8，Y=gridSize.y/8，Z=1）
+            // 线程组大小通常设为8x8x1，因此需要除以8并向上取整
+            cmd.DispatchCompute(cs,kernelID,1,1, 1);
+            //cs.DispatchIndirect
+            
+        }
+        public void ComputePosBuffer(ref CommandBuffer cmd , ComputeShader cs,
+            Vector3 centerPos,Bounds camBounds,float spaciingScale,
+            ref ComputeBuffer segmentedBuffer , ref ComputeBuffer countersBuffer,
+            ref ComputeBuffer activeStatus , ref ComputeBuffer _numberOfThreadsToCall)
+        {
+            int kernelID = cs.FindKernel("SegmentedBufferData");
             float spacing = settings.spacing * spaciingScale;
             // 计算草的网格大小（XZ方向的网格数量）
             Vector2Int gridSize = new Vector2Int(
@@ -276,7 +379,6 @@ public class GrassRendererPass : ScriptableRendererFeature
             cmd.SetComputeFloatParam(cs, "_spacing", spacing);
             cmd.SetComputeFloatParam(cs, "_drawDistance", settings.drawDistance);
             cmd.SetComputeFloatParam(cs, "_textureUpdateThreshold", settings.textureUpdateThreshold);
-            cmd.SetComputeFloatParam(cs, "_extraDistanceRemoval", extraDistanceRemoval);
             
             // Vector2需要转换为Vector4
             cmd.SetComputeVectorParam(cs, "_gridStartIndex", new Vector4(gridStartIndex.x, gridStartIndex.y, 0, 0));
@@ -290,20 +392,26 @@ public class GrassRendererPass : ScriptableRendererFeature
             cmd.SetComputeMatrixParam(cs, "_VPMatrix", Camera.main.projectionMatrix * Camera.main.worldToCameraMatrix);
             cmd.SetComputeMatrixParam(cs, "_VMatrix", Camera.main.worldToCameraMatrix);
 
-            cmd.SetComputeTextureParam(cs, 0, "_grassHeightTex", topOrthographicDepth);
-            cmd.SetComputeTextureParam(cs,0,"_CameraDepthTexture",camDepRT);
+            cmd.SetComputeTextureParam(cs, kernelID, "_grassHeightTex", topOrthographicDepth);
+            cmd.SetComputeTextureParam(cs,kernelID,"_CameraDepthTexture",camDepRT);
 
-
-            cmd.SetComputeBufferParam(cs, 0, "_Counters", countersBuffer);
-            cmd.SetComputeBufferParam(cs, 0, "_SegmentedBuffer", segmentedBuffer);
-
+            cmd.SetComputeBufferParam(cs, kernelID, "_Counters", countersBuffer);
+            cmd.SetComputeBufferParam(cs, kernelID, "_SegmentedBuffer", segmentedBuffer);
+            cmd.SetComputeBufferParam(cs, kernelID, "_TileActivationStatusR", activeStatus);
             // 调度ComputeShader执行（线程组数量：X=gridSize.x/8，Y=gridSize.y/8，Z=1）
             // 线程组大小通常设为8x8x1，因此需要除以8并向上取整
+            
             cmd.DispatchCompute(cs,
-                0,
+                kernelID,
                 Mathf.CeilToInt((float)gridSize.x / 8),
                 Mathf.CeilToInt((float)gridSize.y / 8), 
             1);
+            
+            /*
+            cmd.DispatchCompute(cs,
+                kernelID,
+                _numberOfThreadsToCall,0);
+            */
         }
         public void Dispose()
         {
@@ -319,6 +427,31 @@ public class GrassRendererPass : ScriptableRendererFeature
             {
                 _segmentedBuffer.Release();
                 _segmentedBuffer = null;
+            }
+            if (_tileFilteringBuffer != null)
+            {
+                _tileFilteringBuffer.Release();
+                _tileFilteringBuffer = null ;
+            }
+            if (_TileActivationStatus != null)
+            {
+                _TileActivationStatus.Release();
+                _TileActivationStatus = null;
+            }
+            if (_numberOfValidTiles != null)
+            {
+                _numberOfValidTiles.Release();
+                _numberOfValidTiles = null;
+            }
+            if (_numberOfThreadsToCall != null)
+            {
+                _numberOfThreadsToCall.Release();
+                _numberOfThreadsToCall = null;
+            }
+            if (_validTilePosition != null)
+            {
+                _validTilePosition.Release();
+                _validTilePosition = null;
             }
         }
         // 用于获取变换后的摄像机包围盒的自定义函数

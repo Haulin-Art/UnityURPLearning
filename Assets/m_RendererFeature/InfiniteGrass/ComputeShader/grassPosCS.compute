@@ -1,5 +1,7 @@
-#pragma kernel CSMain
+#pragma kernel SegmentedBufferData // 这个用于第二次过滤细
 #pragma kernel CopyToArgs // 这个核用于将用于记录每个类型的Buffer的计数复制到ArgsBuffer
+#pragma kernel TileFilteringBufferData // 这个用于第一次粗过滤
+#pragma kernel CopyToUint3 // 这个用于通过有效瓦片数，决定最终的间接调用线程数
 
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
@@ -16,7 +18,10 @@ float3 _boundsMin;              // 采样区域包围盒最小点
 float3 _boundsMax;              // 采样区域包围盒最大点
 float4x4 _VPMatrix;             // 主摄像机的视图投影矩阵
 float4x4 _VMatrix;              // 主摄像机的视图矩阵
-float _extraDistanceRemoval;    // 额外的距离剔除
+// =================== Tile ================================
+bool _useTileFiltering;         // 是否使用Tile过滤
+int2 _tileGridStartIndex;
+StructuredBuffer<uint> _TileActivationStatusR ; // 瓦片激活状态
 
 // 采样器状态：线性过滤 + 纹理坐标钳位（0~1 范围，避免采样到纹理外）
 SamplerState linearClampSampler;
@@ -54,6 +59,16 @@ float Remap(float In, float2 InMinMax, float2 OutMinMax)
     return OutMinMax.x + (In - InMinMax.x) * (OutMinMax.y - OutMinMax.x) / (InMinMax.y - InMinMax.x);
 }
 // ===================================== 遮挡剔除深度对比 ==========================================
+bool FrustumCulling(float3 grassPos,float3 threshold = float3(1.2,1.5,1.1))
+{
+    float4 clipPos = mul(_VPMatrix, float4(grassPos, 1.0)); // 世界空间→裁剪空间
+    float4 absPosCS = abs(clipPos);          // 取绝对值，简化裁剪判断
+    return //absPosCS.z <= absPosCS.w * threshold.z && // 这个不知道，好像改了效果不明显
+           clipPos.z <= clipPos.w * threshold.z && // 纵深
+           clipPos.z >= 0.0 &&
+           absPosCS.y <= absPosCS.w * threshold.y && // 上下
+           absPosCS.x <= absPosCS.w * threshold.x ;  // 视线角度 
+}
 bool OcclusionCulling(float3 grassPos)
 {
     float4 clipPos = mul(_VPMatrix, float4(grassPos, 1.0)); // 世界空间→裁剪空间
@@ -73,23 +88,28 @@ bool OcclusionCulling(float3 grassPos)
 // 每个线程组包含 8*8*1=64 个线程，GPU 会按线程组调度（需与 C# 端的 Dispatch 线程组数匹配）
 // SV_DispatchThreadID：当前线程的全局ID（唯一标识，对应网格中的位置）
 [numthreads(8,8,1)]
-void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID , uint groupIndex : SV_GroupThreadID )
+void SegmentedBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID , uint groupIndex : SV_GroupThreadID )
 {
-    bool enable = false ; // 确定本线程计算出的位置是否加入
-    float3 finalPos = float3(0,0,0); // 最终位置
-    uint type = 0; // 本数据的类型
-    
+    // 根据瓦片激活状态判断是否需要早退
     // 1. 计算当前线程对应的草地网格索引（全局索引 = 网格起始索引 + 线程ID的XY分量）
     int2 currentIndex = _gridStartIndex + id.xy;
     // 2. 计算草的初始XZ世界位置（网格索引 * 草间距 = 基础位置）
     float2 positionXZ = currentIndex * _spacing;
+    int2 correspondingTileIndex = floor((positionXZ + 22.0*0.5+ 22.0*4 -_centerPos)/22.0);
+    if (_TileActivationStatusR[correspondingTileIndex.x + 8*correspondingTileIndex.y]==0) return;
+
+
+    bool enable = false ; // 确定本线程计算出的位置是否加入
+    float3 finalPos = float3(0,0,0); // 最终位置
+    uint type = 0; // 本数据的类型
+    
     // 3. 添加随机偏移（避免草排列过于整齐，增加自然感）
     // 生成两个随机数（基于网格索引，保证同一位置的随机数固定）
     float2 randomOffset = float2(
         random(currentIndex.x * 5542 + currentIndex.y),  // X偏移随机数（5542是随机质数，打乱索引）
         random(currentIndex.y * 9824 + currentIndex.x)   // Y偏移随机数（9824是随机质数）
     );
-    // 将随机数从0~1映射到-~Spacing~+Spacing，叠加到初始位置
+    // 将随机数从0~1映射到-~_spacing~+Spacing，叠加到初始位置
     positionXZ += (randomOffset * 2 - 1) * _spacing;
 
     // 4. 计算高度图/掩码图的采样UV坐标（归一化到0~1范围）
@@ -122,10 +142,10 @@ void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID ,
         float disMaskValue = smoothstep(0.0*_drawDistance,_drawDistance,distanceFromCamera);
         disMaskValue = pow(disMaskValue,0.3);
         //disMaskValue *= disMaskValue*disMaskValue;
-        bool inDisLevel = saturate(random(currentIndex.x * 9421 + currentIndex.y) - 0.001) >= disMaskValue;
+        bool distanceCulling = saturate(random(currentIndex.x * 9421 + currentIndex.y) - 0.001) >= disMaskValue;
         //inDisLevel = true;
         // 12. 密度级别筛选通过，继续视锥体裁剪
-        if (inDisLevel )
+        if (distanceCulling )
         {
             // 13. 视锥体裁剪（简化版，来自Colin Leung的优化方案）
             // 原理：将世界位置转换为裁剪空间坐标（w分量是齐次坐标），通过判断坐标范围实现裁剪
@@ -136,7 +156,10 @@ void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID ,
             //float2 screenUV = screenPos.xy / screenPos.w;
             //float4 viewPos = mul(_VMatrix, float4(positionWS, 1.0)); // 转换到视图空间
 
-
+            //bool frustumCulling = absPosCS.z <= absPosCS.w *1.2 && // 这个不知道，好像改了效果不明显
+            //        absPosCS.y <= absPosCS.w  * 1.5&& // 纵深近处剔除
+            //        absPosCS.x <= absPosCS.w  * 1.1 ;// 视线角度 
+            bool frustumCulling = FrustumCulling(positionWS);
             // 处理平台差异：Y轴可能翻转
             //#if UNITY_UV_STARTS_AT_TOP
             //    screenUV.y = 1.0 - screenUV.y;
@@ -159,15 +182,7 @@ void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID ,
                     //OcclusionCulling(positionWS-float3(depOffset,0,0));
             // 裁剪条件（宽松裁剪，避免边缘草被过度裁剪）：
             //if (absPosCS.z <= absPosCS.w && absPosCS.y <= absPosCS.w * 1.5 && absPosCS.x <= absPosCS.w * 1.1 && absPosCS.w <= _drawDistance)；
-            if (absPosCS.z <= absPosCS.w *1.2 && // 这个不知道，好像改了效果不明显
-                absPosCS.y <= absPosCS.w  * 1.5&& // 纵深近处剔除
-                absPosCS.x <= absPosCS.w  * 1.1 // 视线角度 
-                
-                //&& grassDepth <= depthMap + 0.001 // 遮挡剔除
-                && occlusionCulling
-                //&& -viewPos2.z <= depthMap+0.01
-                //&& grassDepth <= _extraDistanceRemoval // 额外的距离剔除
-                )
+            if (frustumCulling && occlusionCulling)
             {
                 // 到这里是所有可用的位置，开始判断类型
                 float rate = saturate(random(currentIndex.x * 9401 + currentIndex.y*224) - 0.001);
@@ -178,22 +193,15 @@ void CSMain (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID ,
                 {
                     type = 1;
                 }
-                enable = true;
-                finalPos = positionWS;
 
                 // 最终计数以及写入部分
                 uint localIndex = 0 ; // 局部索引，样本在该类型的位置
                 uint globalIndex = 0; // 全局索引，样本在其类型内的索引 加上 类型索引偏移量
 
-                if (type == 0 )
-                {
-                    InterlockedAdd(_Counters[0],1,localIndex); // 原子操作，更新计数器以及获取局部索引
-                    globalIndex = localIndex ; // 第一个样本没有偏移量
-                }else{
-                    InterlockedAdd(_Counters[1],1,localIndex);
-                    globalIndex = 50000 + localIndex ;
-                }
-                _SegmentedBuffer[globalIndex] = finalPos-float3(0,0,0);
+                InterlockedAdd(_Counters[type],1,localIndex); // 原子操作，更新计数器以及获取局部索引
+                globalIndex = 50000*type + localIndex ; // 第一个样本没有偏移量
+
+                _SegmentedBuffer[globalIndex] = positionWS;
             }
         }
 
@@ -216,4 +224,84 @@ void CopyToArgs(uint3 id : SV_DispatchThreadID)
     // 另外一个关键是时序：如果你在 CPU 的 LateUpdate 发起 Draw，但真正写 argsBuffer 的
     //  compute 是在后面的 render pass，Draw 会读到旧值。
     //_Args[4] = (_TypeIndex)*(50000-1); // 每种类型的偏移量是50000
-}   
+}
+
+RWStructuredBuffer<float3> _TileFilteringBuffer;
+RWStructuredBuffer<uint> _TileActivationStatus; // 瓦片激活状态
+RWStructuredBuffer<uint> _numberOfValidTiles; // 有效瓦片数
+RWStructuredBuffer<float3> _validTilePosition; // 有效瓦片的位置
+float _tileSpacing;
+float2 _tileArrayCenterPos;
+// [numthreads(8, 8, 1)]：定义线程组的大小（X=8，Y=8，Z=1）
+// 每个线程组包含 8*8*1=64 个线程，GPU 会按线程组调度（需与 C# 端的 Dispatch 线程组数匹配）
+// SV_DispatchThreadID：当前线程的全局ID（唯一标识，对应网格中的位置）
+[numthreads(8,8,1)]
+void TileFilteringBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID , uint groupIndex : SV_GroupThreadID )
+{
+    // bounds check：如果当前线程超出 grid 范围直接返回（防止越界写）
+    if (id.x >= 8 || id.y >= 8) return;
+    _TileActivationStatus[id.x + _gridSize.x*id.y] = 0;
+    // 1. 计算当前线程对应的草地网格索引（全局索引 = 网格起始索引 + 线程ID的XY分量）
+    int2 currentIndex = _gridStartIndex + id.xy;
+    //float2 positionXZ = float2(currentIndex.x * _spacingX , currentIndex.y * _spacingZ);
+    float2 positionXZ = (id.xy) * _tileSpacing - _tileSpacing*_gridSize.x*0.5*float2(1,1) + _centerPos;//_tileArrayCenterPos;
+    float _spacing = _tileSpacing;
+
+    // 4. 计算高度图/掩码图的采样UV坐标（归一化到0~1范围）
+    // 步骤：(世界位置 - 纹理中心位置) / 纹理范围（绘制距离+更新阈值）→ 映射到-1~1 → 再映射到0~1
+    float2 uv = (positionXZ - _centerPos) / (_textureUpdateThreshold + _drawDistance); 
+    uv = uv * 0.5 + 0.5;  // 从[-1,1]映射到[0,1]
+
+    // ===================================== 高度图剔除 =======================================
+    float2 heightMap = _grassHeightTex.SampleLevel(linearClampSampler, uv, 0).rg;
+    // 处理，让最外层一圈为纯黑色
+    float mask = (1.0-step(0.99,2.0*abs(uv.y-0.5)));//*(1.0-step(0.1,2.0*abs(uv.y-0.5)));
+    mask *= (1.0-step(0.99,2.0*abs(uv.x-0.5)));
+    heightMap *= mask;
+
+    // 重构草的世界Y坐标（将高度图的0~1值映射到相机包围盒的Y轴范围）
+    float positionY = Remap(heightMap.r, float2(0, 1), float2(_boundsMin.y, _boundsMax.y));
+    // 组合草的完整世界位置（X=positionXZ.x，Y=positionY，Z=positionXZ.y）
+    float3 positionWS = float3(positionXZ.x, positionY, positionXZ.y) ;//- float3(30,0,60); 
+
+
+    _TileFilteringBuffer[id.x + 8*id.y] = positionWS;
+
+    if (step(0.001,heightMap.r) == 1)
+    {
+        // 瓦片的剔除不做遮挡剔除，没必要，只对四个角做视锥剔除就可以了
+        // ============================ 视锥剔除 ============================================
+        float4 clipPos = mul(_VPMatrix, float4(positionWS, 1.0)); // 世界空间→裁剪空间
+        float4 absPosCS = abs(clipPos); // 取绝对值，简化裁剪判断
+        float3 ff = float3(1.2,1.5,1.2);
+        bool frustumCulling = FrustumCulling(positionWS,ff); 
+        bool frustumCullingRD = FrustumCulling(positionWS+0.5*float3(_spacing,0,-_spacing),ff);
+        bool frustumCullingLD = FrustumCulling(positionWS+0.5*float3(-_spacing,0,-_spacing),ff);
+        bool frustumCullingRU = FrustumCulling(positionWS+0.5*float3(_spacing,0,_spacing),ff);
+        bool frustumCullingLU = FrustumCulling(positionWS+0.5*float3(-_spacing,0,_spacing),ff); 
+        // 修正视锥剔除中角色所处Tile有时候不显示的问题
+        bool nearTheCamera = length(_camPosition-positionWS) <= 0.6*_spacing;
+        if ( frustumCulling ||
+            frustumCullingLD || frustumCullingLU || frustumCullingRD || frustumCullingRU
+            || nearTheCamera)
+        {
+            int vIndex = 0;
+            InterlockedAdd(_numberOfValidTiles[0],1,vIndex);
+            _validTilePosition[vIndex] = positionWS ;
+            _TileActivationStatus[id.x + 8*id.y] = 1;
+        }
+
+    }
+}
+
+uint numberPerSide;
+StructuredBuffer<uint> _numberOfValidTilesR; // 有效瓦片数
+RWStructuredBuffer<uint> _numberOfThreadsToCall; // 最终调用线程组数
+[numthreads(1,1,1)]
+void CopyToUint3(uint3 id : SV_DispatchThreadID)
+{
+    _numberOfThreadsToCall[0] = _numberOfValidTilesR[0]*numberPerSide;
+    _numberOfThreadsToCall[1] = _numberOfValidTilesR[0]*numberPerSide;
+    _numberOfThreadsToCall[2] = 1;
+
+}

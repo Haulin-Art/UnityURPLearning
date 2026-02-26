@@ -292,6 +292,7 @@ Shader "Unlit/cesPosBuffer"
                 float3 nor = UnpackNormal(tex2D(_NorTex,i.uv));
                 float3x3 TBNMatrix = float3x3(normalize(cross(i.bezNormal,i.bezTangent)),i.bezTangent,i.bezNormal);
                 nor = -mul(nor,TBNMatrix);
+                nor = float3(nor.x,nor.y,-nor.z);
                 if (_UseNorTex == 0 ) nor = -mul(i.normal,TBNMatrix);
 
                 Light mainLight = GetMainLight(TransformWorldToShadowCoord(i.worldPos));
@@ -321,10 +322,11 @@ Shader "Unlit/cesPosBuffer"
                 float3 cool = instanceID < 20 ? float3(1,0,0) : float3(0,0,1);
                 //return float4(cool,1.0);
 
-                //return float4(specular*float3(1,1,1),1.0);
+                //return float4(float3(nor.x,nor.y,-nor.z)*float3(1,1,1),1.0);
+                //return float4(nor.x*float3(1,1,1),1.0);
                 //return float4(nor.y*float3(1,1,1),1.0);
                 //return float4(i.bezTangent.y*float3(1,1,1),1.0);
-                return float4((diff + specular)*(i.cesCol/100 + albedo)*float3(1,1,1),1);
+                return float4((diff + specular)*(i.cesCol/100 + albedo)*1.3*float3(1,1,1),1);
                 //return float4(()*float3(1,1,1),1);
                 return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);
                 return float4(float3(i.cesCol),1);

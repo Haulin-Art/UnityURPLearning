@@ -20,7 +20,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: GrassMat
+  m_Name: 2GrassMat
   m_Shader: {fileID: 4800000, guid: 7f81c3f61fcdf734baa62ced5ed32089, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -127,7 +127,7 @@ Material:
     - _ClearCoatSmoothness: 0
     - _ClumpPoint: -0.34
     - _ClumpUseCenter: 2
-    - _ClumpUseSamePos: 0.582
+    - _ClumpUseSamePos: 0.4
     - _ColRamp: 1.42
     - _Cull: 2
     - _Cutoff: 0.5
