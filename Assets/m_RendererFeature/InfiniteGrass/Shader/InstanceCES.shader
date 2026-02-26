@@ -39,7 +39,9 @@ Shader "Unlit/InstanceCES"
                 float3 worldOffset = _CES[instanceID] ;
                 //o.vertex = TransformWorldToHClip(v.vertex);
                 //float3 posWS = TransformObjectToWorld(v.vertex);
-                o.vertex = TransformWorldToHClip(v.vertex.xyz + worldOffset);
+                float2 scale = float2(22.0,4.0);
+                float3 modelVertex = float3(v.vertex.x*scale.x,v.vertex.y*scale.y,v.vertex.z*scale.x);
+                o.vertex = TransformWorldToHClip(modelVertex + worldOffset);
                 o.uv = v.uv;
                 o.isActive = _CES2[instanceID];
                 return o;
@@ -47,6 +49,9 @@ Shader "Unlit/InstanceCES"
 
             float4 frag (v2f i, uint instanceID : SV_InstanceID) : SV_Target
             {
+                float width = 0.005 ; 
+                float linee = max(step(0.5-width,abs(i.uv.x-0.5)),step(0.5-width,abs(i.uv.y-0.5)));
+                if (linee == 0 ) discard;
                 float3 col = _CES2[instanceID] * float3(1,1,1);
                 return float4(i.isActive,0,0,1);
             }

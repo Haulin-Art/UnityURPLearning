@@ -221,7 +221,7 @@ public class GrassRendererPass : ScriptableRendererFeature
             // 第一遍Tile过滤
             ComputeTileFilteringPosBuffer(ref cmd,ref _TileActivationStatus,ref _tileFilteringBuffer,settings.computeShader,
                 centerPos,camBounds);
-            cmd.SetGlobalBuffer("_CES", _tileFilteringBuffer);
+            cmd.SetGlobalBuffer("_CES", _tileFilteringBuffer); // 每个tile的中心点
             cmd.SetGlobalBuffer("_CES2", _TileActivationStatus);
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
@@ -235,18 +235,23 @@ public class GrassRendererPass : ScriptableRendererFeature
             cmd.SetGlobalVector("_GrassUVParams",new Vector4(centerPos.x,centerPos.y,settings.textureUpdateThreshold,settings.drawDistance));
             cmd.SetGlobalBuffer("_GrassPositions", _segmentedBuffer);
 
-                
+            /*
             ComputeTileRefinement(ref cmd,settings.computeShader,centerPos,camBounds,
-                ref _RefinePosBuffer,ref _TileActivationStatus,ref _AllCountersBuffer);
+                ref _RefinePosBuffer,ref _TileActivationStatus,ref _AllCountersBuffer,ref _tileFilteringBuffer);
             int kernelIDC = settings.computeShader.FindKernel("CopyToArgs");
             cmd.SetGlobalBuffer("_CES3", _RefinePosBuffer);
             cmd.SetGlobalBuffer("_CES2", _TileActivationStatus);
-            cmd.SetComputeBufferParam(settings.computeShader,kernelIDC,"_CountersR",_AllCountersBuffer);
-            cmd.SetComputeBufferParam(settings.computeShader,kernelIDC,"_Args",myRendererData.instance.argsBufferArray[3]);
-            cmd.SetComputeIntParam(settings.computeShader,"_TypeIndex",3);
-            //cmd.DispatchCompute(settings.computeShader,kernelIDC,1,1,1);
-
-
+            if(myRendererData.instance != null)
+            {
+                if (myRendererData.instance.argsBufferArray[3] != null)
+                {
+                    cmd.SetComputeBufferParam(settings.computeShader,kernelIDC,"_CountersR",_AllCountersBuffer);
+                    cmd.SetComputeBufferParam(settings.computeShader,kernelIDC,"_Args",myRendererData.instance.argsBufferArray[3]);
+                    cmd.SetComputeIntParam(settings.computeShader,"_TypeIndex",0);
+                    cmd.DispatchCompute(settings.computeShader,kernelIDC,1,1,1);
+                } 
+            }
+            */
             if(myRendererData.instance != null)
             {
                 int kernelID = settings.computeShader.FindKernel("CopyToArgs");
@@ -274,7 +279,7 @@ public class GrassRendererPass : ScriptableRendererFeature
 
 
             // =================== 可视化调试部分 ===================
-            settings.showMat.SetTexture("_MainTex",camDepRT);
+            settings.showMat.SetTexture("_MainTex",topOrthographicDepth);
             // 用于可视化包围盒
             if(myRendererData.instance != null)
             {
@@ -335,8 +340,8 @@ public class GrassRendererPass : ScriptableRendererFeature
         }
         public void ComputeTileRefinement(ref CommandBuffer cmd , ComputeShader cs,
             Vector3 centerPos,Bounds camBounds,
-            ref ComputeBuffer segmentedBuffer , ref ComputeBuffer activeStatus,
-            ref ComputeBuffer countersBuffer)
+            ref ComputeBuffer refinePosBuffer , ref ComputeBuffer activeStatus,
+            ref ComputeBuffer countersBuffer , ref ComputeBuffer tileCenterPosBuffer)
         {
             int samplerDensity = 4;
 
@@ -377,7 +382,8 @@ public class GrassRendererPass : ScriptableRendererFeature
 
             cmd.SetComputeBufferParam(cs, kernelID, "_AllCountersBuffer", countersBuffer);
             cmd.SetComputeBufferParam(cs, kernelID, "_TileActivationStatusR", activeStatus);
-            cmd.SetComputeBufferParam(cs, kernelID, "_RefinePosBuffer", segmentedBuffer);
+            cmd.SetComputeBufferParam(cs, kernelID, "_RefinePosBuffer", refinePosBuffer);
+            cmd.SetComputeBufferParam(cs, kernelID, "_TileCenterPosBuffer", tileCenterPosBuffer);
 
             // 调度ComputeShader执行（线程组数量：X=gridSize.x/8，Y=gridSize.y/8，Z=1）
             // 线程组大小通常设为8x8x1，因此需要除以8并向上取整

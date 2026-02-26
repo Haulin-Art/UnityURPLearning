@@ -40,7 +40,7 @@ public class myRendererData : MonoBehaviour
     void Awake()
     {
         if (argsBufferArray == null)
-            argsBufferArray = new ComputeBuffer[2];
+            argsBufferArray = new ComputeBuffer[dataArray.Length];
     }
     void OnEnable()
     {
@@ -108,7 +108,7 @@ public class myRendererData : MonoBehaviour
 
 
         int typeCounts = dataArray.Length;
-        // 确保 argsBufferArray 中每一项也被创建（如果需要2个）
+        //int typeCounts = 4;
         if (argsBufferArray == null)
             argsBufferArray = new ComputeBuffer[typeCounts];
         for (int t = 0; t < argsBufferArray.Length; t++)
@@ -120,8 +120,8 @@ public class myRendererData : MonoBehaviour
         if (tBuffer == null)
             tBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Raw);
     
-        typeCounts = 2;
-        for ( int t = 0 ; t < typeCounts ; t++)
+        //typeCounts = 2;
+        for ( int t = 0 ; t < 2 ; t++)
         {
             Mesh mesh = dataArray[t].mesh;
             // 4. 填充间接渲染参数数组
@@ -160,11 +160,13 @@ public class myRendererData : MonoBehaviour
             args[3] = (uint)mesh.GetBaseVertex(0);
             args[4] = 0;
             argsBufferArray[2].SetData(args);
+
             Graphics.DrawMeshInstancedIndirect(mesh, 0, dataArray[2].mat, cameraBounds, argsBufferArray[2]);
         }
-        bool ces2 = true;
+        bool ces2 = false;
         if (ces2)
         {
+            argsBufferArray[3] = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
             Mesh mesh = dataArray[3].mesh;
             uint[] args = new uint[5];
             args[0] = (uint)mesh.GetIndexCount(0);

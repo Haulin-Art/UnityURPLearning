@@ -39,7 +39,7 @@ Shader "Unlit/InstanceCES2"
                 float3 worldOffset = _CES3[instanceID] ;
                 //o.vertex = TransformWorldToHClip(v.vertex);
                 //float3 posWS = TransformObjectToWorld(v.vertex);
-                o.vertex = TransformWorldToHClip(v.vertex.xyz + worldOffset);
+                o.vertex = TransformWorldToHClip(v.vertex.xyz*0.5 + worldOffset);
                 o.uv = v.uv;
                 //o.isActive = _CES2[instanceID];
                 return o;
