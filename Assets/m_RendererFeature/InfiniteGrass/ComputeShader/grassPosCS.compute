@@ -235,6 +235,21 @@ float2 _tileArrayCenterPos;
 // [numthreads(8, 8, 1)]：定义线程组的大小（X=8，Y=8，Z=1）
 // 每个线程组包含 8*8*1=64 个线程，GPU 会按线程组调度（需与 C# 端的 Dispatch 线程组数匹配）
 // SV_DispatchThreadID：当前线程的全局ID（唯一标识，对应网格中的位置）
+float3 CalPos(float2 posXZ)
+{
+    float2 uv = (posXZ - _centerPos) / (_textureUpdateThreshold + _drawDistance); 
+    uv = uv * 0.5 + 0.5;  // 从[-1,1]映射到[0,1]
+    // ===================================== 高度图剔除 =======================================
+    float2 heightMap = _grassHeightTex.SampleLevel(linearClampSampler, uv, 0).rg;
+    // 处理，让最外层一圈为纯黑色
+    float mask = (1.0-step(0.99,2.0*abs(uv.y-0.5)));//*(1.0-step(0.1,2.0*abs(uv.y-0.5)));
+    mask *= (1.0-step(0.99,2.0*abs(uv.x-0.5)));
+    heightMap *= mask;
+
+    float positionY = Remap(heightMap.r, float2(0, 1), float2(_boundsMin.y, _boundsMax.y));
+    float3 positionWS = float3(posXZ.x, positionY, posXZ.y) ;
+    return positionWS;
+}
 [numthreads(8,8,1)]
 void TileFilteringBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_GroupThreadID , uint groupIndex : SV_GroupThreadID )
 {
@@ -264,6 +279,10 @@ void TileFilteringBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : S
     // 组合草的完整世界位置（X=positionXZ.x，Y=positionY，Z=positionXZ.y）
     float3 positionWS = float3(positionXZ.x, positionY, positionXZ.y) ;//- float3(30,0,60); 
 
+    float3 posRD = CalPos(positionXZ+0.5*float2(_spacing,-_spacing));
+    float3 posLD = CalPos(positionXZ+0.5*float2(-_spacing,-_spacing));
+    float3 posRU = CalPos(positionXZ+0.5*float2(_spacing,_spacing));
+    float3 posLU = CalPos(positionXZ+0.5*float2(-_spacing,_spacing));
 
     _TileFilteringBuffer[id.x + 8*id.y] = positionWS;
 
@@ -275,12 +294,24 @@ void TileFilteringBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : S
         float4 absPosCS = abs(clipPos); // 取绝对值，简化裁剪判断
         float3 ff = float3(1.2,1.5,1.2);
         bool frustumCulling = FrustumCulling(positionWS,ff); 
+        /*
         bool frustumCullingRD = FrustumCulling(positionWS+0.5*float3(_spacing,0,-_spacing),ff);
         bool frustumCullingLD = FrustumCulling(positionWS+0.5*float3(-_spacing,0,-_spacing),ff);
         bool frustumCullingRU = FrustumCulling(positionWS+0.5*float3(_spacing,0,_spacing),ff);
         bool frustumCullingLU = FrustumCulling(positionWS+0.5*float3(-_spacing,0,_spacing),ff); 
+        */
+        bool frustumCullingRD = FrustumCulling(posRD,ff);
+        bool frustumCullingLD = FrustumCulling(posLD,ff);
+        bool frustumCullingRU = FrustumCulling(posRU,ff);
+        bool frustumCullingLU = FrustumCulling(posLU,ff); 
         // 修正视锥剔除中角色所处Tile有时候不显示的问题
-        bool nearTheCamera = length(_camPosition-positionWS) <= 0.6*_spacing;
+        float nearFactor = 0.6;
+        bool nearTheCamera = length(_camPosition-positionWS) <= nearFactor*_spacing ;//|| 
+                //length(_camPosition-posRD) <= nearFactor*_spacing ||
+                //length(_camPosition-posLD) <= nearFactor*_spacing ||
+                //length(_camPosition-posRU) <= nearFactor*_spacing ||
+                //length(_camPosition-posLU) <= nearFactor*_spacing 
+                ;
         if ( frustumCulling ||
             frustumCullingLD || frustumCullingLU || frustumCullingRD || frustumCullingRU
             || nearTheCamera)
