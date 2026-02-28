@@ -159,7 +159,7 @@ Material:
     - _FresIn: {r: 0, g: 0, b: 0, a: 1}
     - _FresOut: {r: 0.20106, g: 0.23047604, b: 0.28930807, a: 1}
     - _MColor: {r: 1, g: 0.30327898, b: 0.16470587, a: 1}
-    - _RoughnessScale: {r: 1, g: 0, b: 0, a: 0}
+    - _RoughnessScale: {r: 1.32, g: 0, b: 0, a: 0}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []
 --- !u!114 &3559025135809626689

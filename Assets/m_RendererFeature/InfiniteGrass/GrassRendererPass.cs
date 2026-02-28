@@ -186,7 +186,7 @@ public class GrassRendererPass : ScriptableRendererFeature
                 var drawSetting = CreateDrawingSettings(shaderTagList, ref renderingData, renderingData.cameraData.defaultOpaqueSortFlags);
                 drawSetting.overrideMaterial = settings.viewSpaceDepMat;
                 //var filterSetting = new FilteringSettings(RenderQueueRange.all, settings.renderLayer);
-                var filterSetting = new FilteringSettings(RenderQueueRange.all);
+                var filterSetting = new FilteringSettings(RenderQueueRange.opaque);
                 context.DrawRenderers(renderingData.cullResults, ref drawSetting, ref filterSetting);
             }
 

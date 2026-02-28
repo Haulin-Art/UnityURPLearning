@@ -222,6 +222,7 @@ Shader "Unlit/DropDistanceFogPass"
                 float3 finalCol = lerp(cc,pow(0.7,2.2),fogMask);
 
                 //return float4(d1*float3(1,1,1),1);
+                return float4((finalCol+d1*0.05)*float3(1,1,1),1);
                 return float4(suaijian*finalCol*float3(1,1,1),1);
             }
             ENDHLSL
