@@ -1,0 +1,153 @@
+// OceanFFT.compute (fixed version)
+// Kernels: UploadH0, UpdateSpectrum, FFTStageHorizontal, FFTStageVertical, SpectrumToHeight
+#pragma kernel UploadH0
+#pragma kernel UpdateSpectrum
+#pragma kernel FFTStageHorizontal
+#pragma kernel FFTStageVertical
+#pragma kernel SpectrumToHeight
+
+// ---------- global params ----------
+int _N;
+int _Stage;
+int _Sign; // +1 inverse, -1 forward
+
+float _Time;
+float _PatchSize;
+float _Amplitude;
+float _Gravity;
+float2 _WindDir;
+
+// ---------- resources ----------
+StructuredBuffer<float4> _H0Buffer;   // CPU uploaded: (re,im,unused,unused) linear indexed
+StructuredBuffer<float> _OmegaBuffer;  // per-k omega (linear indexed)
+
+// H0 texture (we write to it in UploadH0 and read from it in UpdateSpectrum)
+RWTexture2D<float2> _H0Tex;            // (re, im)
+
+// Spectrum and ping/pong for FFT (complex stored in float2)
+RWTexture2D<float2> _SpectrumOut;
+RWTexture2D<float2> _SrcTex;
+RWTexture2D<float2> _DstTex;
+
+// Spatial-domain complex output (after iFFT)
+RWTexture2D<float2> _SpatialComplex;
+
+// Final height output (RFloat)
+RWTexture2D<float> _HeightOut;
+
+// ---------- helpers ----------
+float2 cMul(float2 a, float2 b) {
+    return float2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+}
+
+// ---------- Upload initial h0 buffer into a RWTexture2D (H0Tex) ----------
+[numthreads(8,8,1)]
+void UploadH0(uint3 dtid : SV_DispatchThreadID)
+{
+    uint2 xy = dtid.xy;
+    if (xy.x >= _N || xy.y >= _N) return;
+    uint idx = xy.y * _N + xy.x;
+    float4 v = _H0Buffer[idx];
+    _H0Tex[xy] = float2(v.x, v.y);
+}
+
+// ---------- UpdateSpectrum: compute H(k,t) from h0(k) and omega ----------
+[numthreads(8,8,1)]
+void UpdateSpectrum(uint3 dtid : SV_DispatchThreadID)
+{
+    uint2 xy = dtid.xy;
+    if (xy.x >= _N || xy.y >= _N) return;
+    uint idx = xy.y * _N + xy.x;
+
+    float2 h0 = _H0Tex[xy];
+
+    // index for -k with wrapping
+    uint nx = (xy.x == 0) ? 0u : (uint)(_N - xy.x);
+    uint ny = (xy.y == 0) ? 0u : (uint)(_N - xy.y);
+    float2 h0_neg = _H0Tex[uint2(nx, ny)];
+
+    float omega = _OmegaBuffer[idx];
+
+    float c = cos(omega * _Time);
+    float s = sin(omega * _Time);
+
+    // h0 * e^{i w t}
+    float2 part1;
+    part1.x = h0.x * c - h0.y * s;
+    part1.y = h0.x * s + h0.y * c;
+
+    // conj(h0(-k)) * e^{-i w t}
+    float2 part2;
+    part2.x = h0_neg.x * c - h0_neg.y * s;
+    part2.y = -h0_neg.x * s - h0_neg.y * c;
+
+    float2 Hkt = part1 + part2;
+
+    _SpectrumOut[xy] = Hkt;
+}
+
+// ---------- FFT Stage: horizontal (operate per-row) ----------
+// Note: this is a Stockham-like stage: uses _Stage (1..log2N) and _Sign for twiddle
+[numthreads(8,8,1)]
+void FFTStageHorizontal(uint3 dtid : SV_DispatchThreadID)
+{
+    uint2 xy = dtid.xy;
+    if (xy.x >= _N || xy.y >= _N) return;
+
+    uint stage = (uint)_Stage;
+    uint m = 1u << stage;
+    uint half = m >> 1;
+    uint k = xy.x;
+    uint j = k % half;        // position inside butterfly
+    uint group = k / m;
+    uint indexA = group * m + j;
+    uint indexB = indexA + half;
+
+    float2 a = _SrcTex[uint2(indexA, xy.y)];
+    float2 b = _SrcTex[uint2(indexB, xy.y)];
+
+    float angle = (_Sign) * 6.28318530717958647692 * (float)j / (float)m;
+    float2 tw = float2(cos(angle), sin(angle));
+    float2 t = cMul(b, tw);
+
+    _DstTex[xy] = a + t;
+}
+
+// ---------- FFT Stage: vertical (operate per-column) ----------
+[numthreads(8,8,1)]
+void FFTStageVertical(uint3 dtid : SV_DispatchThreadID)
+{
+    uint2 xy = dtid.xy;
+    if (xy.x >= _N || xy.y >= _N) return;
+
+    uint stage = (uint)_Stage;
+    uint m = 1u << stage;
+    uint half = m >> 1;
+    uint k = xy.y;
+    uint j = k % half;
+    uint group = k / m;
+    uint indexA = group * m + j;
+    uint indexB = indexA + half;
+
+    float2 a = _SrcTex[uint2(xy.x, indexA)];
+    float2 b = _SrcTex[uint2(xy.x, indexB)];
+
+    float angle = (_Sign) * 6.28318530717958647692 * (float)j / (float)m;
+    float2 tw = float2(cos(angle), sin(angle));
+    float2 t = cMul(b, tw);
+
+    _DstTex[xy] = a + t;
+}
+
+// ---------- Convert final spatial complex -> height (real part) ----------
+[numthreads(8,8,1)]
+void SpectrumToHeight(uint3 dtid : SV_DispatchThreadID)
+{
+    uint2 xy = dtid.xy;
+    if (xy.x >= _N || xy.y >= _N) return;
+
+    float2 v = _SpatialComplex[xy];
+    float scale = 1.0f / ((float)_N * (float)_N);
+    float height = v.x * scale;
+    _HeightOut[xy] = height;
+}

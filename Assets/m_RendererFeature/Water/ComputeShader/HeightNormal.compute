@@ -1,0 +1,47 @@
+// HeightNormal.compute
+#pragma kernel HeightNormal
+
+Texture2D<float2> _ComplexSpatial; // result of inverse FFT (complex) -> use real part as height
+RWTexture2D<float> _HeightOut;
+RWTexture2D<float4> _NormalOut;
+
+int _N;
+float _Amplitude;
+float _Choppiness;
+
+static const float PI = 3.14159265359;
+
+[numthreads(8,8,1)]
+void HeightNormal(uint3 id : SV_DispatchThreadID)
+{
+    int x = id.x;
+    int y = id.y;
+    if (x >= _N || y >= _N) return;
+
+    // sample center real part as height
+    float2 c = _ComplexSpatial.Load(int3(x,y,0));
+    // After inverse FFT, values should be scaled by 1/(N*N) - scale here:
+    float scale = 1.0 / (_N * _N);
+    float h = c.x * scale * _Amplitude;
+
+    _HeightOut[int2(x,y)] = h;
+
+    // compute normal via central differences sampling height neighbors (wrap)
+    int xm = (x - 1 + _N) % _N;
+    int xp = (x + 1) % _N;
+    int ym = (y - 1 + _N) % _N;
+    int yp = (y + 1) % _N;
+
+    float hm = _ComplexSpatial.Load(int3(xm,y,0)).x * scale * _Amplitude;
+    float hp = _ComplexSpatial.Load(int3(xp,y,0)).x * scale * _Amplitude;
+    float hn = _ComplexSpatial.Load(int3(x,ym,0)).x * scale * _Amplitude;
+    float hp2 = _ComplexSpatial.Load(int3(x,yp,0)).x * scale * _Amplitude;
+
+    // world-space grid spacing assumed 1; adjust if your world scale differs
+    float dx = (hp - hm) * 0.5;
+    float dy = (hp2 - hn) * 0.5;
+
+    float3 normal = normalize(float3(-dx * _Choppiness, -dy * _Choppiness, 1.0));
+
+    _NormalOut[int2(x,y)] = float4(normal * 0.5 + 0.5, 1.0); // encode to [0,1]
+}

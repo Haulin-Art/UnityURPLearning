@@ -1,0 +1,132 @@
+// OceanSpectrum.compute
+#pragma kernel InitSpectrum
+#pragma kernel SpectrumTime
+
+// textures: store complex numbers in RGFloat (x=real, y=imag)
+RWTexture2D<float2> _H0; // initial spectrum
+RWTexture2D<float2> _HT; // spectrum at time t (complex)
+
+int _N;
+float _L; // physical domain size (you can set to N for simplicity)
+float4 _Wind; // x,y = dir, z = speed
+float _A; // amplitude
+float _G; // gravity
+float _Time;
+
+static const float PI = 3.14159265359;
+
+// gaussian random from seed via Hash (deterministic per uv)
+uint wang_hash(uint seed)
+{
+    seed = (seed ^ 61u) ^ (seed >> 16);
+    seed *= 9u;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2du;
+    seed = seed ^ (seed >> 15);
+    return seed;
+}
+
+float rnd01(uint seed)
+{
+    return (wang_hash(seed) & 0xFFFFFFu) / (float)0x1000000u;
+}
+
+float2 gaussRandom(uint x, uint y)
+{
+    // Box-Muller
+    uint s1 = x * 73856093u ^ y * 19349663u;
+    uint s2 = s1 + 0x9e3779b9u;
+    float u1 = rnd01(s1);
+    float u2 = rnd01(s2);
+    float r = sqrt(-2.0 * log(max(1e-6, u1)));
+    float theta = 2.0 * PI * u2;
+    return float2(r * cos(theta), r * sin(theta));
+}
+
+float PhillipsSpectrum(float2 k, float2 windDir, float windSpeed, float A, float G)
+{
+    float ksq = dot(k,k);
+    if (ksq < 1e-6) return 0.0;
+    float klen = sqrt(ksq);
+    float kdotw = dot(normalize(k), normalize(windDir));
+    float L = (windSpeed * windSpeed) / G;
+    float L2 = L * L;
+
+    float ph = A * exp(-1.0 / (ksq * L2)) / (ksq * ksq) * (kdotw * kdotw);
+    // damp small waves near k=0
+    float damp = exp(-ksq * 0.001);
+    return ph * damp;
+}
+
+// helper: map array index -> integer frequency k (signed)
+int MapIndexToK(int i)
+{
+    // standard mapping: 0..N/2 -> 0..N/2 ; N/2+1..N-1 -> -N/2+1 .. -1
+    if (i <= _N / 2) return i;
+    return i - _N;
+}
+
+[numthreads(8,8,1)]
+void InitSpectrum (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _N || id.y >= _N) return;
+    int i = id.x;
+    int j = id.y;
+
+    float2 wind = float2(_Wind.x, _Wind.y);
+    float windSpeed = _Wind.z;
+
+    int kx_i = MapIndexToK(i);
+    int ky_j = MapIndexToK(j);
+
+    float kx = kx_i * (2.0 * PI / _L);
+    float ky = ky_j * (2.0 * PI / _L);
+    float2 k = float2(kx, ky);
+
+    float P = PhillipsSpectrum(k, wind, windSpeed, _A, _G);
+
+    float2 rnd = gaussRandom((uint)i + 1u, (uint)j + 1u);
+    float scale = 1.0 / sqrt(2.0);
+
+    float2 h0 = scale * sqrt(max(0.0, P)) * rnd;
+
+    _H0[int2(i,j)] = h0;
+}
+
+[numthreads(8,8,1)]
+void SpectrumTime(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _N || id.y >= _N) return;
+    int i = id.x;
+    int j = id.y;
+
+    int kx_i = MapIndexToK(i);
+    int ky_j = MapIndexToK(j);
+
+    float kx = kx_i * (2.0 * PI / _L);
+    float ky = ky_j * (2.0 * PI / _L);
+    float2 k = float2(kx, ky);
+    float klen = length(k);
+    float omega = (klen > 0.0) ? sqrt(_G * klen) : 0.0;
+
+    float2 h0 = _H0[int2(i,j)];
+
+    // -k index mapping: if k corresponds to (kx_i, ky_j), then -k maps to ( (-kx_i mod N), (-ky_j mod N) )
+    //int ineg = ( (_N - (i % _N)) ) % _N;
+    //int jneg = ( (_N - (j % _N)) ) % _N;
+    int ineg = (i == 0) ? 0 : (_N - i);
+    int jneg = (j == 0) ? 0 : (_N - j);
+
+    float2 h0_neg = _H0[int2(ineg, jneg)];
+    // complex conjugate for h0(-k)
+    float2 h0_neg_conj = float2(h0_neg.x, -h0_neg.y);
+
+    float2 expPos = float2(cos(omega * _Time), sin(omega * _Time));
+    float2 expNeg = float2(cos(-omega * _Time), sin(-omega * _Time));
+
+    // h(k,t) = h0(k) * e^{iωt} + conj(h0(-k)) * e^{-iωt}
+    float2 a = float2(h0.x * expPos.x - h0.y * expPos.y, h0.x * expPos.y + h0.y * expPos.x);
+    float2 b = float2(h0_neg_conj.x * expNeg.x - h0_neg_conj.y * expNeg.y, h0_neg_conj.x * expNeg.y + h0_neg_conj.y * expNeg.x);
+
+    _HT[int2(i,j)] = a + b;
+}

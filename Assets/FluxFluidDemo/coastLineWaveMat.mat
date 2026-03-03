@@ -37,7 +37,7 @@ Material:
         m_Offset: {x: 0, y: 0}
     - _VectorDisMap:
         m_Texture: {fileID: 2800000, guid: cb96667e6f0ada747afd9c9fe27b2395, type: 3}
-        m_Scale: {x: 4, y: 2}
+        m_Scale: {x: 2, y: 1}
         m_Offset: {x: 0, y: 0}
     - _VectorDisMapNormal:
         m_Texture: {fileID: 2800000, guid: 53d575e1ffadbba468e3345fc41c1ce7, type: 3}
@@ -45,14 +45,14 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _SineCount: 1.48
-    - _Speed: 0
+    - _SineCount: 0.96
+    - _Speed: 0.31
     - _VDMXOffset: 0
-    - _VDMXScale: 1.2
-    - _VDMYOffset: -0.5
-    - _VDMYScale: -0.39
+    - _VDMXScale: 0.48
+    - _VDMYOffset: 0
+    - _VDMYScale: -0.13
     - _VectorDisMapScale: 1
-    - _sineScale: 0.051
+    - _sineScale: 0.069
     m_Colors:
     - _DeepWaterCol: {r: 0, g: 0.5179733, b: 0.8050314, a: 1}
     - _WaterCol: {r: 0.20467927, g: 0.7391196, b: 0.8238993, a: 1}

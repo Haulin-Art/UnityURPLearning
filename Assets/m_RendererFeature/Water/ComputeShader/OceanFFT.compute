@@ -1,0 +1,179 @@
+#pragma kernel InitSpectrum
+#pragma kernel HorizontalFFT
+#pragma kernel VerticalFFT
+#pragma kernel Combine
+#pragma kernel UpdateWaves
+
+#include "UnityCG.cginc"
+
+#define PI 3.141592653589793
+#define GRAVITY 9.81
+#define SQRT2 1.41421356237
+
+RWTexture2D<float4> _DisplacementBuffer;
+RWTexture2D<float4> _TmpBuffer;
+RWTexture2D<float4> _OutputBuffer;
+RWTexture2D<float4> _H0Buffer;
+Texture2D<float4> _TwiddleIndices;
+
+float _OceanSize;
+float _WindSpeed;
+float2 _WindDir;
+float _WaveScale;
+float _Choppiness;
+float _TimeParam;
+float _Lod;
+int _Resolution;
+float4 _OceanParams; // x:size, y:wind speed, z:wave scale, w:choppiness
+
+// Phillips频谱
+float PhillipsSpectrum(float2 k, float windSpeed, float2 windDir, float A, float waveAge)
+{
+    float2 kNorm = normalize(k);
+    float L = windSpeed * windSpeed / GRAVITY;
+    float kLen = length(k);
+    
+    if (kLen < 0.0001) return 0;
+    
+    float kDotW = dot(kNorm, windDir);
+    float phillips = A * exp(-1.0 / (kLen * L * kLen * L)) / pow(kLen, 4) * pow(kDotW, 2);
+    
+    // 波龄控制
+    float damp = exp(-waveAge * pow(kLen * L - 1.0, 2));
+    
+    return phillips * damp;
+}
+
+// 生成初始频谱
+[numthreads(8,8,1)]
+void InitSpectrum (uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    int N = _Resolution;
+    
+    // 生成随机复数
+    float4 randValues = float4(
+        frac(sin(dot(coord, float2(12.9898, 78.233))) * 43758.5453),
+        frac(cos(dot(coord, float2(19.912, 91.132))) * 28547.3213),
+        frac(sin(dot(coord, float2(41.123, 23.456))) * 16789.2345),
+        frac(cos(dot(coord, float2(33.333, 44.444))) * 23456.7890)
+    ) * 2.0 - 1.0;
+    
+    float2 k = float2(
+        (coord.x - N * 0.5) * (2.0 * PI / _OceanSize),
+        (coord.y - N * 0.5) * (2.0 * PI / _OceanSize)
+    );
+    
+    float amplitude = sqrt(PhillipsSpectrum(k, _WindSpeed, _WindDir, 1.0, 0.85) * 0.5);
+    
+    float2 h0 = amplitude * randValues.xy;
+    float2 h0Star = amplitude * randValues.zw;
+    
+    _DisplacementBuffer[coord] = float4(h0.x, h0.y, h0Star.x, h0Star.y);
+    _H0Buffer[coord] = float4(h0.x, h0.y, h0Star.x, h0Star.y);
+}
+
+// 时域更新
+[numthreads(8,8,1)]
+void UpdateWaves (uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    int N = _Resolution;
+    
+    float2 k = float2(
+        (coord.x - N * 0.5) * (2.0 * PI / _OceanSize),
+        (coord.y - N * 0.5) * (2.0 * PI / _OceanSize)
+    );
+    
+    float kLen = length(k);
+    float omega = sqrt(GRAVITY * kLen);
+    
+    float4 h0 = _H0Buffer[coord];
+    float cosWT = cos(omega * _TimeParam);
+    float sinWT = sin(omega * _TimeParam);
+    
+    // 计算频域位移
+    float2 h = float2(
+        (h0.x + h0.z) * cosWT - (h0.y - h0.w) * sinWT,
+        (h0.y + h0.w) * cosWT + (h0.x - h0.z) * sinWT
+    ) * 0.5;
+    
+    float2 hStar = float2(
+        (h0.x - h0.z) * cosWT + (h0.y + h0.w) * sinWT,
+        (h0.y - h0.w) * cosWT - (h0.x + h0.z) * sinWT
+    ) * 0.5;
+    
+    // 波数和位移计算
+    float2 kx = normalize(k);
+    float displacementScale = _Choppiness * kx * h.x;
+    
+    _DisplacementBuffer[coord] = float4(h.x, h.y, displacementScale.x, displacementScale.y);
+}
+
+// 快速傅里叶变换核心
+[numthreads(256,1,1)]
+void HorizontalFFT (uint3 id : SV_DispatchThreadID)
+{
+    int x = id.x;
+    int y = id.y;
+    int N = _Resolution;
+    
+    float2 sum = 0;
+    for (int i = 0; i < N; i++)
+    {
+        float4 data = _DisplacementBuffer[int2(i, y)];
+        float2 twiddle = _TwiddleIndices[int2(x, i)].xy;
+        
+        sum.x += data.x * twiddle.x - data.y * twiddle.y;
+        sum.y += data.x * twiddle.y + data.y * twiddle.x;
+    }
+    
+    _TmpBuffer[int2(x, y)] = float4(sum.x, sum.y, 0, 0);
+}
+
+[numthreads(1,256,1)]
+void VerticalFFT (uint3 id : SV_DispatchThreadID)
+{
+    int x = id.x;
+    int y = id.y;
+    int N = _Resolution;
+    
+    float2 sum = 0;
+    for (int j = 0; j < N; j++)
+    {
+        float4 data = _TmpBuffer[int2(x, j)];
+        float2 twiddle = _TwiddleIndices[int2(y, j)].xy;
+        
+        sum.x += data.x * twiddle.x - data.y * twiddle.y;
+        sum.y += data.x * twiddle.y + data.y * twiddle.x;
+    }
+    
+    _DisplacementBuffer[int2(x, y)] = float4(sum.x / (N * N), sum.y / (N * N), 0, 0);
+}
+
+// 合并结果
+[numthreads(8,8,1)]
+void Combine (uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    int N = _Resolution;
+    
+    // 读取频域数据
+    float4 freqData = _DisplacementBuffer[coord];
+    
+    // 计算法线
+    float2 dx = float2(0, 0);
+    float2 dy = float2(0, 0);
+    
+    if (coord.x > 0 && coord.x < N-1 && coord.y > 0 && coord.y < N-1)
+    {
+        dx = _DisplacementBuffer[int2(coord.x+1, coord.y)].xy - _DisplacementBuffer[int2(coord.x-1, coord.y)].xy;
+        dy = _DisplacementBuffer[int2(coord.x, coord.y+1)].xy - _DisplacementBuffer[int2(coord.x, coord.y-1)].xy;
+    }
+    
+    // 输出：R:高度, G:法线X, B:法线Y, A:保留
+    float height = freqData.x * _WaveScale;
+    float2 normal = normalize(float2(-dx.x, -dy.x));
+    
+    _OutputBuffer[coord] = float4(height, normal.x, normal.y, 1.0);
+}

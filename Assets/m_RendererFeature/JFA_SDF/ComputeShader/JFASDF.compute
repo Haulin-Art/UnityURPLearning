@@ -1,0 +1,110 @@
+#pragma kernel JFAInit
+#pragma kernel JFAJump
+#pragma kernel JFAFinalize
+#pragma kernel ComputeGradient
+
+RWTexture2D<float4> Result;
+RWTexture2D<float4> GradientResult;
+Texture2D<float4> SourceTexture;
+Texture2D<float4> PreviousResult;
+Texture2D<float4> SDFTexture;
+
+float2 TextureSize;
+float2 InverseTextureSize;
+int PassIndex;
+
+[numthreads(8, 8, 1)]
+void JFAInit(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)TextureSize.x || id.y >= (uint)TextureSize.y)
+        return;
+
+    float4 pixel = SourceTexture[id.xy];
+    
+    if (pixel.r > 0.5)
+    {
+        Result[id.xy] = float4(id.x + 0.5, id.y + 0.5, 0, 1);
+    }
+    else
+    {
+        Result[id.xy] = float4(-1, -1, 1e10, 0);
+    }
+}
+
+[numthreads(8, 8, 1)]
+void JFAJump(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)TextureSize.x || id.y >= (uint)TextureSize.y)
+        return;
+
+    float2 bestPos = PreviousResult[id.xy].xy;
+    float bestDist = PreviousResult[id.xy].z;
+    
+    int step = 1 << PassIndex;
+    
+    for (int y = -1; y <= 1; y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            int2 offset = int2(x * step, y * step);
+            int2 samplePos = int2(id.xy) + offset;
+            
+            if (samplePos.x >= 0 && samplePos.x < (int)TextureSize.x && 
+                samplePos.y >= 0 && samplePos.y < (int)TextureSize.y)
+            {
+                float4 sampleData = PreviousResult[samplePos];
+                float2 seedPos = sampleData.xy;
+                
+                if (seedPos.x >= 0)
+                {
+                    float dist = distance(float2(id.x + 0.5, id.y + 0.5), seedPos);
+                    
+                    if (dist < bestDist)
+                    {
+                        bestDist = dist;
+                        bestPos = seedPos;
+                    }
+                }
+            }
+        }
+    }
+
+    Result[id.xy] = float4(bestPos, bestDist, 1);
+}
+
+[numthreads(8, 8, 1)]
+void JFAFinalize(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)TextureSize.x || id.y >= (uint)TextureSize.y)
+        return;
+
+    float dist = PreviousResult[id.xy].z;
+    
+    float normalizedDist = saturate(dist / max(TextureSize.x, TextureSize.y));
+    
+    Result[id.xy] = float4(normalizedDist, normalizedDist, normalizedDist, 1);
+}
+
+[numthreads(8, 8, 1)]
+void ComputeGradient(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)TextureSize.x || id.y >= (uint)TextureSize.y)
+        return;
+
+    int2 pos = int2(id.xy);
+    
+    int2 leftPos = int2(max(0, pos.x - 1), pos.y);
+    int2 rightPos = int2(min((int)TextureSize.x - 1, pos.x + 1), pos.y);
+    int2 bottomPos = int2(pos.x, max(0, pos.y - 1));
+    int2 topPos = int2(pos.x, min((int)TextureSize.y - 1, pos.y + 1));
+    
+    float left = SDFTexture[leftPos].r;
+    float right = SDFTexture[rightPos].r;
+    float bottom = SDFTexture[bottomPos].r;
+    float top = SDFTexture[topPos].r;
+    
+    float gradientX = (right - left) * 0.5;
+    float gradientY = (top - bottom) * 0.5;
+    
+    GradientResult[id.xy] = float4(gradientX*TextureSize.x, gradientY*TextureSize.y, 0, 1);
+}

@@ -1,0 +1,85 @@
+// FFT.compute  （稳健版，无写冲突）
+#pragma kernel FFTStage
+
+Texture2D<float2> _Input;  // complex input (read)
+RWTexture2D<float2> _Output; // complex output (write)
+
+int _N;
+int _Stage; // 1..log2N
+bool _Horizontal; // true: horizontal pass, false: vertical pass
+int _Direction; // 1 => inverse (we use +1), -1 => forward
+
+static const float PI = 3.14159265359;
+
+float2 ComplexMul(float2 a, float2 b)
+{
+    return float2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+}
+
+[numthreads(8,8,1)]
+void FFTStage(uint3 id : SV_DispatchThreadID)
+{
+    int tx = (int)id.x;
+    int ty = (int)id.y;
+    if (_Horizontal)
+    {
+        // tx in [0, N/2), ty in [0, N)
+        if (tx >= _N/2 || ty >= _N) return;
+
+        int pairIndex = tx; // pair index in row
+        int y = ty;
+
+        int span = 1 << _Stage;
+        int half = span >> 1;
+
+        int blockStart = (pairIndex / half) * span;
+        int local = pairIndex % half;
+        int i = blockStart + local;
+        int j = i + half;
+
+        float2 A = _Input.Load(int3(i, y, 0));
+        float2 B = _Input.Load(int3(j, y, 0));
+
+        float k = (float)local;
+        float angle = _Direction * -2.0 * PI * k / span;
+        float2 W = float2(cos(angle), sin(angle));
+
+        float2 t = ComplexMul(B, W);
+        float2 outA = A + t;
+        float2 outB = A - t;
+
+        _Output[int2(i, y)] = outA;
+        _Output[int2(j, y)] = outB;
+    }
+    else
+    {
+        // vertical pass
+        // tx in [0, N), ty in [0, N/2)
+        if (tx >= _N || ty >= _N/2) return;
+
+        int x = tx;
+        int pairIndex = ty;
+
+        int span = 1 << _Stage;
+        int half = span >> 1;
+
+        int blockStart = (pairIndex / half) * span;
+        int local = pairIndex % half;
+        int i = blockStart + local;
+        int j = i + half;
+
+        float2 A = _Input.Load(int3(x, i, 0));
+        float2 B = _Input.Load(int3(x, j, 0));
+
+        float k = (float)local;
+        float angle = _Direction * -2.0 * PI * k / span;
+        float2 W = float2(cos(angle), sin(angle));
+
+        float2 t = ComplexMul(B, W);
+        float2 outA = A + t;
+        float2 outB = A - t;
+
+        _Output[int2(x, i)] = outA;
+        _Output[int2(x, j)] = outB;
+    }
+}

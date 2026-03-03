@@ -72,19 +72,34 @@ Shader "Unlit/coastLineWaveShader"
                 float3 vertCol : COLOR0;
                 float2 animUV : TEXCOORD5;
                 float4 screenUV : TEXCOORD6;
+
+                float3 ttt : TEXCOORD7;
             };
             // 给UV添加动画的函数
-            float2 animUV(float2 uv, float time,float4 uv_ST)
+            float2 animUV(float2 uv,float2 worldXZ ,float time,float4 uv_ST)
             {
                 float w = 0.01;
                 float2 newUV = uv*uv_ST.xy + uv_ST.zw;
                 float nu = frac(newUV.x - time*_Speed);
-                nu += -_sineScale * sin((newUV.y*2.0 - 1.0) * PI*_SineCount);
+                nu += -_sineScale * sin(((worldXZ.y - time*_Speed)*2.0 - 1.0) * PI*_SineCount);
                 nu = clamp(frac(nu),w,1.0-w);
                 float nv = pow(abs(frac(newUV.y)-0.5),0.97);
                 nv = -1.0*clamp(uv.x*1.5 - nv,w,1.0-w);
                 newUV = float2(nu,nv);
                 return newUV;
+            }
+            float3 decodeDisp(float3 disp)
+            {
+                // Gamma解码
+                // 正确解码这张特殊编码的矢量置换图，以下属于正确采样这张图的手段
+                // x是向前轴，y是向上轴，z是浮沫范围
+                disp = pow(disp,0.45);
+                disp -= 0.5;
+                disp *= float3(_VDMXScale,_VDMYScale,0.5);
+                disp = float3(disp.x,0.0,disp.y);
+                disp *= _VectorDisMapScale;
+                disp += float3(_VDMXOffset,0.0,_VDMYOffset);
+                return disp;
             }
             v2f vert (appdata v)
             {
@@ -106,27 +121,26 @@ Shader "Unlit/coastLineWaveShader"
                 float3x3 TBN = float3x3(T, B, N);
 
                 o.uv = v.uv;
-                float2 newUV = animUV(o.uv, _Time.y, _VectorDisMap_ST);
+                float2 worldXZ = TransformObjectToWorld(v.vertex).xz;
+                float2 newUV = animUV(o.uv,worldXZ, _Time.y, _VectorDisMap_ST);
                 o.animUV = newUV;
 
                 // ================== 向量置换图部分 ========================
                 float3 disp = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,newUV,0.0).xyz;
-                // 正确解码这张特殊编码的矢量置换图，以下属于正确采样这张图的手段
-                // x是向前轴，y是向上轴，z是浮沫范围
-                // Gamma解码
-                disp = pow(disp,0.45);
-                disp -= 0.5;
-                disp *= float3(_VDMXScale,_VDMYScale,0.5);
-                disp = float3(disp.x,0.0,disp.y);
-                disp *= _VectorDisMapScale;
-                disp += float3(_VDMXOffset,0.0,_VDMYOffset);
-                float3 worldDisp = mul(TBN, disp);
+                float3 worldDisp = mul(TBN, decodeDisp(disp));
+                float3 disp2 = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,newUV+float2(0.005,0),0.0).xyz;
+                //float3 worldDisp2 = mul(TBN, decodeDisp(disp2));
+                float3 disp3 = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,newUV+float2(0.0,0.005),0.0).xyz;
+                //float3 worldDisp3 = mul(TBN, decodeDisp(disp3));
+
+                //worldDisp = (worldDisp+worldDisp2+worldDisp3)/3.0;
+                o.ttt = disp;
                 // 向量置换2
                 float3 waveDis = SAMPLE_TEXTURE2D_LOD(_OceanNorTex,sampler_OceanNorTex,v.uv,0.0).xyz;
                 waveDis = 0.05*(waveDis*2.0-1.0);
                 float3 waveDis_world = mul(TBN,waveDis);
                 // ================== 顶点位移计算 ========================
-                float3 newPos = v.vertex.xyz + float3(worldDisp.x,worldDisp.y,0.0)+waveDis_world;
+                float3 newPos = v.vertex.xyz + float3(worldDisp.x,worldDisp.y,0.0);//+waveDis_world;
                 o.worldPos = newPos;
                 
                 o.pos = TransformObjectToHClip(float4(newPos,1.0));
@@ -182,7 +196,7 @@ Shader "Unlit/coastLineWaveShader"
             float4 frag (v2f i) : SV_Target
             {
                 // 计算动画UV
-                float2 newUV = animUV(i.uv, _Time.y, _VectorDisMap_ST);
+                float2 newUV = animUV(i.uv,i.worldPos.xz, _Time.y, _VectorDisMap_ST);
                 // 计算法线
                 float3 screenNormal = normalize(cross(ddy(i.worldPos),ddx(i.worldPos)));
                 
@@ -264,6 +278,9 @@ Shader "Unlit/coastLineWaveShader"
                 //float nv = pow(abs(frac(kUV.y)-0.5),0.97);
                 //nv = 1.0*clamp(i.uv.x*1.5 - nv,w,1.0-w);
                 //return float4(depth*float3(1,1,1),1.0);
+                return float4(i.ttt.z,0,0,1);
+                return float4(i.uv.y,0,0,1);
+                return float4(i.ttt,1);
                 return float4(diffCol,trans);
                 //return float4(diffCol,1.0);
             }

@@ -1,0 +1,14 @@
+// OceanFFT.compute
+#pragma kernel FillTwiddle
+
+RWTexture2D<float2> _TwiddleTexture;
+StructuredBuffer<float2> _TwiddleBuffer;
+int _Resolution;
+
+[numthreads(8,8,1)]
+void FillTwiddle (uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    int idx = coord.x + coord.y * _Resolution;
+    _TwiddleTexture[coord] = _TwiddleBuffer[idx];
+}
