@@ -48,9 +48,9 @@ Material:
     - _SineCount: 0.96
     - _Speed: 0.31
     - _VDMXOffset: 0
-    - _VDMXScale: 0.48
+    - _VDMXScale: -0.76
     - _VDMYOffset: 0
-    - _VDMYScale: -0.13
+    - _VDMYScale: 0.15
     - _VectorDisMapScale: 1
     - _sineScale: 0.069
     m_Colors:

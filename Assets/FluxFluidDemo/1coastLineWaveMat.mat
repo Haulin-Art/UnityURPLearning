@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: 1coastLineWaveMat
-  m_Shader: {fileID: 4800000, guid: 6db57e789fdc37c41a1303a34bd4eca9, type: 3}
+  m_Shader: {fileID: 4800000, guid: f17b2a616b7dbc44695ef5e1c046ef4a, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -27,12 +27,20 @@ Material:
         m_Texture: {fileID: 2800000, guid: 8aca3123917e1e243bebd95a5d5ed4f4, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _GradientTex:
+        m_Texture: {fileID: 2800000, guid: 5a5494e617e6572478c04e83788175a0, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _MainTex:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _OceanNorTex:
         m_Texture: {fileID: 2800000, guid: 8aca3123917e1e243bebd95a5d5ed4f4, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _SDFTex:
+        m_Texture: {fileID: 2800000, guid: 80d86dc3630c51a409d699a8474d917d, type: 2}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _VectorDisMap:
@@ -45,14 +53,14 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _SineCount: 1.48
-    - _Speed: 0.33
+    - _SineCount: 1.86
+    - _Speed: 0.52
     - _VDMXOffset: 0
-    - _VDMXScale: 0.25
-    - _VDMYOffset: -0.5
-    - _VDMYScale: 0.075
+    - _VDMXScale: -0.37
+    - _VDMYOffset: 0
+    - _VDMYScale: 0.07
     - _VectorDisMapScale: 1
-    - _sineScale: 0.051
+    - _sineScale: 0
     m_Colors:
     - _DeepWaterCol: {r: 0, g: 0.5179733, b: 0.8050314, a: 1}
     - _WaterCol: {r: 0.20467927, g: 0.7391196, b: 0.8238993, a: 1}

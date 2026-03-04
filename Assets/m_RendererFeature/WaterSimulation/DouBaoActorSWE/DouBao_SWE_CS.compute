@@ -1,0 +1,161 @@
+#pragma kernel UpdateKernel
+#pragma kernel SourceKernel
+
+#include "UnityCG.cginc"
+
+float texSize;
+float dt;
+float4 footPos;
+int2 footDrop;
+float3 Force;
+float radius;
+bool keyDown;
+float gravity;
+float damping;
+float baselineDepth;
+
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+RWTexture2D<float> HeightRead;
+RWTexture2D<float> HeightWrite;
+RWTexture2D<float2> HuRead;
+RWTexture2D<float2> HuWrite;
+Texture2D<float> HeightTex;
+Texture2D<float2> HuTex;
+
+float getHeight(int2 pos)
+{
+    pos = clamp(pos, int2(0, 0), int2(texSize - 1, texSize - 1));
+    return HeightRead[pos];
+}
+
+float2 getHu(int2 pos)
+{
+    pos = clamp(pos, int2(0, 0), int2(texSize - 1, texSize - 1));
+    return HuRead[pos];
+}
+
+[numthreads(8, 8, 1)]
+void UpdateKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5)/texSize;
+
+    int2 ipos = int2(pixel_pos);
+    
+    if (ipos.x <= 0 || ipos.x >= texSize - 1 || ipos.y <= 0 || ipos.y >= texSize - 1)
+    {
+        HeightWrite[pixel_pos] = 0.0;
+        HuWrite[pixel_pos] = float2(0.0, 0.0);
+        return;
+    }
+
+    float h_ij = getHeight(ipos);
+    float h_ij1 = getHeight(ipos + int2(0, 1));
+    float h_ij_1 = getHeight(ipos - int2(0, 1));
+    float h_i1j = getHeight(ipos + int2(1, 0));
+    float h_i_1j = getHeight(ipos - int2(1, 0));
+    
+    float2 hu_ij = getHu(ipos);
+    float2 hu_ij1 = getHu(ipos + int2(0, 1));
+    float2 hu_ij_1 = getHu(ipos - int2(0, 1));
+    float2 hu_i1j = getHu(ipos + int2(1, 0));
+    float2 hu_i_1j = getHu(ipos - int2(1, 0));
+    
+    float h_avg = 0.25 * (h_ij1 + h_ij_1 + h_i1j + h_i_1j);
+    
+    float dhdt = -0.5 * ((hu_i1j.x - hu_i_1j.x) + (hu_ij1.y - hu_ij_1.y));
+    
+    float dh_ij = 1.0 + h_ij;
+    float dh_i1j = 1.0 + h_i1j;
+    float dh_i_1j = 1.0 + h_i_1j;
+    float dh_ij1 = 1.0 + h_ij1;
+    float dh_ij_1 = 1.0 + h_ij_1;
+    
+    float flux_x_1 = 0.0;
+    float flux_x_2 = 0.0;
+    
+    if (dh_ij > 0.001 && dh_i1j > 0.001)
+    {
+        float u = 0.5 * (hu_ij.x / dh_ij + hu_i1j.x / dh_i1j);
+        float h = 0.5 * (dh_ij + dh_i1j);
+        flux_x_1 = h * u * u + 0.5 * gravity * h * h;
+    }
+    
+    if (dh_ij > 0.001 && dh_i_1j > 0.001)
+    {
+        float u = 0.5 * (hu_ij.x / dh_ij + hu_i_1j.x / dh_i_1j);
+        float h = 0.5 * (dh_ij + dh_i_1j);
+        flux_x_2 = h * u * u + 0.5 * gravity * h * h;
+    }
+    
+    float flux_y_1 = 0.0;
+    float flux_y_2 = 0.0;
+    
+    if (dh_ij > 0.001 && dh_ij1 > 0.001)
+    {
+        float v = 0.5 * (hu_ij.y / dh_ij + hu_ij1.y / dh_ij1);
+        float h = 0.5 * (dh_ij + dh_ij1);
+        flux_y_1 = h * v * v + 0.5 * gravity * h * h;
+    }
+    
+    if (dh_ij > 0.001 && dh_ij_1 > 0.001)
+    {
+        float v = 0.5 * (hu_ij.y / dh_ij + hu_ij_1.y / dh_ij_1);
+        float h = 0.5 * (dh_ij + dh_ij_1);
+        flux_y_2 = h * v * v + 0.5 * gravity * h * h;
+    }
+    
+    float dudt = -(flux_x_1 - flux_x_2) - gravity * dh_ij * (h_i1j - h_i_1j) * 0.5;
+    float dvdt = -(flux_y_1 - flux_y_2) - gravity * dh_ij * (h_ij1 - h_ij_1) * 0.5;
+    
+    float new_h = h_ij + dt * dhdt;
+    float2 new_hu = hu_ij + dt * float2(dudt, dvdt);
+    
+    new_hu *= (1.0 - damping);
+    
+    float max_speed = sqrt(gravity * (1.0 + new_h));
+    float hu_len = length(new_hu);
+    if (hu_len > (1.0 + new_h) * max_speed)
+    {
+        new_hu = new_hu * (1.0 + new_h) * max_speed / (hu_len + 0.001);
+    }
+    
+    HeightWrite[pixel_pos] = new_h;
+    HuWrite[pixel_pos] = new_hu;
+}
+
+[numthreads(8, 8, 1)]
+void SourceKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5)/texSize;
+
+    float h = HeightRead[pixel_pos];
+    float2 hu = HuRead[pixel_pos];
+    
+    float2 reUV = float2(0.5, 0.5) - uv + footPos.xy;
+    float mask = step(length(reUV), radius) * footDrop.x;
+    float2 reUV_1 = float2(0.5, 0.5) - uv + footPos.zw;
+    float mask_1 = step(length(reUV_1), radius) * footDrop.y;
+    
+    float smooth_mask_1 = smoothstep(radius, 0.0, length(reUV)) * footDrop.x;
+    float smooth_mask_2 = smoothstep(radius, 0.0, length(reUV_1)) * footDrop.y;
+    
+    float force_magnitude = Force.z * dt;
+    h += (smooth_mask_1 + smooth_mask_2) * force_magnitude * 0.5;
+    
+    if (keyDown)
+    {
+        float2 force_dir = normalize(Force.xy + float2(0.0001, 0.0001));
+        hu += force_dir * (smooth_mask_1 + smooth_mask_2) * force_magnitude * 0.3;
+    }
+    
+    HeightWrite[pixel_pos] = h;
+    HuWrite[pixel_pos] = hu;
+}

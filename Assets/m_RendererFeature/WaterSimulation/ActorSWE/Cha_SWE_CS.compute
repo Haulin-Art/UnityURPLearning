@@ -1,0 +1,179 @@
+#pragma kernel AdvectionKernel
+#pragma kernel UpdateKernel
+#pragma kernel BoundaryKernel
+
+#include "UnityCG.cginc"
+
+float texSize;
+float dt;
+float4 footPos;
+int2 footDrop;
+float3 Force;
+float radius;
+bool keyDown;
+float2 attenuation;
+float gravity;
+float baseWaterLevel;
+float bedFriction;
+
+RWTexture2D<float4> StateRead;
+RWTexture2D<float4> StateWrite;
+RWTexture2D<float> HeightRead;
+RWTexture2D<float> HeightWrite;
+
+SamplerState samplerPointClamp
+{
+    Filter = MIN_MAG_MIP_POINT;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+Texture2D<float4> StateTex;
+
+[numthreads(8, 8, 1)]
+void AdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+    
+    // 1. 计算水源位置（基于当前UV）
+    // footPos是相对于中心的偏移，需要转换到UV空间
+    float2 foot1UV = float2(0.5, 0.5) + footPos.xy;
+    float2 foot2UV = float2(0.5, 0.5) + footPos.zw;
+    
+    float dist1 = length(uv - foot1UV);
+    float dist2 = length(uv - foot2UV);
+    
+    float mask1 = step(dist1, radius) * footDrop.x;
+    float mask2 = step(dist2, radius) * footDrop.y;
+    
+    // 2. 读取状态（跟随移动修正）
+    float4 state;
+    if (length(Force.xy) > 0.001)
+    {
+        // 角色移动时，采样偏移位置（上一帧的数据）
+        float2 adUV = uv + Force.xy / 10.0;
+        adUV = clamp(adUV, 0.0, 1.0);
+        state = StateTex.SampleLevel(samplerPointClamp, adUV, 0);
+    }
+    else
+    {
+        // 角色静止时，直接读取当前位置
+        state = StateRead[pixel_pos];
+    }
+    
+    float2 velocity = state.rg;
+    float h = state.b;
+    
+    // 3. 添加外力（角色移动驱动水流）
+    velocity += keyDown * Force.xy * Force.z * dt;
+    
+    // 4. 添加水源（产生水位扰动）
+    // 如果脚落地，在脚部位置添加水源；否则在中心位置添加少量水源
+    float footMask = (mask1 + mask2);
+    float centerMask = step(length(uv - 0.5), radius) * (1.0 - saturate(footMask)); // 中心位置
+    float waterSource = (footMask * 0.5 + centerMask * 0.1) * keyDown;
+    h += waterSource;
+    
+    // 5. 限制
+    velocity = clamp(velocity, -5.0, 5.0);
+    h = max(h, 0.3);
+    
+    StateWrite[pixel_pos] = float4(velocity, h, state.a);
+    HeightWrite[pixel_pos] = h;
+}
+
+[numthreads(8, 8, 1)]
+void UpdateKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    
+    uint2 utexSize;
+    StateRead.GetDimensions(utexSize.x, utexSize.y);
+    
+    if (pixel_pos.x <= 1 || pixel_pos.x >= utexSize.x - 2 || 
+        pixel_pos.y <= 1 || pixel_pos.y >= utexSize.y - 2)
+    {
+        StateWrite[pixel_pos] = StateRead[pixel_pos];
+        HeightWrite[pixel_pos] = HeightRead[pixel_pos];
+        return;
+    }
+    
+    float4 state = StateRead[pixel_pos];
+    float2 velocity = state.rg;
+    float h = state.b;
+    
+    // 获取邻居
+    float4 left = StateRead[pixel_pos - int2(1, 0)];
+    float4 right = StateRead[pixel_pos + int2(1, 0)];
+    float4 up = StateRead[pixel_pos - int2(0, 1)];
+    float4 down = StateRead[pixel_pos + int2(0, 1)];
+    
+    // 浅水方程 - 产生水波纹
+    float dhdx = (right.b - left.b) * 0.5;
+    float dhdy = (down.b - up.b) * 0.5;
+    
+    float2 newVelocity;
+    newVelocity.x = velocity.x - dt * gravity * dhdx;
+    newVelocity.y = velocity.y - dt * gravity * dhdy;
+    
+    float dudx = (right.r - left.r) * 0.5;
+    float dvdy = (down.g - up.g) * 0.5;
+    float newHeight = h - dt * h * (dudx + dvdy);
+    
+    // 衰减
+    newVelocity *= (1.0 - bedFriction);
+    newVelocity = lerp(newVelocity, 0.0, attenuation.x);
+    newHeight = lerp(newHeight, baseWaterLevel, attenuation.y);
+    
+    // 限制
+    newVelocity = clamp(newVelocity, -3.0, 3.0);
+    newHeight = clamp(newHeight, baseWaterLevel * 0.3, baseWaterLevel * 2.0);
+    
+    StateWrite[pixel_pos] = float4(newVelocity, newHeight, state.a);
+    HeightWrite[pixel_pos] = newHeight;
+}
+
+[numthreads(8, 8, 1)]
+void BoundaryKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    
+    uint2 utexSize;
+    StateRead.GetDimensions(utexSize.x, utexSize.y);
+    
+    float4 state = StateRead[pixel_pos];
+    
+    // 边界处理
+    if (pixel_pos.x == 0)
+    {
+        state = StateRead[uint2(1, pixel_pos.y)];
+        state.r *= 0.8;
+    }
+    else if (pixel_pos.x == utexSize.x - 1)
+    {
+        state = StateRead[uint2(utexSize.x - 2, pixel_pos.y)];
+        state.r *= 0.8;
+    }
+    else if (pixel_pos.y == 0)
+    {
+        state = StateRead[uint2(pixel_pos.x, 1)];
+        state.g *= 0.8;
+    }
+    else if (pixel_pos.y == utexSize.y - 1)
+    {
+        state = StateRead[uint2(pixel_pos.x, utexSize.y - 2)];
+        state.g *= 0.8;
+    }
+    else
+    {
+        // 内部像素：只进行衰减
+        state.rg *= (1.0 - bedFriction * 0.5);
+        state.rg = lerp(state.rg, 0.0, attenuation.x * 0.5);
+        state.b = lerp(state.b, baseWaterLevel, attenuation.y * 0.5);
+        state.rg = clamp(state.rg, -1.0, 1.0);
+        state.b = clamp(state.b, baseWaterLevel * 0.5, baseWaterLevel * 1.5);
+    }
+    
+    StateWrite[pixel_pos] = state;
+    HeightWrite[pixel_pos] = state.b;
+}

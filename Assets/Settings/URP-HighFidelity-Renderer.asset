@@ -27,7 +27,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f186e895d6bc92c4582f2bdd4755eaac, type: 3}
   m_Name: GrassRendererPass
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   settings:
     renderLayer:
       serializedVersion: 2
@@ -35,7 +35,7 @@ MonoBehaviour:
     textureSize: 256
     drawDistance: 80
     textureUpdateThreshold: 22
-    spacing: 0.07
+    spacing: 20
     maxBufferCount: 7
     topOrthDepMat: {fileID: 2100000, guid: d20aa97f7ae5eeb4692d6683cd9a5dab, type: 2}
     viewSpaceDepMat: {fileID: 2100000, guid: b435141ef14a0944da757ca86a7f76a4, type: 2}

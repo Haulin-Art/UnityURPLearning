@@ -1,0 +1,309 @@
+#pragma kernel kn_AdvectionKernel
+#pragma kernel kn_SWEUpdateKernel
+#pragma kernel kn_BoundaryKernel
+
+#include "UnityCG.cginc"
+
+// ==================== 参数定义 ====================
+float texSize;      // 纹理大小
+float dt;           // 时间步长
+float4 footPos;     // 脚步位置 (xy: foot1, zw: foot2)
+int2 footDrop;      // 脚步是否落地
+float3 Force;       // 力的向量与力的大小
+float radius;       // 画笔半径
+bool keyDown;       // 是否按下
+float2 attenuation; // 速度衰减与高度衰减
+
+// 浅水方程参数
+float gravity;          // 重力加速度
+float baseWaterLevel;   // 基准水位
+float bedFriction;      // 河床摩擦系数
+float viscosity;        // 粘性系数
+
+// 纹理采样器
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+// ==================== 纹理定义 ====================
+// State: R = velocity.x (u), G = velocity.y (v), B = water height (h), A = terrain height
+RWTexture2D<float4> StateRead;
+RWTexture2D<float4> StateWrite;
+Texture2D<float4> StateTex;
+
+// ==================== 辅助函数 ====================
+
+// 安全的纹理采样
+float4 SampleState(Texture2D<float4> tex, float2 uv)
+{
+    return tex.SampleLevel(samplerLinearClamp, clamp(uv, 0.001, 0.999), 0);
+}
+
+// 获取像素状态
+float4 GetState(int2 pos)
+{
+    int2 clampedPos = clamp(pos, int2(0, 0), int2(texSize - 1, texSize - 1));
+    return StateRead[clampedPos];
+}
+
+// ==================== Kernel: 平流步 + 外力注入 ====================
+[numthreads(8, 8, 1)]
+void kn_AdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+    
+    // 读取当前状态
+    float4 state = StateTex.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 velocity = state.rg;
+    float height = state.b;
+    float terrain = state.a;
+    
+    // 计算水深（水位 - 地形）
+    float waterDepth = max(height - terrain, 0.0);
+    
+    // ===== 1. 半拉格朗日平流 =====
+    // 回溯到上一帧的位置
+    float2 advectUV = uv - velocity * dt * 0.1; // 减小平流系数
+    advectUV = clamp(advectUV, 0.001, 0.999);
+    
+    // 采样平流后的状态
+    float4 advectedState = StateTex.SampleLevel(samplerLinearClamp, advectUV, 0);
+    
+    // 速度平滑（粘性扩散）
+    float2 w = float2(1.0 / texSize, 0.0);
+    float4 sR = StateTex.SampleLevel(samplerLinearClamp, advectUV + float2(w.x, 0), 0);
+    float4 sL = StateTex.SampleLevel(samplerLinearClamp, advectUV - float2(w.x, 0), 0);
+    float4 sU = StateTex.SampleLevel(samplerLinearClamp, advectUV - float2(0, w.x), 0);
+    float4 sD = StateTex.SampleLevel(samplerLinearClamp, advectUV + float2(0, w.x), 0);
+    
+    float2 avgVelocity = (advectedState.rg + sR.rg + sL.rg + sU.rg + sD.rg) * 0.2;
+    float avgHeight = (advectedState.b + sR.b + sL.b + sU.b + sD.b) * 0.2;
+    
+    float2 newVelocity = lerp(advectedState.rg, avgVelocity, viscosity);
+    float newHeight = avgHeight;
+    
+    // ===== 2. 脚步扰动（注入水波） =====
+    float2 centerUV = float2(0.5, 0.5);
+    
+    // Foot 1 检测
+    float2 foot1UV = centerUV + footPos.xy;
+    float dist1 = length(uv - foot1UV);
+    float mask1 = smoothstep(radius, radius * 0.3, dist1) * footDrop.x;
+    
+    // Foot 2 检测
+    float2 foot2UV = centerUV + footPos.zw;
+    float dist2 = length(uv - foot2UV);
+    float mask2 = smoothstep(radius, radius * 0.3, dist2) * footDrop.y;
+    
+    float totalMask = mask1 + mask2;
+    
+    // 只在移动时添加扰动，且扰动要有限制
+    if (keyDown && totalMask > 0.001)
+    {
+        // 添加高度扰动（产生波浪）- 限制幅度
+        float heightBump = totalMask * 0.1 * min(length(Force.xy) * 10.0, 1.0);
+        newHeight += heightBump;
+        
+        // 添加速度扰动 - 沿移动方向
+        float2 moveDir = normalize(Force.xy + 0.0001);
+        newVelocity += moveDir * totalMask * Force.z * 0.01;
+    }
+    
+    // ===== 3. 衰减和限制 =====
+    // 速度衰减
+    newVelocity = lerp(newVelocity, float2(0, 0), attenuation.x);
+    // 高度回归基准水位
+    newHeight = lerp(newHeight, baseWaterLevel, attenuation.y);
+    
+    // 硬限制防止爆炸
+    newVelocity = clamp(newVelocity, -2.0, 2.0);
+    newHeight = clamp(newHeight, terrain, terrain + 5.0);
+    
+    StateWrite[pixel_pos] = float4(newVelocity, newHeight, terrain);
+}
+
+// ==================== Kernel: 浅水方程更新 (Lax-Wendroff 格式) ====================
+[numthreads(8, 8, 1)]
+void kn_SWEUpdateKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    
+    // 边界检查 - 边界直接返回
+    if (pixel_pos.x <= 1 || pixel_pos.x >= texSize - 2 ||
+        pixel_pos.y <= 1 || pixel_pos.y >= texSize - 2)
+    {
+        StateWrite[pixel_pos] = StateRead[pixel_pos];
+        return;
+    }
+    
+    // 读取当前格子及邻居状态
+    float4 sC = StateRead[pixel_pos];                    // 中心
+    float4 sR = StateRead[pixel_pos + int2(1, 0)];       // 右
+    float4 sL = StateRead[pixel_pos - int2(1, 0)];       // 左
+    float4 sU = StateRead[pixel_pos - int2(0, 1)];       // 上
+    float4 sD = StateRead[pixel_pos + int2(0, 1)];       // 下
+    
+    // 当前状态
+    float u = sC.r;
+    float v = sC.g;
+    float h = sC.b;
+    float b = sC.a;  // 地形高度
+    
+    // 水深（必须为正）
+ float H = max(h - b, 0.01);
+    
+    // ===== 计算通量 (Flux) =====
+    // X方向通量: F = [hu, hu^2 + gh^2/2, hv]
+    // Y方向通量: G = [hv, huv, hv^2 + gh^2/2]
+    
+    // 右邻居的X通量
+    float HR = max(sR.b - sR.a, 0.01);
+    float fluxR_h = HR * sR.r;
+    float fluxR_u = HR * sR.r * sR.r + 0.5 * gravity * HR * HR;
+    float fluxR_v = HR * sR.r * sR.g;
+    
+    // 左邻居的X通量
+    float HL = max(sL.b - sL.a, 0.01);
+    float fluxL_h = HL * sL.r;
+    float fluxL_u = HL * sL.r * sL.r + 0.5 * gravity * HL * HL;
+    float fluxL_v = HL * sL.r * sL.g;
+    
+    // 下邻居的Y通量
+    float HD = max(sD.b - sD.a, 0.01);
+    float fluxD_h = HD * sD.g;
+    float fluxD_u = HD * sD.g * sD.r;
+    float fluxD_v = HD * sD.g * sD.g + 0.5 * gravity * HD * HD;
+    
+    // 上邻居的Y通量
+    float HU = max(sU.b - sU.a, 0.01);
+    float fluxU_h = HU * sU.g;
+    float fluxU_u = HU * sU.g * sU.r;
+    float fluxU_v = HU * sU.g * sU.g + 0.5 * gravity * HU * HU;
+    
+    // ===== 计算源项 (Source Terms) =====
+    // 地形梯度（压力差）
+    float dhdx = (sR.b - sL.b) * 0.5;
+    float dhdy = (sD.b - sU.b) * 0.5;
+    float dbdx = (sR.a - sL.a) * 0.5;
+    float dbdy = (sD.a - sU.a) * 0.5;
+    
+    // 摩擦项（与速度方向相反）
+    float speed = sqrt(u * u + v * v);
+    float frictionX = -bedFriction * u * speed;
+    float frictionY = -bedFriction * v * speed;
+    
+    // ===== 更新方程 (有限体积法) =====
+    float dx = 1.0 / texSize;
+    float factor = dt / dx * 0.1; // 减小更新系数保证稳定性
+    
+    // 连续性方程: dh/dt + d(hu)/dx + d(hv)/dy = 0
+    float dht = -factor * ((fluxR_h - fluxL_h) + (fluxD_h - fluxU_h));
+    
+    // 动量方程 X: d(hu)/dt + ... = -gh*db/dx - friction
+    float dut = -factor * ((fluxR_u - fluxL_u) + (fluxD_u - fluxU_u)) 
+                - gravity * H * dbdx * dt 
+                + frictionX * dt;
+    
+    // 动量方程 Y: d(hv)/dt + ... = -gh*db/dy - friction
+    float dvt = -factor * ((fluxR_v - fluxL_v) + (fluxD_v - fluxU_v)) 
+                - gravity * H * dbdy * dt 
+                + frictionY * dt;
+    
+    // 应用更新
+    float newH = H + dht;
+    float newHU = H * u + dut;
+    float newHV = H * v + dvt;
+    
+    // 转换回速度和高度
+    newH = max(newH, 0.01);  // 保证正水深
+    float newU = newHU / newH;
+    float newV = newHV / newH;
+    float newh = b + newH;
+    
+    // 边缘衰减
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+    float edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+    float edgeFade = smoothstep(0.0, 0.15, edgeDist);
+    newU *= edgeFade;
+    newV *= edgeFade;
+    
+    // 硬限制
+    newU = clamp(newU, -3.0, 3.0);
+    newV = clamp(newV, -3.0, 3.0);
+    newh = clamp(newh, b, b + 3.0);
+    
+    StateWrite[pixel_pos] = float4(newU, newV, newh, b);
+}
+
+// ==================== Kernel: 边界处理 (开放边界) ====================
+[numthreads(8, 8, 1)]
+void kn_BoundaryKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    int2 size = int2(texSize, texSize);
+    
+    // 左边界
+    if (pixel_pos.x == 0 && pixel_pos.y > 0 && pixel_pos.y < size.y - 1)
+    {
+        float4 inner = StateRead[int2(1, pixel_pos.y)];
+        StateWrite[pixel_pos] = float4(0, inner.g, inner.b, inner.a); // 法向速度为0
+        return;
+    }
+    
+    // 右边界
+    if (pixel_pos.x == size.x - 1 && pixel_pos.y > 0 && pixel_pos.y < size.y - 1)
+    {
+        float4 inner = StateRead[int2(size.x - 2, pixel_pos.y)];
+        StateWrite[pixel_pos] = float4(0, inner.g, inner.b, inner.a);
+        return;
+    }
+    
+    // 上边界
+    if (pixel_pos.y == 0 && pixel_pos.x > 0 && pixel_pos.x < size.x - 1)
+    {
+        float4 inner = StateRead[int2(pixel_pos.x, 1)];
+        StateWrite[pixel_pos] = float4(inner.r, 0, inner.b, inner.a);
+        return;
+    }
+    
+    // 下边界
+    if (pixel_pos.y == size.y - 1 && pixel_pos.x > 0 && pixel_pos.x < size.x - 1)
+    {
+        float4 inner = StateRead[int2(pixel_pos.x, size.y - 2)];
+        StateWrite[pixel_pos] = float4(inner.r, 0, inner.b, inner.a);
+        return;
+    }
+    
+    // 角落
+    if (pixel_pos.x == 0 && pixel_pos.y == 0)
+    {
+        float4 inner = StateRead[int2(1, 1)];
+        StateWrite[pixel_pos] = float4(0, 0, inner.b, inner.a);
+        return;
+    }
+    if (pixel_pos.x == size.x - 1 && pixel_pos.y == 0)
+    {
+        float4 inner = StateRead[int2(size.x - 2, 1)];
+        StateWrite[pixel_pos] = float4(0, 0, inner.b, inner.a);
+        return;
+    }
+    if (pixel_pos.x == 0 && pixel_pos.y == size.y - 1)
+    {
+        float4 inner = StateRead[int2(1, size.y - 2)];
+        StateWrite[pixel_pos] = float4(0, 0, inner.b, inner.a);
+        return;
+    }
+    if (pixel_pos.x == size.x - 1 && pixel_pos.y == size.y - 1)
+    {
+        float4 inner = StateRead[int2(size.x - 2, size.y - 2)];
+        StateWrite[pixel_pos] = float4(0, 0, inner.b, inner.a);
+        return;
+    }
+    
+    // 内部直接复制
+    StateWrite[pixel_pos] = StateRead[pixel_pos];
+}

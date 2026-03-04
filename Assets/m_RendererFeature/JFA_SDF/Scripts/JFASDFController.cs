@@ -8,26 +8,29 @@ public class JFASDFController : MonoBehaviour
     [Header("Input Texture (Binary - White is shape)")]
     public Texture2D binaryTexture;
 
-    [Header("Output Render Texture (Auto-created if null)")]
+    [Header("SDF Output Render Texture (Auto-created if null)")]
     public RenderTexture outputTexture;
 
-    [Header("Gradient Output Render Texture (Auto-created if null)")]
-    public RenderTexture gradientTexture;
+    [Header("Direction Output Render Texture (Auto-created if null)")]
+    public RenderTexture directionTexture;
 
     [Header("Settings")]
     [Tooltip("Maximum iterations, 0 for auto calculation")]
     public int maxIterations = 0;
+    
+    [Tooltip("Extra step-1 passes for accuracy improvement (recommended: 1-3)")]
+    public int extraPasses = 2;
 
     private RenderTexture tempResult;
     private RenderTexture pingPongResult;
     private RenderTexture inputRT;
     private RenderTexture autoCreatedOutput;
-    private RenderTexture autoCreatedGradient;
+    private RenderTexture autoCreatedDirection;
 
     private int kernelInit;
     private int kernelJump;
     private int kernelFinalize;
-    private int kernelGradient;
+    private int kernelDirection;
 
     private int width;
     private int height;
@@ -55,7 +58,7 @@ public class JFASDFController : MonoBehaviour
         kernelInit = computeShader.FindKernel("JFAInit");
         kernelJump = computeShader.FindKernel("JFAJump");
         kernelFinalize = computeShader.FindKernel("JFAFinalize");
-        kernelGradient = computeShader.FindKernel("ComputeGradient");
+        kernelDirection = computeShader.FindKernel("ComputeDirection");
 
         width = binaryTexture.width;
         height = binaryTexture.height;
@@ -90,7 +93,7 @@ public class JFASDFController : MonoBehaviour
 
         Graphics.Blit(binaryTexture, inputRT);
 
-        if (outputTexture == null || outputTexture.width != width || outputTexture.height != height)
+        if (outputTexture == null)
         {
             if (autoCreatedOutput != null)
             {
@@ -106,22 +109,30 @@ public class JFASDFController : MonoBehaviour
 
             Debug.Log($"Auto-created output RenderTexture with size {width}x{height}");
         }
-
-        if (gradientTexture == null || gradientTexture.width != width || gradientTexture.height != height)
+        else if (outputTexture.width != width || outputTexture.height != height)
         {
-            if (autoCreatedGradient != null)
+            Debug.LogWarning($"Output RenderTexture size ({outputTexture.width}x{outputTexture.height}) does not match input texture size ({width}x{height}). Results may be incorrect.");
+        }
+
+        if (directionTexture == null)
+        {
+            if (autoCreatedDirection != null)
             {
-                autoCreatedGradient.Release();
+                autoCreatedDirection.Release();
             }
 
-            autoCreatedGradient = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
-            autoCreatedGradient.enableRandomWrite = true;
-            autoCreatedGradient.filterMode = FilterMode.Bilinear;
-            autoCreatedGradient.wrapMode = TextureWrapMode.Clamp;
-            autoCreatedGradient.Create();
-            gradientTexture = autoCreatedGradient;
+            autoCreatedDirection = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
+            autoCreatedDirection.enableRandomWrite = true;
+            autoCreatedDirection.filterMode = FilterMode.Bilinear;
+            autoCreatedDirection.wrapMode = TextureWrapMode.Clamp;
+            autoCreatedDirection.Create();
+            directionTexture = autoCreatedDirection;
 
-            Debug.Log($"Auto-created gradient RenderTexture with size {width}x{height}");
+            Debug.Log($"Auto-created direction RenderTexture with size {width}x{height}");
+        }
+        else if (directionTexture.width != width || directionTexture.height != height)
+        {
+            Debug.LogWarning($"Direction RenderTexture size ({directionTexture.width}x{directionTexture.height}) does not match input texture size ({width}x{height}). Results may be incorrect.");
         }
     }
 
@@ -156,20 +167,33 @@ public class JFASDFController : MonoBehaviour
             pingPongResult = swap;
         }
 
+        for (int i = 0; i < extraPasses; i++)
+        {
+            computeShader.SetTexture(kernelJump, "PreviousResult", tempResult);
+            computeShader.SetTexture(kernelJump, "Result", pingPongResult);
+            computeShader.SetVector("TextureSize", new Vector2(width, height));
+            computeShader.SetInt("PassIndex", 0);
+
+            computeShader.Dispatch(kernelJump, threadGroupsX, threadGroupsY, 1);
+
+            RenderTexture swap = tempResult;
+            tempResult = pingPongResult;
+            pingPongResult = swap;
+        }
+
         computeShader.SetTexture(kernelFinalize, "PreviousResult", tempResult);
         computeShader.SetTexture(kernelFinalize, "Result", outputTexture);
         computeShader.SetVector("TextureSize", new Vector2(width, height));
 
         computeShader.Dispatch(kernelFinalize, threadGroupsX, threadGroupsY, 1);
 
-        computeShader.SetTexture(kernelGradient, "SDFTexture", outputTexture);
-        computeShader.SetTexture(kernelGradient, "GradientResult", gradientTexture);
+        computeShader.SetTexture(kernelDirection, "PreviousResult", tempResult);
+        computeShader.SetTexture(kernelDirection, "DirectionResult", directionTexture);
         computeShader.SetVector("TextureSize", new Vector2(width, height));
-        computeShader.SetVector("InverseTextureSize", new Vector2(1f / width, 1f / height));
 
-        computeShader.Dispatch(kernelGradient, threadGroupsX, threadGroupsY, 1);
+        computeShader.Dispatch(kernelDirection, threadGroupsX, threadGroupsY, 1);
 
-        Debug.Log($"JFA SDF computation completed! Resolution: {width}x{height}, Iterations: {numIterations}");
+        Debug.Log($"JFA SDF computation completed! Resolution: {width}x{height}, Iterations: {numIterations}, Extra passes: {extraPasses}");
     }
 
     private void OnDestroy()
@@ -208,10 +232,10 @@ public class JFASDFController : MonoBehaviour
             autoCreatedOutput = null;
         }
 
-        if (autoCreatedGradient != null)
+        if (autoCreatedDirection != null)
         {
-            autoCreatedGradient.Release();
-            autoCreatedGradient = null;
+            autoCreatedDirection.Release();
+            autoCreatedDirection = null;
         }
     }
 }

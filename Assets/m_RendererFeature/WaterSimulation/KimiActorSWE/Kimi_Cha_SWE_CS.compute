@@ -1,0 +1,153 @@
+#pragma kernel InitKernel
+#pragma kernel WaveKernel
+#pragma kernel NormalKernel
+
+#include "UnityCG.cginc"
+
+// ==================== 参数 ====================
+float texSize;          // 纹理大小
+float dt;               // 时间步长
+float4 footPos;         // 脚步位置 (xy:左脚, zw:右脚)
+int2 footDrop;          // 脚步是否落地
+float radius;           // 画笔半径
+float waveStrength;     // 波浪强度
+float damping;          // 阻尼系数
+float gravity;          // 重力加速度
+float waterDepth;       // 水深
+
+// ==================== 纹理 ====================
+// 当前帧高度
+RWTexture2D<float> HeightCurrent;
+// 下一帧高度（写入目标）
+RWTexture2D<float> HeightNext;
+// 上一帧高度
+RWTexture2D<float> HeightPrev;
+// 用于采样的当前高度（只读）
+Texture2D<float> HeightTex;
+// 法线输出
+RWTexture2D<float4> NormalWrite;
+
+// ==================== 辅助函数 ====================
+float GetHeight(Texture2D<float> tex, int2 pos)
+{
+    int2 size;
+    tex.GetDimensions(size.x, size.y);
+    pos = clamp(pos, int2(1, 1), size - int2(2, 2));
+    return tex[pos];
+}
+
+// ==================== 初始化核 ====================
+[numthreads(8, 8, 1)]
+void InitKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    HeightCurrent[pixel_pos] = 0.0;
+    HeightPrev[pixel_pos] = 0.0;
+    HeightNext[pixel_pos] = 0.0;
+}
+
+// ==================== 波浪传播核 ====================
+// 基于波动方程: ∂²h/∂t² = c² * ∇²h
+[numthreads(8, 8, 1)]
+void WaveKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+    
+    uint2 size;
+    HeightTex.GetDimensions(size.x, size.y);
+    
+    // 边界处理
+    if (pixel_pos.x <= 1 || pixel_pos.x >= size.x - 2 ||
+        pixel_pos.y <= 1 || pixel_pos.y >= size.y - 2)
+    {
+        HeightNext[pixel_pos] = 0.0;
+        return;
+    }
+    
+    // 读取三帧数据
+    float h_current = HeightCurrent[pixel_pos];
+    float h_prev = HeightPrev[pixel_pos];
+    
+    // 从HeightTex读取邻居（这是上一帧交换后的当前帧）
+    float h_left = GetHeight(HeightTex, pixel_pos + int2(-1, 0));
+    float h_right = GetHeight(HeightTex, pixel_pos + int2(1, 0));
+    float h_up = GetHeight(HeightTex, pixel_pos + int2(0, -1));
+    float h_down = GetHeight(HeightTex, pixel_pos + int2(0, 1));
+    
+    // 拉普拉斯算子
+    float laplacian = h_left + h_right + h_up + h_down - 4.0 * h_current;
+    
+    // 波速和波速平方
+    float waveSpeed = sqrt(gravity * waterDepth);
+    float c2 = waveSpeed * waveSpeed;
+    
+    // 波动方程离散形式（蛙跳法）
+    // h_next = 2*h_current - h_prev + c² * dt² * laplacian
+    float h_next = 2.0 * h_current - h_prev + c2 * dt * dt * laplacian;
+    
+    // 应用阻尼
+    h_next *= damping;
+    
+    // ========== 添加脚步扰动 ==========
+    float2 centerUV = float2(0.5, 0.5);
+    
+    // 左脚
+    float2 foot1UV = centerUV - footPos.xy;
+    float dist1 = length(uv - foot1UV);
+    float wave1 = smoothstep(radius, 0.0, dist1) * footDrop.x;
+    
+    // 右脚
+    float2 foot2UV = centerUV - footPos.zw;
+    float dist2 = length(uv - foot2UV);
+    float wave2 = smoothstep(radius, 0.0, dist2) * footDrop.y;
+    
+    // 添加脉冲
+    float totalWave = (wave1 + wave2) * waveStrength;
+    if (totalWave > 0.001)
+    {
+        h_next += totalWave * 0.5;
+    }
+    
+    // 限制范围
+    h_next = clamp(h_next, -3.0, 3.0);
+    
+    // 写入下一帧
+    HeightNext[pixel_pos] = h_next;
+}
+
+// ==================== 法线计算核 ====================
+[numthreads(8, 8, 1)]
+void NormalKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    
+    uint2 size;
+    HeightTex.GetDimensions(size.x, size.y);
+    
+    // 边界处理
+    if (pixel_pos.x <= 0 || pixel_pos.x >= size.x - 1 ||
+        pixel_pos.y <= 0 || pixel_pos.y >= size.y - 1)
+    {
+        NormalWrite[pixel_pos] = float4(0.0, 1.0, 0.0, 0.0);
+        return;
+    }
+    
+    // 计算高度梯度
+    float h_left = GetHeight(HeightTex, pixel_pos + int2(-1, 0));
+    float h_right = GetHeight(HeightTex, pixel_pos + int2(1, 0));
+    float h_up = GetHeight(HeightTex, pixel_pos + int2(0, -1));
+    float h_down = GetHeight(HeightTex, pixel_pos + int2(0, 1));
+    
+    float dhdx = (h_right - h_left) * 0.5;
+    float dhdy = (h_down - h_up) * 0.5;
+    
+    // 构建法线（Y轴向上）
+    float3 normal = normalize(float3(-dhdx * 3.0, 1.0, -dhdy * 3.0));
+    
+    // 当前高度
+    float h = HeightTex[pixel_pos];
+    
+    // 写入法线和高度
+    NormalWrite[pixel_pos] = float4(normal, h);
+}

@@ -46,6 +46,21 @@ Shader "Unlit/ulit"
 
             float _CESFloat;
 
+            float2 animUV(float2 uv,float time)
+            {
+                float _Speed = 0.1;
+
+                float w = 0.01;
+                float2 newUV = uv;//uv*uv_ST.xy + uv_ST.zw;
+                float nu = frac(newUV.x - time*_Speed);
+                //nu += -_sineScale * sin(((worldXZ.y - time*_Speed)*2.0 - 1.0) * PI*_SineCount);
+                nu = clamp(frac(nu),w,1.0-w);
+                float nv = pow(abs(frac(newUV.y)-0.5),0.97);
+                nv = -1.0*clamp(uv.x*1.5 - nv,w,1.0-w);
+                newUV = float2(nu,nv);
+                return newUV;
+            }
+
             v2f vert (appdata v)
             {
                 v2f o;
@@ -59,23 +74,30 @@ Shader "Unlit/ulit"
             {
                 // sample the texture
                 fixed col = tex2D(_MainTex, i.uv).x;
+                fixed cr = tex2D(_MainTex, i.uv+float2(0.01,0)).x;
                 fixed2 gradient = tex2D(_GradientTex, i.uv).xy;
-                fixed2 gr = tex2D(_GradientTex, i.uv+float2(0.03,0)).xy;
-                fixed2 gu = tex2D(_GradientTex, i.uv+float2(0.0,0.03)).xy;
-                gradient = (gradient+gr+gu)/3.0;
+                //fixed2 gr = tex2D(_GradientTex, i.uv+float2(0.03,0)).xy;
+                //fixed2 gu = tex2D(_GradientTex, i.uv+float2(0.0,0.03)).xy;
+                //gradient = (gradient+gr+gu)/3.0;
                 //gradient = gradient*0.5+0.5;
-                fixed yy = (gradient.x+gradient.y)/2;
+                fixed yy = frac((gradient.x+gradient.y)*5.0);
+                yy = frac(5*abs(gradient.y))*frac(abs(gradient.x));
+                yy = frac(5*abs(gradient.x));
+                yy = pow(yy,1.0/3);
+                //yy *= smoothstep(0.1,0.05,-col);
                 yy = pow(yy,3.0);
-                fixed xx = 1.0-frac((col+_Time.y/10.0)*20.0);
+                fixed xx = frac((col-0*_Time.y/10.0)*20.0);
                 fixed yyy = pow(1-saturate(col*8.0),2.0);
                 fixed2 uuvv = fixed2(xx,yy);
+                fixed2 newuv = animUV(uuvv,_Time.y);
                 //uuvv = clamp(uuvv,0.001,0.999);
 
                 fixed3 dis = tex2D(_VDMTex,uuvv);
                 // apply fog
                 UNITY_APPLY_FOG(i.fogCoord, col);
-                return fixed4(gradient,0,1);
-                return fixed4(dis.z*fixed3(1,1,1),1);
+                //return fixed4(frac(abs(gradient.y))*frac(abs(gradient.x)),0,0,1);
+                //return fixed4(smoothstep(0.1,0.04,-col),0,0,1);
+                return fixed4(dis*fixed3(1,1,1),1);
                 return frac((col+_Time.y/10.0)*20.0)*fixed4(1,1,1,1);
             }
             ENDCG

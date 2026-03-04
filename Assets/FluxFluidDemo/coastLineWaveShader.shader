@@ -140,7 +140,8 @@ Shader "Unlit/coastLineWaveShader"
                 waveDis = 0.05*(waveDis*2.0-1.0);
                 float3 waveDis_world = mul(TBN,waveDis);
                 // ================== 顶点位移计算 ========================
-                float3 newPos = v.vertex.xyz + float3(worldDisp.x,worldDisp.y,0.0);//+waveDis_world;
+                float3 newPos = v.vertex.xyz + 1*float3(worldDisp.x,worldDisp.y,0.0);//+waveDis_world;
+                newPos = v.vertex.xyz + 1.0*float3(decodeDisp(disp).x,decodeDisp(disp).z,0);
                 o.worldPos = newPos;
                 
                 o.pos = TransformObjectToHClip(float4(newPos,1.0));
@@ -278,9 +279,9 @@ Shader "Unlit/coastLineWaveShader"
                 //float nv = pow(abs(frac(kUV.y)-0.5),0.97);
                 //nv = 1.0*clamp(i.uv.x*1.5 - nv,w,1.0-w);
                 //return float4(depth*float3(1,1,1),1.0);
-                return float4(i.ttt.z,0,0,1);
-                return float4(i.uv.y,0,0,1);
-                return float4(i.ttt,1);
+                //return float4(i.ttt,1);
+                //return float4(newUV.x,-newUV.y,0,1);
+                return float4(i.ttt.xy,0,1);
                 return float4(diffCol,trans);
                 //return float4(diffCol,1.0);
             }

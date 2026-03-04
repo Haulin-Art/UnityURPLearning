@@ -1,0 +1,147 @@
+#pragma kernel AdvectionKernel
+#pragma kernel UpdateKernel
+#pragma kernel BoundaryKernel
+
+#include "UnityCG.cginc"
+
+float texSize;
+float dt;
+float4 footPos;
+int2 footDrop;
+float3 Force;
+float radius;
+bool keyDown;
+float2 attenuation;
+float gravity;
+float baseWaterLevel;
+float bedFriction;
+
+RWTexture2D<float4> StateRead;
+RWTexture2D<float4> StateWrite;
+Texture2D<float4> StateTex;
+
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+[numthreads(8, 8, 1)]
+void AdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+
+    float4 state = StateRead[pixel_pos];
+    float2 velocity = state.rg;
+    float h = state.b;
+
+    if (h < 0.1) h = baseWaterLevel;
+
+    if (length(Force.xy) > 0.0001)
+    {
+        float2 adUV = clamp(uv + Force.xy / 10.0, 0.0, 1.0);
+        float4 advectedState = StateTex.SampleLevel(samplerLinearClamp, adUV, 0);
+        velocity = advectedState.rg;
+        h = advectedState.b;
+    }
+
+    velocity += keyDown * Force.xy * Force.z * dt;
+
+    float2 foot1UV = float2(0.5, 0.5) + footPos.xy;
+    float2 foot2UV = float2(0.5, 0.5) + footPos.zw;
+
+    float dist1 = length(uv - foot1UV);
+    float dist2 = length(uv - foot2UV);
+
+    float mask1 = step(dist1, radius) * footDrop.x;
+    float mask2 = step(dist2, radius) * footDrop.y;
+
+    float waterSource = (mask1 + mask2) * keyDown * 0.5;
+    h += waterSource;
+
+    velocity = clamp(velocity, -5.0, 5.0);
+    h = max(h, 0.1);
+
+    StateWrite[pixel_pos] = float4(velocity, h, 0);
+}
+
+[numthreads(8, 8, 1)]
+void UpdateKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+
+    uint2 utexSize;
+    StateRead.GetDimensions(utexSize.x, utexSize.y);
+
+    if (pixel_pos.x <= 1 || pixel_pos.x >= utexSize.x - 2 ||
+        pixel_pos.y <= 1 || pixel_pos.y >= utexSize.y - 2)
+    {
+        StateWrite[pixel_pos] = StateRead[pixel_pos];
+        return;
+    }
+
+    float4 state = StateRead[pixel_pos];
+    float2 velocity = state.rg;
+    float h = state.b;
+
+    float4 left = StateRead[pixel_pos - int2(1, 0)];
+    float4 right = StateRead[pixel_pos + int2(1, 0)];
+    float4 up = StateRead[pixel_pos - int2(0, 1)];
+    float4 down = StateRead[pixel_pos + int2(0, 1)];
+
+    float dhdx = (right.b - left.b) * 0.5;
+    float dhdy = (down.b - up.b) * 0.5;
+
+    float2 newVelocity;
+    newVelocity.x = velocity.x - dt * gravity * dhdx;
+    newVelocity.y = velocity.y - dt * gravity * dhdy;
+
+    float dudx = (right.r - left.r) * 0.5;
+    float dvdy = (down.g - up.g) * 0.5;
+    float newHeight = h - dt * h * (dudx + dvdy);
+
+    newVelocity *= (1.0 - bedFriction);
+    newVelocity = lerp(newVelocity, float2(0, 0), attenuation.x);
+    newHeight = lerp(newHeight, baseWaterLevel, attenuation.y);
+
+    newVelocity = clamp(newVelocity, -3.0, 3.0);
+    newHeight = clamp(newHeight, baseWaterLevel * 0.2, baseWaterLevel * 3.0);
+
+    StateWrite[pixel_pos] = float4(newVelocity, newHeight, 0);
+}
+
+[numthreads(8, 8, 1)]
+void BoundaryKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+
+    uint2 utexSize;
+    StateRead.GetDimensions(utexSize.x, utexSize.y);
+
+    float4 state = StateRead[pixel_pos];
+
+    if (pixel_pos.x == 0)
+    {
+        state = StateRead[uint2(1, pixel_pos.y)];
+        state.r *= 0.5;
+    }
+    else if (pixel_pos.x == utexSize.x - 1)
+    {
+        state = StateRead[uint2(utexSize.x - 2, pixel_pos.y)];
+        state.r *= 0.5;
+    }
+    else if (pixel_pos.y == 0)
+    {
+        state = StateRead[uint2(pixel_pos.x, 1)];
+        state.g *= 0.5;
+    }
+    else if (pixel_pos.y == utexSize.y - 1)
+    {
+        state = StateRead[uint2(pixel_pos.x, utexSize.y - 2)];
+        state.g *= 0.5;
+    }
+
+    StateWrite[pixel_pos] = state;
+}

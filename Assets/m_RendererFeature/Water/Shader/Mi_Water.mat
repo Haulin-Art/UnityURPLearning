@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: Mi_Water
-  m_Shader: {fileID: 4800000, guid: e196a5ccdda1dc94bb934702d48b874f, type: 3}
+  m_Shader: {fileID: 4800000, guid: 5f016a37b1b12b242993a3d2a6a9b701, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -23,11 +23,23 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _DyeTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _MainTex:
         m_Texture: {fileID: 8400000, guid: bad36628af45df14da08913b5bb4e013, type: 2}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _VelocityTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
-    m_Floats: []
+    m_Floats:
+    - _EdgeFade: 0.1
+    - _FoamIntensity: 1
+    - _NormalStrength: 1
+    - _WaveHeight: 2
     m_Colors: []
   m_BuildTextureStacks: []

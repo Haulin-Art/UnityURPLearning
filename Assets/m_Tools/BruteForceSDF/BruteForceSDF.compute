@@ -1,0 +1,184 @@
+#pragma kernel CollectBoundaryPoints
+#pragma kernel ComputeSDF
+#pragma kernel BlurSDF
+#pragma kernel ComputeGradient
+
+RWTexture2D<float4> Result;
+RWTexture2D<float4> DirectionResult;
+Texture2D<float4> SourceTexture;
+Texture2D<float> SDFTexture;
+
+RWStructuredBuffer<uint> BoundaryCount;
+RWStructuredBuffer<float2> BoundaryPoints;
+
+uint MaxBoundaryPoints;
+uint2 TextureSize;
+float BlurRadius;
+
+float2 GetSubpixelBoundaryPos(uint2 pixelPos, int2 dir, float currentVal, float neighborVal)
+{
+    float2 pos = float2(pixelPos.x + 0.5, pixelPos.y + 0.5);
+    
+    if (abs(neighborVal - currentVal) < 0.0001)
+    {
+        return pos;
+    }
+    
+    float t = (0.5 - currentVal) / (neighborVal - currentVal);
+    t = clamp(t, 0.0, 1.0);
+    
+    float2 offset = float2(dir.x, dir.y) * (0.5 + t * 0.5);
+    
+    return pos + offset;
+}
+
+[numthreads(8, 8, 1)]
+void CollectBoundaryPoints(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= TextureSize.x || id.y >= TextureSize.y)
+        return;
+
+    float currentVal = SourceTexture[id.xy].r;
+    
+    int2 offsets[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+    
+    [unroll]
+    for (int i = 0; i < 4; i++)
+    {
+        int2 neighborPos = int2(id.xy) + offsets[i];
+        
+        if (neighborPos.x < 0 || neighborPos.x >= (int)TextureSize.x ||
+            neighborPos.y < 0 || neighborPos.y >= (int)TextureSize.y)
+        {
+            continue;
+        }
+        
+        float neighborVal = SourceTexture[neighborPos].r;
+        
+        if ((currentVal < 0.5 && neighborVal >= 0.5) || (currentVal >= 0.5 && neighborVal < 0.5))
+        {
+            float2 boundaryPos = GetSubpixelBoundaryPos(id.xy, offsets[i], currentVal, neighborVal);
+            
+            uint index;
+            InterlockedAdd(BoundaryCount[0], 1, index);
+            
+            if (index < MaxBoundaryPoints)
+            {
+                BoundaryPoints[index] = boundaryPos;
+            }
+        }
+    }
+}
+
+[numthreads(8, 8, 1)]
+void ComputeSDF(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= TextureSize.x || id.y >= TextureSize.y)
+        return;
+    
+    float2 currentPos = float2(id.x + 0.5, id.y + 0.5);
+    
+    float bestDist = 1e20;
+    
+    uint totalBoundaryPoints = BoundaryCount[0];
+    uint totalBoundaryPointsClamped = min(totalBoundaryPoints, MaxBoundaryPoints);
+    
+    for (uint i = 0; i < totalBoundaryPointsClamped; i++)
+    {
+        float2 boundaryPos = BoundaryPoints[i];
+        float dist = distance(currentPos, boundaryPos);
+        
+        if (dist < bestDist)
+        {
+            bestDist = dist;
+        }
+    }
+    
+    float currentVal = SourceTexture[id.xy].r;
+    bool isInside = currentVal > 0.5;
+    
+    float signedDist = bestDist;
+    if (!isInside)
+    {
+        signedDist = -bestDist;
+    }
+    
+    Result[id.xy] = float4(signedDist, 0, 0, 1);
+}
+
+[numthreads(8, 8, 1)]
+void BlurSDF(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= TextureSize.x || id.y >= TextureSize.y)
+        return;
+    
+    float sum = 0;
+    float weightSum = 0;
+    
+    int radius = (int)ceil(BlurRadius);
+    
+    for (int dy = -radius; dy <= radius; dy++)
+    {
+        for (int dx = -radius; dx <= radius; dx++)
+        {
+            int2 samplePos = int2(id.xy) + int2(dx, dy);
+            
+            samplePos.x = clamp(samplePos.x, 0, (int)TextureSize.x - 1);
+            samplePos.y = clamp(samplePos.y, 0, (int)TextureSize.y - 1);
+            
+            float dist = length(float2(dx, dy));
+            if (dist > BlurRadius)
+                continue;
+            
+            float weight = exp(-dist * dist / (2.0f * BlurRadius * BlurRadius / 3.0f));
+            
+            sum += SDFTexture[samplePos] * weight;
+            weightSum += weight;
+        }
+    }
+    
+    if (weightSum > 0)
+    {
+        Result[id.xy] = float4(sum / weightSum, 0, 0, 1);
+    }
+    else
+    {
+        Result[id.xy] = float4(SDFTexture[id.xy], 0, 0, 1);
+    }
+}
+
+[numthreads(8, 8, 1)]
+void ComputeGradient(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= TextureSize.x || id.y >= TextureSize.y)
+        return;
+    
+    int2 pos = int2(id.xy);
+    
+    int2 leftPos = clamp(int2(pos.x - 1, pos.y), int2(0, 0), int2(TextureSize.x - 1, TextureSize.y - 1));
+    int2 rightPos = clamp(int2(pos.x + 1, pos.y), int2(0, 0), int2(TextureSize.x - 1, TextureSize.y - 1));
+    int2 bottomPos = clamp(int2(pos.x, pos.y - 1), int2(0, 0), int2(TextureSize.x - 1, TextureSize.y - 1));
+    int2 topPos = clamp(int2(pos.x, pos.y + 1), int2(0, 0), int2(TextureSize.x - 1, TextureSize.y - 1));
+    
+    float left = SDFTexture[leftPos];
+    float right = SDFTexture[rightPos];
+    float bottom = SDFTexture[bottomPos];
+    float top = SDFTexture[topPos];
+    float center = SDFTexture[pos];
+    
+    float2 gradient = float2(right - left, top - bottom) * 0.5;
+    
+    float gradLen = length(gradient);
+    
+    float2 direction = float2(0, 0);
+    if (gradLen > 0.0001)
+    {
+        direction = -sign(center) * gradient / gradLen;
+    }
+    
+    DirectionResult[id.xy] = float4(direction, 0, 1);
+    
+    float maxDim = max((float)TextureSize.x, (float)TextureSize.y);
+    float normalizedDist = center / maxDim;
+    Result[id.xy] = float4(normalizedDist, normalizedDist, normalizedDist, 1);
+}

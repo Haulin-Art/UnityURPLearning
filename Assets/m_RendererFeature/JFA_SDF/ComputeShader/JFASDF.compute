@@ -1,16 +1,14 @@
 #pragma kernel JFAInit
 #pragma kernel JFAJump
 #pragma kernel JFAFinalize
-#pragma kernel ComputeGradient
+#pragma kernel ComputeDirection
 
 RWTexture2D<float4> Result;
-RWTexture2D<float4> GradientResult;
+RWTexture2D<float4> DirectionResult;
 Texture2D<float4> SourceTexture;
 Texture2D<float4> PreviousResult;
-Texture2D<float4> SDFTexture;
 
 float2 TextureSize;
-float2 InverseTextureSize;
 int PassIndex;
 
 [numthreads(8, 8, 1)]
@@ -86,25 +84,32 @@ void JFAFinalize(uint3 id : SV_DispatchThreadID)
 }
 
 [numthreads(8, 8, 1)]
-void ComputeGradient(uint3 id : SV_DispatchThreadID)
+void ComputeDirection(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)TextureSize.x || id.y >= (uint)TextureSize.y)
         return;
 
-    int2 pos = int2(id.xy);
+    float2 currentPos = float2(id.x + 0.5, id.y + 0.5);
+    float2 nearestSeedPos = PreviousResult[id.xy].xy;
     
-    int2 leftPos = int2(max(0, pos.x - 1), pos.y);
-    int2 rightPos = int2(min((int)TextureSize.x - 1, pos.x + 1), pos.y);
-    int2 bottomPos = int2(pos.x, max(0, pos.y - 1));
-    int2 topPos = int2(pos.x, min((int)TextureSize.y - 1, pos.y + 1));
-    
-    float left = SDFTexture[leftPos].r;
-    float right = SDFTexture[rightPos].r;
-    float bottom = SDFTexture[bottomPos].r;
-    float top = SDFTexture[topPos].r;
-    
-    float gradientX = (right - left) * 0.5;
-    float gradientY = (top - bottom) * 0.5;
-    
-    GradientResult[id.xy] = float4(gradientX*TextureSize.x, gradientY*TextureSize.y, 0, 1);
+    if (nearestSeedPos.x >= 0)
+    {
+        float2 direction = nearestSeedPos - currentPos;
+        float dist = length(direction);
+        
+        if (dist > 0.001)
+        {
+            direction = direction / dist;
+        }
+        else
+        {
+            direction = float2(0, 0);
+        }
+        
+        DirectionResult[id.xy] = float4(direction, 0, 1);
+    }
+    else
+    {
+        DirectionResult[id.xy] = float4(0, 0, 0, 1);
+    }
 }
