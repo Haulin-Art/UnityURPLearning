@@ -83,16 +83,14 @@ Shader "Unlit/coastLineWaveShader"
             {
                 float2 uv : TEXCOORD0;
                 float3 worldPos : TEXCOORD1;
-                float3 T : TEXCOORD2;
-                float3 B : TEXCOORD3;
-                float3 N : TEXCOORD4; 
+                //float3 T : TEXCOORD2;
+                //float3 B : TEXCOORD3;
+                //float3 N : TEXCOORD4; 
                 float4 pos : SV_POSITION;
-                float3 vertCol : COLOR0;
                 float2 animUV : TEXCOORD5;
                 float4 screenUV : TEXCOORD6;
-
-                float3 ttt : TEXCOORD7;
-                float3 VDMT : TEXCOORD8;
+                float3 norWS : TEXCOORD7;
+                float3 ttt : TEXCOORD8;
             };
             // 给UV添加动画的函数
             float2 animUV(float2 uv,float sinBase ,float time,float4 uv_ST)
@@ -121,21 +119,32 @@ Shader "Unlit/coastLineWaveShader"
                 disp += float3(_VDMXOffset,0.0,_VDMYOffset);
                 return disp;
             }
+            // 参数分别是：sdf的frac，卷浪出现的位置，卷狼的范围数量，浪的倾斜
+            float2 waveUV(float dis,float offset,float duanshu,float qingxie)
+            {
+                float u = frac(dis-_Time.y*_Speed+qingxie);        // 海浪的u
+                float v = u - dis + offset ;
+                v /= duanshu;                               // 海浪的v
+                return clamp(float2(u,v),0.01,0.99);
+            }
             float3 getVdm(float2 UV)
             {
                 // ================================= 获取世界位置偏移 ==================================
                 // 根据梯度或者TS空间的向前轴
+                //UV += float2(_CES,0);
                 float2 gradient = SAMPLE_TEXTURE2D_LOD(_GradientTex,sampler_GradientTex,UV,0.0).xy;
                 float sdf = SAMPLE_TEXTURE2D_LOD(_SDFTex,sampler_SDFTex,UV,0.0).x; // 采样离岸SDF
-                float ji = (atan2(UV.x-0.5,UV.y-0.5)+PI)/(2*PI); // 采样的y轴根据极坐标
-                // 根据新的uv计算动画uv
-                float2 sdfUV = float2(sdf*5,frac(ji*10.0));
-                float2 sdfAUV = animUV(sdfUV,ji*10, _Time.y, _VectorDisMap_ST);
-                float2 newUV = sdfAUV;
-                // ================== 向量置换图部分 ========================
-                float3 disp = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,newUV,0.0).xyz;
                 float3 forward = float3(gradient.x,0,gradient.y);
-                float3 vdm =  decodeDisp(disp).x*forward + decodeDisp(disp).z*float3(0,1,0);
+
+                // ============================ 新的计算方法 =======================================
+                float dis = -sdf*15.0;
+                float3 dir = forward;
+                float2 UUVV = waveUV(UV.x*5.0,3.0,2.0,-1.5*UV.y);
+                UUVV = 1-waveUV( dis , 2.0  , 2.0 , 0.2*gradient.y - 0.2*gradient.x) ;
+                //UUVV = float2(1.0-UUVV.x,1-UUVV.y);
+                float3 ddisp = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,UUVV,0.0).xyz;
+                //float3 vdm =  decodeDisp(ddisp).x*float3(1,0,0) + decodeDisp(ddisp).z*float3(0,1,0);
+                float3 vdm =  decodeDisp(ddisp).x*dir + decodeDisp(ddisp).z*float3(0,1,0);
                 return vdm;
             }
             v2f vert (appdata v)
@@ -143,8 +152,13 @@ Shader "Unlit/coastLineWaveShader"
                 v2f o;
                 o.worldPos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.uv = v.uv;
-                float2 worldUV=1.0- (o.worldPos/20.0 + 0.5).xz;
+                float scale = 20.0;
+                float2 worldUV=1.0- (o.worldPos/scale + 0.5).xz;
                 float2 UV = worldUV;
+                UV = o.uv;
+                UV = v.vertex.xz;
+                UV = saturate(worldUV);
+                /*
                 // Unity内置宏：自动处理模型缩放/旋转，返回归一化的世界空间向量
                 // 这里必须使用这两个
                 float3 N = TransformObjectToWorldNormal(v.normal); // 世界空间法线
@@ -154,49 +168,54 @@ Shader "Unlit/coastLineWaveShader"
                 T = normalize(T - dot(T, N) * N);
                 // 计算副切线（保持正交性）
                 float3 B = cross(N, T) * v.tangent.w;
-                
                 o.T = T;
                 o.B = B;
                 o.N = N;
                 float3x3 TBN = float3x3(T, B, N);
-
+                */
                 // ================================= 获取世界位置偏移 ==================================
                 // 根据梯度或者TS空间的向前轴
                 //UV += float2(_CES,0);
                 float2 gradient = SAMPLE_TEXTURE2D_LOD(_GradientTex,sampler_GradientTex,UV,0.0).xy;
                 float sdf = SAMPLE_TEXTURE2D_LOD(_SDFTex,sampler_SDFTex,UV,0.0).x; // 采样离岸SDF
-                float ji = (atan2(UV.x-0.5,UV.y-0.5)+PI)/(2*PI); // 采样的y轴根据极坐标
-                // 根据新的uv计算动画uv
-                float2 sdfUV = float2(sdf*5,frac(ji*10.0));
-                float2 sdfAUV = animUV(sdfUV,ji*10, _Time.y, _VectorDisMap_ST);
-                float2 newUV = sdfAUV;
-                o.animUV = newUV;
-                // ================== 向量置换图部分 ========================
-                float3 disp = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,newUV,0.0).xyz;
                 float3 forward = float3(gradient.x,0,gradient.y);
-                float3 vdm =  decodeDisp(disp).x*forward + decodeDisp(disp).z*float3(0,1,0);
-                
-                // ==================================== 差分计算法向===============================
-                float3 vdmR = getVdm(worldUV-float2(0.01,0.0));
-                float3 vdmU = getVdm(worldUV-float2(0.0,0.01));
-                float normalScale = 4.0;
-                float3 vdmNor =normalize( N -  (vdmR-vdm)*normalScale - (vdmU-vdm)*normalScale ) ;
-                vdmNor =normalize( N -  (vdmR+float3(0.01,0,0)-vdm)*normalScale - (vdmU+float3(0,0,0.01)-vdm)*normalScale ) ;
 
-                o.ttt = -vdmNor;
-                // 向量置换2
-                float3 waveDis = SAMPLE_TEXTURE2D_LOD(_OceanNorTex,sampler_OceanNorTex,UV,0.0).xyz;
-                waveDis = 0.05*(waveDis*2.0-1.0);
-                float3 waveDis_world = mul(TBN,waveDis);
+                // ============================ 计算的方法 =======================================
+                float dis = -sdf*7.0;
+                float3 dir = forward;
+                float2 UUVV = 1-waveUV( dis , 1.0  , 2.0 , -1.5*gradient.y) ;
+                float3 ddisp = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,UUVV,0.0).xyz;
+                float3 vdm =  decodeDisp(ddisp).x*dir + decodeDisp(ddisp).z*float3(0,1,0);
+
+                vdm = getVdm(UV);
+                // ============================= 法向计算 =============================================
+                // 这里可以直接偏移位置计算，但是也可以用一个小trick，减少四次贴图采样
+                // 就是减少了 dir跟dis的计算
+                float3 vdmR = getVdm(UV+float2(0.01,0.0));
+                float3 vdmU = getVdm(UV+float2(0.0,0.01));
+                /*
+                float3 dir2,dir3 = dir;
+                float dis2 = dis - dot(dir2,float3(0.01*scale,0,0));
+                float dis3 = dis - dot(dir3,float3(0,0,0.01*scale));
+                */
+                // 计算法线，这里需要注意的是，计算法线用的是世界坐标采样，因此，用这个映射过的世界坐标采样后
+                // 得到的矢量位移信息转换到世界空间后，得在加上偏移后的世界位置，这样差分得到的法向才是对的
+                float mask = step(sdf,0);
+                mask *= smoothstep(0.5,0.40,abs(UV.x-0.5)) * smoothstep(0.5,0.40,abs(UV.y-0.5));
+                float3 wp  = o.worldPos+TransformObjectToWorld(vdm*mask);
+                float3 wpr = o.worldPos-float3(0.01*scale,0,0)+TransformObjectToWorld(vdmR*mask);
+                float3 wpu = o.worldPos-float3(0,0,0.01*scale)+TransformObjectToWorld(vdmU*mask);
+                o.norWS = normalize(cross((wpu-wp),(wpr-wp)));
+
+                o.ttt = ddisp*float3(1,1,1);
+                o.ttt = mask*float3(1,1,1);
+                //o.ttt = TransformObjectToWorld(vdm);;
                 // ================== 顶点位移计算 ========================
-
-                float3 newPos = v.vertex.xyz + vdm*step(sdf,0) + 0.0*float3(0,-1,0)*step(-0.001,sdf);
-                //o.worldPos = newPos;
-                
-                //o.ttt = TransformObjectToWorld(float4(newPos,1.0));
+                float3 newPos = v.vertex.xyz + vdm*mask;
 
                 o.pos = TransformObjectToHClip(float4(newPos,1.0));
-                o.vertCol = disp;
+                //o.pos = TransformWorldToHClip(float4(wp,1.0));
+                //o.vertCol = disp;
 
                 o.screenUV = ComputeScreenPos(o.pos);
                 return o;
@@ -254,25 +273,9 @@ Shader "Unlit/coastLineWaveShader"
                 
 
                 float3 dispCol = SAMPLE_TEXTURE2D(_VectorDisMap, sampler_VectorDisMap,i.animUV).rgb;
-                // ================ 法线计算部分 ====================
-                float3 dispN = SAMPLE_TEXTURE2D(_VectorDisMapNormal,sampler_VectorDisMapNormal, newUV).rgb;
-                dispN = pow(dispN,0.45);
-                //dispN = normalize(dispN*2.0-1.0);
-                float3 dispN_world = normalize(mul(float3x3(i.T, i.B, i.N), dispN));
-                dispN_world = dispN_world * float3(1,1,1);
-                dispN_world = normalize(dispN_world);
-                // 波动海面贴图
-                float4 waveTex = SAMPLE_TEXTURE2D(_OceanNorTex,sampler_OceanNorTex, i.uv * _OceanNorTex_ST.xy + _OceanNorTex_ST.zw);
-                float3 waveN = waveTex.xyz * 2.0 - 1.0;
-                float3 waveN_world = normalize(mul(float3x3(i.T, i.B, i.N), waveN));
-                // 修正法向z的正负，因为uv改变了正确的位置
-                float2 kUV = i.uv*_VectorDisMap_ST.xy + _VectorDisMap_ST.zw;
-                float xiuzN = sign(frac(kUV.y)-0.5);
-                // 混合两个法线
-                float3 normal = normalize(dispN_world + waveN_world*0.3);
-                normal = screenNormal;
 
                 // ================ 浮沫计算部分 ====================
+                float4 waveTex = SAMPLE_TEXTURE2D(_OceanNorTex,sampler_OceanNorTex, i.uv * _OceanNorTex_ST.xy + _OceanNorTex_ST.zw);
                 float foam = foamMask(i.uv, newUV, dispCol.z, waveTex.w);
 
                 // ================= 修正部分 ====================
@@ -301,7 +304,7 @@ Shader "Unlit/coastLineWaveShader"
                 Light ld = GetMainLight();
                 float3 lightDir = normalize(ld.direction); // 主光源方向（世界空间，ForwardBase通道）
                 float3 lightColor = ld.color; // 主光源颜色
-                normal = i.ttt;
+                float3 normal = i.norWS;
                 float3 diff = max(dot(normal, lightDir), 0.0);
                 float3 diffCol = (diff + 0.1) * lightColor;
 
@@ -323,32 +326,9 @@ Shader "Unlit/coastLineWaveShader"
                 trans += foam*2.0;
                 trans = clamp(trans,0.0,0.95);
 
-                //float4 col = tex2D(_MainTex, i.animUV);
-                //float3 dispCol = SAMPLE_TEXTURE2D(_VectorDisMap,sampler_VectorDisMap, i.animUV).rgb;
-
-
-                float sdf = SAMPLE_TEXTURE2D(_SDFTex,sampler_SDFTex,i.uv).x;
-                float2 gradient = SAMPLE_TEXTURE2D(_GradientTex,sampler_GradientTex,i.uv).xy;
-                float ji = (atan2(i.uv.x-0.5,i.uv.y-0.5)+PI)/(2*PI);
-                float2 sdfUV = float2(sdf,frac(gradient.y));
-                sdfUV = float2(sdf,frac(ji*5));
-                float2 sdfAUV = animUV(sdfUV,i.worldPos.xz, _Time.y, _VectorDisMap_ST);
-
-                float w = 0.01;
-
-                float2 worldUV=1.0- (i.worldPos/20.0 + 0.5).xz;
-                float cesss = SAMPLE_TEXTURE2D(_SDFTex,sampler_SDFTex,worldUV).x;
-                float sdfcess = SAMPLE_TEXTURE2D(_SDFTex,sampler_SDFTex,worldUV).x;
-
-                //clip(-sdfcess);
-                //return float4(i.animUV*float2(1,-1),0,1);
-                //return float4((diff+specular*0)*float3(1,1,1),1);
-                //return float4(i.ttt.xy,0,1);
-
-                //float sdf = SAMPLE_TEXTURE2D(_SDFTex,sampler_SDFTex,i.uv).x;
-
-
-                return float4(i.ttt.x*float3(1,1,1),1);
+                //return float4(smoothstep(0.48,0.4,abs(i.uv.x-0.5)),0,0,1);
+                return float4(diff*float3(1,1,1),1);
+                //return float4(i.ttt*float3(1,1,1),1);
                 return float4(diffCol,trans);
 
             }

@@ -3,7 +3,7 @@
 
 #include "AAAW_WaterCommon.hlsl"
 
-float HenyeyGreensteinPhase(float g, float cosTheta)
+float AAAWHenyeyGreensteinPhase(float g, float cosTheta)
 {
     float g2 = g * g;
     float denom = 1.0 + g2 - 2.0 * g * cosTheta;
@@ -11,85 +11,85 @@ float HenyeyGreensteinPhase(float g, float cosTheta)
     return (1.0 - g2) / (4.0 * AAAW_PI * sqrtDenom * denom);
 }
 
-float HenyeyGreensteinPhaseFast(float g, float cosTheta)
+float AAAWHenyeyGreensteinPhaseFast(float g, float cosTheta)
 {
     float g2 = g * g;
     float denom = 1.0 + g2 - 2.0 * g * cosTheta;
     return (1.0 - g2) * pow(denom, -1.5) / (4.0 * AAAW_PI);
 }
 
-float HenyeyGreensteinPhaseNormalized(float g, float cosTheta)
+float AAAWHenyeyGreensteinPhaseNormalized(float g, float cosTheta)
 {
     float g2 = g * g;
     float denom = 1.0 + g2 - 2.0 * g * cosTheta;
     return (1.0 - g2) * rsqrt(denom) / denom;
 }
 
-float RayleighPhase(float cosTheta)
+float AAAWRayleighPhase(float cosTheta)
 {
     float cosTheta2 = cosTheta * cosTheta;
     return 3.0 / (16.0 * AAAW_PI) * (1.0 + cosTheta2);
 }
 
-float RayleighPhaseNormalized(float cosTheta)
+float AAAWRayleighPhaseNormalized(float cosTheta)
 {
     float cosTheta2 = cosTheta * cosTheta;
     return 0.75 * (1.0 + cosTheta2);
 }
 
-float MiePhase(float g, float cosTheta)
+float AAAWMiePhase(float g, float cosTheta)
 {
-    return HenyeyGreensteinPhase(g, cosTheta);
+    return AAAWHenyeyGreensteinPhase(g, cosTheta);
 }
 
-float MiePhaseFast(float g, float cosTheta)
+float AAAWMiePhaseFast(float g, float cosTheta)
 {
-    return HenyeyGreensteinPhaseFast(g, cosTheta);
+    return AAAWHenyeyGreensteinPhaseFast(g, cosTheta);
 }
 
-float WaterPhaseFunction(float g, float cosTheta)
+float AAAWWaterPhaseFunction(float g, float cosTheta)
 {
-    float rayleigh = RayleighPhase(cosTheta);
-    float mie = MiePhase(g, cosTheta);
+    float rayleigh = AAAWRayleighPhase(cosTheta);
+    float mie = AAAWMiePhase(g, cosTheta);
     return AAAW_RAYLEIGH_RATIO * rayleigh + AAAW_MIE_RATIO * mie;
 }
 
-float WaterPhaseFunctionFast(float g, float cosTheta)
+float AAAWWaterPhaseFunctionFast(float g, float cosTheta)
 {
-    float rayleigh = RayleighPhaseNormalized(cosTheta);
-    float mie = HenyeyGreensteinPhaseNormalized(g, cosTheta);
+    float rayleigh = AAAWRayleighPhaseNormalized(cosTheta);
+    float mie = AAAWHenyeyGreensteinPhaseNormalized(g, cosTheta);
     return AAAW_RAYLEIGH_RATIO * rayleigh + AAAW_MIE_RATIO * mie;
 }
 
-float PhaseWaterDefault(float cosTheta)
+float AAAWPhaseWaterDefault(float cosTheta)
 {
-    return WaterPhaseFunction(AAAW_PHASE_G_DEFAULT, cosTheta);
+    return AAAWWaterPhaseFunction(AAAW_PHASE_G_DEFAULT, cosTheta);
 }
 
-float PhaseWaterBacklit(float cosTheta)
+float AAAWPhaseWaterBacklit(float cosTheta)
 {
-    return HenyeyGreensteinPhase(AAAW_PHASE_G_BACKLIT, cosTheta);
+    return AAAWHenyeyGreensteinPhase(AAAW_PHASE_G_BACKLIT, cosTheta);
 }
 
-float PhaseWaterBacklitFast(float cosTheta)
+float AAAWPhaseWaterBacklitFast(float cosTheta)
 {
-    return HenyeyGreensteinPhaseNormalized(AAAW_PHASE_G_BACKLIT, cosTheta);
+    return AAAWHenyeyGreensteinPhaseNormalized(AAAW_PHASE_G_BACKLIT, cosTheta);
 }
 
-float DoubleHenyeyGreensteinPhase(float g1, float g2, float alpha, float cosTheta)
+float AAAWDoubleHenyeyGreensteinPhase(float g1, float g2, float alpha, float cosTheta)
 {
-    float phase1 = HenyeyGreensteinPhase(g1, cosTheta);
-    float phase2 = HenyeyGreensteinPhase(g2, cosTheta);
+    float phase1 = AAAWHenyeyGreensteinPhase(g1, cosTheta);
+    float phase2 = AAAWHenyeyGreensteinPhase(g2, cosTheta);
     return alpha * phase1 + (1.0 - alpha) * phase2;
 }
 
-float SchlickPhase(float k, float cosTheta)
+float AAAWSchlickPhase(float k, float cosTheta)
 {
     float denom = 1.0 - k * cosTheta;
     return (1.0 - k * k) / (4.0 * AAAW_PI * denom * denom);
 }
 
-float CornetteShanksPhase(float g, float cosTheta)
+float AAAWCornetteShanksPhase(float g, float cosTheta)
 {
     float g2 = g * g;
     float cosTheta2 = cosTheta * cosTheta;
@@ -98,58 +98,58 @@ float CornetteShanksPhase(float g, float cosTheta)
     return numerator / (denominator * 4.0 * AAAW_PI);
 }
 
-float ComputePhaseCosTheta(float3 viewDir, float3 lightDir)
+float AAAWComputePhaseCosTheta(float3 viewDir, float3 lightDir)
 {
     return dot(-viewDir, lightDir);
 }
 
-float EvaluatePhaseWater(float3 viewDir, float3 lightDir, float g)
+float AAAWEvaluatePhaseWater(float3 viewDir, float3 lightDir, float g)
 {
-    float cosTheta = ComputePhaseCosTheta(viewDir, lightDir);
-    return WaterPhaseFunction(g, cosTheta);
+    float cosTheta = AAAWComputePhaseCosTheta(viewDir, lightDir);
+    return AAAWWaterPhaseFunction(g, cosTheta);
 }
 
-float EvaluatePhaseWaterFast(float3 viewDir, float3 lightDir, float g)
+float AAAWEvaluatePhaseWaterFast(float3 viewDir, float3 lightDir, float g)
 {
-    float cosTheta = ComputePhaseCosTheta(viewDir, lightDir);
-    return WaterPhaseFunctionFast(g, cosTheta);
+    float cosTheta = AAAWComputePhaseCosTheta(viewDir, lightDir);
+    return AAAWWaterPhaseFunctionFast(g, cosTheta);
 }
 
-float EvaluatePhaseBacklit(float3 viewDir, float3 lightDir)
+float AAAWEvaluatePhaseBacklit(float3 viewDir, float3 lightDir)
 {
-    float cosTheta = ComputePhaseCosTheta(viewDir, lightDir);
-    return PhaseWaterBacklit(cosTheta);
+    float cosTheta = AAAWComputePhaseCosTheta(viewDir, lightDir);
+    return AAAWPhaseWaterBacklit(cosTheta);
 }
 
-float EvaluatePhaseBacklitFast(float3 viewDir, float3 lightDir)
+float AAAWEvaluatePhaseBacklitFast(float3 viewDir, float3 lightDir)
 {
-    float cosTheta = ComputePhaseCosTheta(viewDir, lightDir);
-    return PhaseWaterBacklitFast(cosTheta);
+    float cosTheta = AAAWComputePhaseCosTheta(viewDir, lightDir);
+    return AAAWPhaseWaterBacklitFast(cosTheta);
 }
 
-float MultipleScatteringPhase(float g, float cosTheta, int bounceCount)
+float AAAWMultipleScatteringPhase(float g, float cosTheta, int bounceCount)
 {
     float effectiveG = g;
     for (int i = 1; i < bounceCount; i++)
     {
         effectiveG = effectiveG * g;
     }
-    return HenyeyGreensteinPhase(effectiveG, cosTheta);
+    return AAAWHenyeyGreensteinPhase(effectiveG, cosTheta);
 }
 
-float IsotropicPhase()
+float AAAWIsotropicPhase()
 {
     return AAAW_INV_PI * 0.25;
 }
 
-float AnisotropicPhaseApproximation(float g, float cosTheta, float thickness)
+float AAAWAnisotropicPhaseApproximation(float g, float cosTheta, float thickness)
 {
     float thicknessFactor = saturate(thickness);
     float effectiveG = lerp(g, 0.0, thicknessFactor * 0.5);
-    return HenyeyGreensteinPhase(effectiveG, cosTheta);
+    return AAAWHenyeyGreensteinPhase(effectiveG, cosTheta);
 }
 
-struct PhaseData
+struct AAAWPhaseData
 {
     float phaseValue;
     float cosTheta;
@@ -157,12 +157,12 @@ struct PhaseData
     float miePhase;
 };
 
-PhaseData ComputePhaseData(float3 viewDir, float3 lightDir, float g)
+AAAWPhaseData AAAWComputePhaseData(float3 viewDir, float3 lightDir, float g)
 {
-    PhaseData data;
-    data.cosTheta = ComputePhaseCosTheta(viewDir, lightDir);
-    data.rayleighPhase = RayleighPhase(data.cosTheta);
-    data.miePhase = MiePhase(g, data.cosTheta);
+    AAAWPhaseData data;
+    data.cosTheta = AAAWComputePhaseCosTheta(viewDir, lightDir);
+    data.rayleighPhase = AAAWRayleighPhase(data.cosTheta);
+    data.miePhase = AAAWMiePhase(g, data.cosTheta);
     data.phaseValue = AAAW_RAYLEIGH_RATIO * data.rayleighPhase + AAAW_MIE_RATIO * data.miePhase;
     return data;
 }

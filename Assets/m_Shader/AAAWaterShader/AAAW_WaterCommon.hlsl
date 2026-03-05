@@ -52,6 +52,8 @@ CBUFFER_START(UnityPerMaterial)
     float _FoamSmoothness;
     float _FoamDistance;
     float _FoamIntensity;
+    
+    float _RayMarchSteps;
 CBUFFER_END
 
 TEXTURE2D(_CameraOpaqueTexture);
@@ -66,104 +68,58 @@ SAMPLER(sampler_WaterNormalMap2);
 TEXTURE2D(_FoamTexture);
 SAMPLER(sampler_FoamTexture);
 
-/*
-float3 TransformWorldToViewDir(float3 dirWS, bool doNormalize)
-{
-    float3 dirVS = mul((float3x3)UNITY_MATRIX_V, dirWS).xyz;
-    if (doNormalize)
-        return normalize(dirVS);
-    return dirVS;
-}
-float3 TransformViewToWorldDir(float3 dirVS, bool doNormalize)
-{
-    float3 dirWS = mul((float3x3)UNITY_MATRIX_I_V, dirVS).xyz;
-    if (doNormalize)
-        return normalize(dirWS);
-    return dirWS;
-}
-float LinearEyeDepthToRawDepth(float eyeDepth)
-{
-    return LinearEyeDepthToRawDepth(eyeDepth, _ZBufferParams);
-}
-*/
-float GetLinearEyeDepth(float2 uv)
-{
-    float rawDepth = SampleSceneDepth(uv);
-    return LinearEyeDepth(rawDepth, _ZBufferParams);
-}
-
-float GetLinearEyeDepthFromRaw(float rawDepth)
-{
-    return LinearEyeDepth(rawDepth, _ZBufferParams);
-}
-
-float3 GetWorldPositionFromDepth(float2 uv, float linearEyeDepth)
-{
-    float3 worldPos = ComputeWorldSpacePosition(uv, linearEyeDepth, UNITY_MATRIX_I_VP);
-    return worldPos;
-}
-/*
-float Luminance(float3 color)
+float AAAWLuminance(float3 color)
 {
     return dot(color, float3(0.2126729, 0.7151522, 0.0721750));
 }
-float3 SafeNormalize(float3 v)
+
+float3 AAAWSafeNormalize(float3 v)
 {
     float len = length(v);
     return len > 1e-6 ? v / len : float3(0, 1, 0);
 }
-*/
-float Remap(float value, float inMin, float inMax, float outMin, float outMax)
+
+float AAAWSquare(float x)
 {
-    return outMin + (value - inMin) * (outMax - outMin) / (inMax - inMin);
+    return x * x;
 }
-/*
-float Remap01(float value, float inMin, float inMax)
+
+float3 AAAWSquare3(float3 x)
 {
-    return saturate((value - inMin) / (inMax - inMin));
+    return x * x;
 }
-*/
-float Pow5(float x)
+
+float AAAWPow5(float x)
 {
     float x2 = x * x;
     return x2 * x2 * x;
 }
 
-float2 Pow5(float2 x)
-{
-    float2 x2 = x * x;
-    return x2 * x2 * x;
-}
-
-float3 Pow5(float3 x)
+float3 AAAWPow5_3(float3 x)
 {
     float3 x2 = x * x;
     return x2 * x2 * x;
 }
 
-float Square(float x)
+float AAAWRemap(float value, float inMin, float inMax, float outMin, float outMax)
 {
-    return x * x;
+    return outMin + (value - inMin) * (outMax - outMin) / (inMax - inMin);
 }
 
-float3 Square(float3 x)
+float AAAWRemap01(float value, float inMin, float inMax)
 {
-    return x * x;
+    return saturate((value - inMin) / (inMax - inMin));
 }
 
-float ClampCosine(float cosTheta)
-{
-    return saturate(cosTheta);
-}
-/*
-float3 BlendNormal(float3 n1, float3 n2)
+float3 AAAWBlendNormal(float3 n1, float3 n2)
 {
     float3 t = n1 * float3(2, 2, 2) + float3(-1, -1, 0);
     float3 u = n2 * float3(2, 2, 2) + float3(-1, -1, 0);
     float3 r = t * dot(t, u) - u * t.z;
     return normalize(r);
 }
-float3 UnpackNormalAG(float4 packedNormal, float scale)
+
+float3 AAAWUnpackNormalAG(float4 packedNormal, float scale)
 {
     float3 normal;
     normal.xy = packedNormal.ag * 2.0 - 1.0;
@@ -171,8 +127,8 @@ float3 UnpackNormalAG(float4 packedNormal, float scale)
     normal.z = sqrt(1.0 - saturate(dot(normal.xy, normal.xy)));
     return normal;
 }
-*/
-float3 GetWaterNormal(float2 uv, float time)
+
+float3 AAAWGetWaterNormal(float2 uv, float time)
 {
     float2 uv1 = uv * _WaveFrequency + time * _WaveSpeed * _WaveDirection1.xy;
     float2 uv2 = uv * _WaveFrequency * 0.7 + time * _WaveSpeed * _WaveDirection2.xy;
@@ -180,67 +136,87 @@ float3 GetWaterNormal(float2 uv, float time)
     float4 normalSample1 = SAMPLE_TEXTURE2D(_WaterNormalMap, sampler_WaterNormalMap, uv1);
     float4 normalSample2 = SAMPLE_TEXTURE2D(_WaterNormalMap2, sampler_WaterNormalMap2, uv2);
     
-    float3 normal1 = UnpackNormalAG(normalSample1, _NormalScale);
-    float3 normal2 = UnpackNormalAG(normalSample2, _NormalScale * 0.8);
+    float3 normal1 = AAAWUnpackNormalAG(normalSample1, _NormalScale);
+    float3 normal2 = AAAWUnpackNormalAG(normalSample2, _NormalScale * 0.8);
     
-    return BlendNormal(normal1, normal2);
+    return AAAWBlendNormal(normal1, normal2);
 }
 
-float BeerLambert(float extinction, float distance)
+float AAAWBeerLambert(float extinction, float distance)
 {
     return exp(-extinction * distance);
 }
 
-float3 BeerLambert(float3 extinction, float distance)
+float3 AAAWBeerLambert3(float3 extinction, float distance)
 {
     return exp(-extinction * distance);
 }
 
-float GetOpticalDepth(float extinction, float distance)
+float AAAWGetOpticalDepth(float extinction, float distance)
 {
     return extinction * distance;
 }
 
-float3 GetOpticalDepth(float3 extinction, float distance)
+float3 AAAWGetOpticalDepth3(float3 extinction, float distance)
 {
     return extinction * distance;
 }
 
-float GetScatteringAlbedo(float scatterCoeff, float extinctionCoeff)
+float AAAWGetScatteringAlbedo(float scatterCoeff, float extinctionCoeff)
 {
     return scatterCoeff / max(extinctionCoeff, 1e-6);
 }
 
-float3 GetScatteringAlbedo(float3 scatterCoeff, float3 extinctionCoeff)
+float3 AAAWGetScatteringAlbedo3(float3 scatterCoeff, float3 extinctionCoeff)
 {
     return scatterCoeff / max(extinctionCoeff, 1e-6);
 }
 
-float ExponentialStep(float t, float k, float n)
+float AAAWExponentialStep(float t, float k, float n)
 {
     float denom = exp(k) - 1.0;
     return (exp(k * t) - 1.0) / denom;
 }
 
-float ExponentialStepSize(float t, float k, float n)
+float AAAWExponentialStepSize(float t, float k, float n)
 {
     float denom = exp(k) - 1.0;
     return k * exp(k * t) / (denom * n);
 }
 
-float InterleavedGradientNoise(float2 screenPos)
+float AAAWInterleavedGradientNoise(float2 screenPos)
 {
     float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
     return frac(magic.z * frac(dot(screenPos, magic.xy)));
 }
 
-float3 ScreenSpaceDither(float2 screenPos)
+float3 AAAWScreenSpaceDither(float2 screenPos)
 {
-    float dither = InterleavedGradientNoise(screenPos);
+    float dither = AAAWInterleavedGradientNoise(screenPos);
     return float3(dither, dither, dither) * 0.0078125;
 }
 
-struct WaterSurfaceData
+float AAAWGetLinearEyeDepth(float2 uv)
+{
+    float rawDepth = SampleSceneDepth(uv);
+    return LinearEyeDepth(rawDepth, _ZBufferParams);
+}
+
+float AAAWGetLinearEyeDepthFromRaw(float rawDepth)
+{
+    return LinearEyeDepth(rawDepth, _ZBufferParams);
+}
+
+float3 AAAWGetWorldPositionFromDepth(float2 uv, float linearEyeDepth)
+{
+    float4 positionNDC = float4(uv * 2.0 - 1.0, 1.0, 1.0);
+    float4 positionVS = mul(UNITY_MATRIX_I_P, positionNDC);
+    positionVS /= positionVS.w;
+    float4 positionWS = mul(UNITY_MATRIX_I_V, positionVS);
+    return positionWS.xyz;
+}
+
+struct AAAWWaterSurfaceData
 {
     float3 normalWS;
     float3 positionWS;
@@ -249,7 +225,7 @@ struct WaterSurfaceData
     float foam;
 };
 
-struct WaterLightingData
+struct AAAWWaterLightingData
 {
     float3 positionWS;
     float3 viewDirWS;
@@ -259,21 +235,21 @@ struct WaterLightingData
     float rawDepth;
 };
 
-WaterLightingData InitializeWaterLightingData(float3 positionWS, float3 viewDirWS, float3 normalWS, float2 screenUV)
+AAAWWaterLightingData AAAWInitializeWaterLightingData(float3 positionWS, float3 viewDirWS, float3 normalWS, float2 screenUV)
 {
-    WaterLightingData data;
+    AAAWWaterLightingData data;
     data.positionWS = positionWS;
     data.viewDirWS = viewDirWS;
     data.normalWS = normalWS;
     data.screenUV = screenUV;
-    data.linearEyeDepth = GetLinearEyeDepth(screenUV);
+    data.linearEyeDepth = AAAWGetLinearEyeDepth(screenUV);
     data.rawDepth = SampleSceneDepth(screenUV);
     return data;
 }
 
-WaterSurfaceData InitializeWaterSurfaceData(float3 normalWS, float3 positionWS, float thickness, float depth)
+AAAWWaterSurfaceData AAAWInitializeWaterSurfaceData(float3 normalWS, float3 positionWS, float thickness, float depth)
 {
-    WaterSurfaceData data;
+    AAAWWaterSurfaceData data;
     data.normalWS = normalWS;
     data.positionWS = positionWS;
     data.thickness = thickness;

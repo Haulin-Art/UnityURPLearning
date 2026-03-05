@@ -53,13 +53,17 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _CES: 0.05
     - _SineCount: 1.86
-    - _Speed: 0.52
+    - _Speed: 0
     - _VDMXOffset: 0
-    - _VDMXScale: -0.37
+    - _VDMXScale: -0.2
     - _VDMYOffset: 0
-    - _VDMYScale: 0.07
+    - _VDMYScale: 0.09
     - _VectorDisMapScale: 1
+    - _WavePos: 1
+    - _WaveRange: 2
+    - _WaveScale: 2
     - _sineScale: 0
     m_Colors:
     - _DeepWaterCol: {r: 0, g: 0.5179733, b: 0.8050314, a: 1}

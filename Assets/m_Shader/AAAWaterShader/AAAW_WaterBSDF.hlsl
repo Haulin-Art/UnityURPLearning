@@ -5,7 +5,7 @@
 #include "AAAW_WaterFresnel.hlsl"
 #include "AAAW_WaterPhase.hlsl"
 
-struct WaterBSDFInput
+struct AAAWWaterBSDFInput
 {
     float3 scatterCoeff;
     float3 absorptionCoeff;
@@ -24,14 +24,14 @@ struct WaterBSDFInput
     float shadowValue;
 };
 
-struct WaterBSDFOutput
+struct AAAWWaterBSDFOutput
 {
     float3 diffR;
     float3 diffT;
     float3 totalScattering;
 };
 
-struct IncidentGeometry
+struct AAAWIncidentGeometry
 {
     float G_entry;
     float G_sss;
@@ -39,9 +39,9 @@ struct IncidentGeometry
     float T_entry;
 };
 
-IncidentGeometry ComputeIncidentGeometry(float3 normalWS, float3 lightDirWS, float fresnel0)
+AAAWIncidentGeometry AAAWComputeIncidentGeometry(float3 normalWS, float3 lightDirWS, float fresnel0)
 {
-    IncidentGeometry geo;
+    AAAWIncidentGeometry geo;
     
     float NdotL = dot(normalWS, lightDirWS);
     
@@ -49,12 +49,12 @@ IncidentGeometry ComputeIncidentGeometry(float3 normalWS, float3 lightDirWS, flo
     geo.G_sss = 1.0 - geo.G_entry;
     geo.G_backlit = saturate(-NdotL);
     
-    geo.T_entry = FresnelTransmission(fresnel0, saturate(abs(NdotL)));
+    geo.T_entry = AAAWFresnelTransmission(fresnel0, saturate(abs(NdotL)));
     
     return geo;
 }
 
-float3 CalculateScatteredLight(
+float3 AAAWCalculateScatteredLight(
     float3 lightColor,
     float3 extinctionCoeff,
     float3 scatterAlbedo,
@@ -70,7 +70,7 @@ float3 CalculateScatteredLight(
     return scatteredLight;
 }
 
-float3 CalculateScatteredLightSimple(
+float3 AAAWCalculateScatteredLightSimple(
     float3 lightColor,
     float3 scatterCoeff,
     float opticalDepth,
@@ -82,12 +82,12 @@ float3 CalculateScatteredLightSimple(
     return scatteredLight;
 }
 
-float ComputeEffectivePathLength(float thickness, float3 scatterCoeff, float pathScale)
+float AAAWComputeEffectivePathLength(float thickness, float3 scatterCoeff, float pathScale)
 {
     float linearPath = thickness * pathScale;
-    float nonlinearPath = thickness * thickness * pathScale * (1.0 + Luminance(scatterCoeff));
+    float nonlinearPath = thickness * thickness * pathScale * (1.0 + AAAWLuminance(scatterCoeff));
     
-    float opticalDepth = Luminance(scatterCoeff) * thickness * pathScale;
+    float opticalDepth = AAAWLuminance(scatterCoeff) * thickness * pathScale;
     float strengthFactor = AAAW_SSS_NONLINEAR_STRENGTH * opticalDepth;
     
     float effectivePath = lerp(linearPath, nonlinearPath, saturate(strengthFactor));
@@ -95,23 +95,23 @@ float ComputeEffectivePathLength(float thickness, float3 scatterCoeff, float pat
     return effectivePath;
 }
 
-float3 ComputeThinLayerSSS(
-    WaterBSDFInput input,
-    IncidentGeometry geo,
+float3 AAAWComputeThinLayerSSS(
+    AAAWWaterBSDFInput input,
+    AAAWIncidentGeometry geo,
     float3 volumeScattering)
 {
-    float effectivePath = ComputeEffectivePathLength(
+    float effectivePath = AAAWComputeEffectivePathLength(
         input.thickness, 
         input.scatterCoeff, 
         AAAW_SSS_PATH_SCALE
     );
     
-    float opticalDepth = Luminance(input.extinctionCoeff) * effectivePath;
+    float opticalDepth = AAAWLuminance(input.extinctionCoeff) * effectivePath;
     
-    float cosTheta = ComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
-    float phaseValue = WaterPhaseFunctionFast(input.phaseG, cosTheta);
+    float cosTheta = AAAWComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
+    float phaseValue = AAAWWaterPhaseFunctionFast(input.phaseG, cosTheta);
     
-    float3 thinLayerScatter = CalculateScatteredLight(
+    float3 thinLayerScatter = AAAWCalculateScatteredLight(
         input.lightColor,
         input.extinctionCoeff,
         input.scatterAlbedo,
@@ -123,7 +123,7 @@ float3 ComputeThinLayerSSS(
     thinLayerScatter *= AAAW_SSS_SCATTER_BOOST;
     
     float3 transmittance = exp(-input.extinctionCoeff * opticalDepth);
-    float sssWeight = 1.0 - Luminance(transmittance);
+    float sssWeight = 1.0 - AAAWLuminance(transmittance);
     
     float3 result = lerp(volumeScattering, thinLayerScatter, sssWeight);
     result *= geo.G_sss;
@@ -131,16 +131,16 @@ float3 ComputeThinLayerSSS(
     return result;
 }
 
-float3 ComputeBacklitTransmission(
-    WaterBSDFInput input,
-    IncidentGeometry geo)
+float3 AAAWComputeBacklitTransmission(
+    AAAWWaterBSDFInput input,
+    AAAWIncidentGeometry geo)
 {
     float effectivePath = input.thickness * AAAW_BACKLIT_PATH_SCALE;
     
     float3 transmittance = exp(-input.extinctionCoeff * effectivePath);
     
-    float cosTheta = ComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
-    float phaseValue = PhaseWaterBacklitFast(cosTheta);
+    float cosTheta = AAAWComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
+    float phaseValue = AAAWPhaseWaterBacklitFast(cosTheta);
     
     float3 backlitResult = input.lightColor * transmittance * phaseValue;
     backlitResult *= geo.G_backlit;
@@ -149,9 +149,9 @@ float3 ComputeBacklitTransmission(
     return backlitResult;
 }
 
-float3 ComputeVolumeScattering(
-    WaterBSDFInput input,
-    IncidentGeometry geo,
+float3 AAAWComputeVolumeScattering(
+    AAAWWaterBSDFInput input,
+    AAAWIncidentGeometry geo,
     float3 rayStart,
     float3 rayEnd,
     float3 sceneColor)
@@ -161,21 +161,21 @@ float3 ComputeVolumeScattering(
     float3 rayDir = normalize(rayEnd - rayStart);
     float totalDistance = length(rayEnd - rayStart);
     
-    float dither = InterleavedGradientNoise(input.normalWS.xy * 1000.0);
+    float dither = AAAWInterleavedGradientNoise(input.normalWS.xy * 1000.0);
     
     [unroll]
     for (int i = 0; i < AAAW_RAY_MARCH_STEPS; i++)
     {
         float t = (float(i) + dither) / float(AAAW_RAY_MARCH_STEPS);
-        float stepDistance = ExponentialStep(t, AAAW_EXP_FACTOR, AAAW_RAY_MARCH_STEPS) * totalDistance;
+        float stepDistance = AAAWExponentialStep(t, AAAW_EXP_FACTOR, AAAW_RAY_MARCH_STEPS) * totalDistance;
         
         float3 samplePos = rayStart + rayDir * stepDistance;
         
-        float opticalDepth = Luminance(input.extinctionCoeff) * stepDistance;
+        float opticalDepth = AAAWLuminance(input.extinctionCoeff) * stepDistance;
         float3 transmittance = exp(-input.extinctionCoeff * stepDistance);
         
-        float cosTheta = ComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
-        float phaseValue = WaterPhaseFunctionFast(input.phaseG, cosTheta);
+        float cosTheta = AAAWComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
+        float phaseValue = AAAWWaterPhaseFunctionFast(input.phaseG, cosTheta);
         
         float3 scatterContribution = input.lightColor * 
             (1.0 - transmittance) * 
@@ -192,7 +192,7 @@ float3 ComputeVolumeScattering(
         exp(-input.extinctionCoeff * totalDistance) * 
         input.scatterCoeff * 
         totalDistance * 
-        Luminance(input.lightColor) * 
+        AAAWLuminance(input.lightColor) * 
         0.3;
     
     totalScatter += sceneScatter;
@@ -200,57 +200,57 @@ float3 ComputeVolumeScattering(
     return totalScatter;
 }
 
-WaterBSDFOutput EvaluateWaterBSDF(WaterBSDFInput input)
+AAAWWaterBSDFOutput AAAWEvaluateWaterBSDF(AAAWWaterBSDFInput input)
 {
-    WaterBSDFOutput output = (WaterBSDFOutput)0;
+    AAAWWaterBSDFOutput output = (AAAWWaterBSDFOutput)0;
     
-    IncidentGeometry geo = ComputeIncidentGeometry(
+    AAAWIncidentGeometry geo = AAAWComputeIncidentGeometry(
         input.normalWS, 
         input.lightDirWS, 
         input.fresnel0
     );
     
-    float3 volumeScatter = ComputeVolumeScattering(
+    float3 volumeScatter = AAAWComputeVolumeScattering(
         input,
         geo,
         input.normalWS * 0.01,
         input.normalWS * -_DepthScale,
-        0
+        float3(0, 0, 0)
     );
     
     output.diffR = geo.G_entry * geo.T_entry * volumeScatter;
     
-    float3 thinLayerSSS = ComputeThinLayerSSS(input, geo, volumeScatter);
-    float3 backlitTransmission = ComputeBacklitTransmission(input, geo);
+    float3 thinLayerSSS = AAAWComputeThinLayerSSS(input, geo, volumeScatter);
+    float3 backlitTransmission = AAAWComputeBacklitTransmission(input, geo);
     output.diffT = thinLayerSSS + backlitTransmission;
     
-    float T_exit = FresnelExit(input.fresnel0, input.normalWS, input.viewDirWS);
+    float T_exit = AAAWFresnelExit(input.fresnel0, input.normalWS, input.viewDirWS);
     output.totalScattering = (output.diffR + output.diffT) * T_exit;
     
     return output;
 }
 
-WaterBSDFOutput EvaluateWaterBSDFSimple(WaterBSDFInput input)
+AAAWWaterBSDFOutput AAAWEvaluateWaterBSDFSimple(AAAWWaterBSDFInput input)
 {
-    WaterBSDFOutput output = (WaterBSDFOutput)0;
+    AAAWWaterBSDFOutput output = (AAAWWaterBSDFOutput)0;
     
-    IncidentGeometry geo = ComputeIncidentGeometry(
+    AAAWIncidentGeometry geo = AAAWComputeIncidentGeometry(
         input.normalWS, 
         input.lightDirWS, 
         input.fresnel0
     );
     
-    float effectivePath = ComputeEffectivePathLength(
+    float effectivePath = AAAWComputeEffectivePathLength(
         input.thickness, 
         input.scatterCoeff, 
         AAAW_SSS_PATH_SCALE
     );
     
-    float opticalDepth = Luminance(input.extinctionCoeff) * effectivePath;
-    float cosTheta = ComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
-    float phaseValue = WaterPhaseFunctionFast(input.phaseG, cosTheta);
+    float opticalDepth = AAAWLuminance(input.extinctionCoeff) * effectivePath;
+    float cosTheta = AAAWComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
+    float phaseValue = AAAWWaterPhaseFunctionFast(input.phaseG, cosTheta);
     
-    float3 volumeScatter = CalculateScatteredLight(
+    float3 volumeScatter = AAAWCalculateScatteredLight(
         input.lightColor,
         input.extinctionCoeff,
         input.scatterAlbedo,
@@ -261,17 +261,17 @@ WaterBSDFOutput EvaluateWaterBSDFSimple(WaterBSDFInput input)
     
     output.diffR = geo.G_entry * geo.T_entry * volumeScatter;
     
-    float3 thinLayerSSS = ComputeThinLayerSSS(input, geo, volumeScatter);
-    float3 backlitTransmission = ComputeBacklitTransmission(input, geo);
+    float3 thinLayerSSS = AAAWComputeThinLayerSSS(input, geo, volumeScatter);
+    float3 backlitTransmission = AAAWComputeBacklitTransmission(input, geo);
     output.diffT = thinLayerSSS + backlitTransmission;
     
-    float T_exit = FresnelExit(input.fresnel0, input.normalWS, input.viewDirWS);
+    float T_exit = AAAWFresnelExit(input.fresnel0, input.normalWS, input.viewDirWS);
     output.totalScattering = (output.diffR + output.diffT) * T_exit;
     
     return output;
 }
 
-float3 EvaluateWaterScattering(
+float3 AAAWEvaluateWaterScattering(
     float3 normalWS,
     float3 viewDirWS,
     float3 lightDirWS,
@@ -283,11 +283,11 @@ float3 EvaluateWaterScattering(
     float phaseG,
     float shadowValue)
 {
-    WaterBSDFInput input;
+    AAAWWaterBSDFInput input;
     input.scatterCoeff = scatterColor;
     input.absorptionCoeff = absorptionColor;
     input.extinctionCoeff = scatterColor + absorptionColor;
-    input.scatterAlbedo = GetScatteringAlbedo(scatterColor, input.extinctionCoeff);
+    input.scatterAlbedo = AAAWGetScatteringAlbedo3(scatterColor, input.extinctionCoeff);
     input.thickness = thickness;
     input.fresnel0 = fresnel0;
     input.phaseG = phaseG;
@@ -297,12 +297,12 @@ float3 EvaluateWaterScattering(
     input.lightColor = lightColor;
     input.shadowValue = shadowValue;
     
-    WaterBSDFOutput output = EvaluateWaterBSDFSimple(input);
+    AAAWWaterBSDFOutput output = AAAWEvaluateWaterBSDFSimple(input);
     
     return output.totalScattering;
 }
 
-float3 EvaluateWaterScatteringFull(
+float3 AAAWEvaluateWaterScatteringFull(
     float3 normalWS,
     float3 viewDirWS,
     float3 lightDirWS,
@@ -317,11 +317,11 @@ float3 EvaluateWaterScatteringFull(
     float3 rayEnd,
     float3 sceneColor)
 {
-    WaterBSDFInput input;
+    AAAWWaterBSDFInput input;
     input.scatterCoeff = scatterColor;
     input.absorptionCoeff = absorptionColor;
     input.extinctionCoeff = scatterColor + absorptionColor;
-    input.scatterAlbedo = GetScatteringAlbedo(scatterColor, input.extinctionCoeff);
+    input.scatterAlbedo = AAAWGetScatteringAlbedo3(scatterColor, input.extinctionCoeff);
     input.thickness = thickness;
     input.fresnel0 = fresnel0;
     input.phaseG = phaseG;
@@ -331,7 +331,7 @@ float3 EvaluateWaterScatteringFull(
     input.lightColor = lightColor;
     input.shadowValue = shadowValue;
     
-    WaterBSDFOutput output = EvaluateWaterBSDF(input);
+    AAAWWaterBSDFOutput output = AAAWEvaluateWaterBSDF(input);
     
     return output.totalScattering;
 }

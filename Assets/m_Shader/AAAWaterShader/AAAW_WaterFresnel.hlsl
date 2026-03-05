@@ -3,7 +3,7 @@
 
 #include "AAAW_WaterCommon.hlsl"
 
-float FresnelSchlick(float f0, float cosTheta)
+float AAAWFresnelSchlick(float f0, float cosTheta)
 {
     float t = 1.0 - cosTheta;
     float t2 = t * t;
@@ -11,7 +11,7 @@ float FresnelSchlick(float f0, float cosTheta)
     return f0 + (1.0 - f0) * t5;
 }
 
-float FresnelSchlickRoughness(float f0, float cosTheta, float roughness)
+float AAAWFresnelSchlickRoughness(float f0, float cosTheta, float roughness)
 {
     float t = 1.0 - cosTheta;
     float t2 = t * t;
@@ -20,7 +20,7 @@ float FresnelSchlickRoughness(float f0, float cosTheta, float roughness)
     return f0 + (max(oneMinusRoughness, f0) - f0) * t5;
 }
 
-float FresnelUnreal(float f0, float cosTheta)
+float AAAWFresnelUnreal(float f0, float cosTheta)
 {
     float t = saturate(1.0 - cosTheta);
     float t2 = t * t;
@@ -28,7 +28,7 @@ float FresnelUnreal(float f0, float cosTheta)
     return saturate(50.0 * f0 * t5 + f0 + (1.0 - f0) * t5);
 }
 
-float3 FresnelSchlick(float3 f0, float cosTheta)
+float3 AAAWFresnelSchlick3(float3 f0, float cosTheta)
 {
     float t = 1.0 - cosTheta;
     float t2 = t * t;
@@ -36,7 +36,7 @@ float3 FresnelSchlick(float3 f0, float cosTheta)
     return f0 + (1.0 - f0) * t5;
 }
 
-float3 FresnelSchlickRoughness(float3 f0, float cosTheta, float roughness)
+float3 AAAWFresnelSchlickRoughness3(float3 f0, float cosTheta, float roughness)
 {
     float t = 1.0 - cosTheta;
     float t2 = t * t;
@@ -45,7 +45,7 @@ float3 FresnelSchlickRoughness(float3 f0, float cosTheta, float roughness)
     return f0 + (max(oneMinusRoughness.xxx, f0) - f0) * t5;
 }
 
-float FresnelFull(float n1, float n2, float cosThetaI)
+float AAAWFresnelFull(float n1, float n2, float cosThetaI)
 {
     float sinThetaI = sqrt(1.0 - cosThetaI * cosThetaI);
     float sinThetaT = n1 / n2 * sinThetaI;
@@ -61,43 +61,43 @@ float FresnelFull(float n1, float n2, float cosThetaI)
     return (rs * rs + rp * rp) * 0.5;
 }
 
-float FresnelTransmission(float f0, float cosTheta)
+float AAAWFresnelTransmission(float f0, float cosTheta)
 {
-    float fresnelReflect = FresnelSchlick(f0, cosTheta);
+    float fresnelReflect = AAAWFresnelSchlick(f0, cosTheta);
     return 1.0 - fresnelReflect;
 }
 
-float3 FresnelTransmission(float3 f0, float cosTheta)
+float3 AAAWFresnelTransmission3(float3 f0, float cosTheta)
 {
-    float3 fresnelReflect = FresnelSchlick(f0, cosTheta);
+    float3 fresnelReflect = AAAWFresnelSchlick3(f0, cosTheta);
     return 1.0 - fresnelReflect;
 }
 
-float FresnelEntry(float f0, float3 normalWS, float3 lightDirWS)
+float AAAWFresnelEntry(float f0, float3 normalWS, float3 lightDirWS)
 {
     float NdotL = saturate(dot(normalWS, lightDirWS));
-    return FresnelTransmission(f0, NdotL);
+    return AAAWFresnelTransmission(f0, NdotL);
 }
 
-float FresnelExit(float f0, float3 normalWS, float3 viewDirWS)
+float AAAWFresnelExit(float f0, float3 normalWS, float3 viewDirWS)
 {
     float NdotV = saturate(dot(normalWS, viewDirWS));
-    return FresnelTransmission(f0, NdotV);
+    return AAAWFresnelTransmission(f0, NdotV);
 }
 
-float FresnelEntryFull(float n1, float n2, float3 normalWS, float3 lightDirWS)
+float AAAWFresnelEntryFull(float n1, float n2, float3 normalWS, float3 lightDirWS)
 {
     float cosThetaI = saturate(dot(normalWS, lightDirWS));
-    return 1.0 - FresnelFull(n1, n2, cosThetaI);
+    return 1.0 - AAAWFresnelFull(n1, n2, cosThetaI);
 }
 
-float FresnelExitFull(float n1, float n2, float3 normalWS, float3 viewDirWS)
+float AAAWFresnelExitFull(float n1, float n2, float3 normalWS, float3 viewDirWS)
 {
     float cosThetaI = saturate(dot(normalWS, viewDirWS));
-    return 1.0 - FresnelFull(n1, n2, cosThetaI);
+    return 1.0 - AAAWFresnelFull(n1, n2, cosThetaI);
 }
 
-float FresnelDielectric(float eta, float cosThetaI)
+float AAAWFresnelDielectric(float eta, float cosThetaI)
 {
     float cosThetaI_abs = abs(cosThetaI);
     float sinThetaT2 = eta * eta * (1.0 - cosThetaI_abs * cosThetaI_abs);
@@ -112,19 +112,19 @@ float FresnelDielectric(float eta, float cosThetaI)
     return (r_orth * r_orth + r_para * r_para) * 0.5;
 }
 
-float3 EvaluateFresnelWater(float3 normalWS, float3 viewDirWS, float f0)
+float3 AAAWEvaluateFresnelWater(float3 normalWS, float3 viewDirWS, float f0)
 {
     float NdotV = saturate(dot(normalWS, viewDirWS));
-    return FresnelSchlick(f0, NdotV);
+    return AAAWFresnelSchlick3(float3(f0, f0, f0), NdotV);
 }
 
-float EvaluateFresnelWaterScalar(float3 normalWS, float3 viewDirWS, float f0)
+float AAAWEvaluateFresnelWaterScalar(float3 normalWS, float3 viewDirWS, float f0)
 {
     float NdotV = saturate(dot(normalWS, viewDirWS));
-    return FresnelSchlick(f0, NdotV);
+    return AAAWFresnelSchlick(f0, NdotV);
 }
 
-struct FresnelData
+struct AAAWFresnelData
 {
     float reflectance;
     float transmittance;
@@ -132,33 +132,33 @@ struct FresnelData
     float exitTransmittance;
 };
 
-FresnelData ComputeFresnelData(float f0, float3 normalWS, float3 viewDirWS, float3 lightDirWS)
+AAAWFresnelData AAAWComputeFresnelData(float f0, float3 normalWS, float3 viewDirWS, float3 lightDirWS)
 {
-    FresnelData data;
+    AAAWFresnelData data;
     
     float NdotV = saturate(dot(normalWS, viewDirWS));
     float NdotL = saturate(dot(normalWS, lightDirWS));
     
-    data.reflectance = FresnelSchlick(f0, NdotV);
+    data.reflectance = AAAWFresnelSchlick(f0, NdotV);
     data.transmittance = 1.0 - data.reflectance;
-    data.entryTransmittance = FresnelTransmission(f0, NdotL);
-    data.exitTransmittance = FresnelTransmission(f0, NdotV);
+    data.entryTransmittance = AAAWFresnelTransmission(f0, NdotL);
+    data.exitTransmittance = AAAWFresnelTransmission(f0, NdotV);
     
     return data;
 }
 
-float FresnelAverage(float f0)
+float AAAWFresnelAverage(float f0)
 {
     return f0 + (1.0 - f0) / 3.0;
 }
 
-float IorToF0(float ior)
+float AAAWIorToF0(float ior)
 {
     float temp = (ior - 1.0) / (ior + 1.0);
     return temp * temp;
 }
 
-float F0ToIor(float f0)
+float AAAWF0ToIor(float f0)
 {
     float sqrtF0 = sqrt(f0);
     return (1.0 + sqrtF0) / (1.0 - sqrtF0);

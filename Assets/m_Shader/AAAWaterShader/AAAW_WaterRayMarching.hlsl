@@ -4,7 +4,7 @@
 #include "AAAW_WaterCommon.hlsl"
 #include "AAAW_WaterPhase.hlsl"
 
-struct RayMarchConfig
+struct AAAWRayMarchConfig
 {
     int stepCount;
     float expFactor;
@@ -12,9 +12,9 @@ struct RayMarchConfig
     float jitterStrength;
 };
 
-RayMarchConfig CreateDefaultRayMarchConfig()
+AAAWRayMarchConfig AAAWCreateDefaultRayMarchConfig()
 {
-    RayMarchConfig config;
+    AAAWRayMarchConfig config;
     config.stepCount = AAAW_RAY_MARCH_STEPS;
     config.expFactor = AAAW_EXP_FACTOR;
     config.maxDistance = 100.0;
@@ -22,7 +22,7 @@ RayMarchConfig CreateDefaultRayMarchConfig()
     return config;
 }
 
-struct RayMarchSample
+struct AAAWRayMarchSample
 {
     float3 position;
     float distance;
@@ -30,25 +30,25 @@ struct RayMarchSample
     float3 transmittance;
 };
 
-float GetExponentialStepSize(int stepIndex, int totalSteps, float expFactor, float maxDistance)
+float AAAWGetExponentialStepSize(int stepIndex, int totalSteps, float expFactor, float maxDistance)
 {
     float t = float(stepIndex) / float(totalSteps);
-    float normalizedPos = ExponentialStep(t, expFactor, totalSteps);
-    float nextNormalizedPos = ExponentialStep((float(stepIndex + 1)) / float(totalSteps), expFactor, totalSteps);
+    float normalizedPos = AAAWExponentialStep(t, expFactor, totalSteps);
+    float nextNormalizedPos = AAAWExponentialStep((float(stepIndex + 1)) / float(totalSteps), expFactor, totalSteps);
     return (nextNormalizedPos - normalizedPos) * maxDistance;
 }
 
-float GetLinearStepSize(float maxDistance, int totalSteps)
+float AAAWGetLinearStepSize(float maxDistance, int totalSteps)
 {
     return maxDistance / float(totalSteps);
 }
 
-float3 CalculateMarchTransmittance(float3 extinctionCoeff, float distance)
+float3 AAAWCalculateMarchTransmittance(float3 extinctionCoeff, float distance)
 {
     return exp(-extinctionCoeff * distance);
 }
 
-float3 AccumulateScattering(
+float3 AAAWAccumulateScattering(
     float3 accumulatedScatter,
     float3 lightColor,
     float3 extinctionCoeff,
@@ -67,7 +67,7 @@ float3 AccumulateScattering(
     return accumulatedScatter + scatterContribution * totalTransmittance;
 }
 
-float3 RayMarchVolumeScattering(
+float3 AAAWRayMarchVolumeScattering(
     float3 rayOrigin,
     float3 rayDirection,
     float maxDistance,
@@ -78,29 +78,29 @@ float3 RayMarchVolumeScattering(
     float3 lightColor,
     float phaseG,
     float shadowValue,
-    RayMarchConfig config)
+    AAAWRayMarchConfig config)
 {
     float3 totalScatter = 0;
     float3 accumulatedTransmittance = 1;
     
-    float dither = InterleavedGradientNoise(rayOrigin.xy * _ScreenParams.xy) * config.jitterStrength;
+    float dither = AAAWInterleavedGradientNoise(rayOrigin.xy * _ScreenParams.xy) * config.jitterStrength;
     
-    float cosTheta = ComputePhaseCosTheta(viewDir, lightDir);
+    float cosTheta = AAAWComputePhaseCosTheta(viewDir, lightDir);
     
     [loop]
     for (int i = 0; i < config.stepCount; i++)
     {
         float t = (float(i) + dither) / float(config.stepCount);
-        float normalizedDistance = ExponentialStep(t, config.expFactor, config.stepCount);
+        float normalizedDistance = AAAWExponentialStep(t, config.expFactor, config.stepCount);
         float stepDistance = normalizedDistance * maxDistance;
         
         float3 samplePos = rayOrigin + rayDirection * stepDistance;
         
-        float localStepSize = GetExponentialStepSize(i, config.stepCount, config.expFactor, maxDistance);
+        float localStepSize = AAAWGetExponentialStepSize(i, config.stepCount, config.expFactor, maxDistance);
         
         float3 stepTransmittance = exp(-extinctionCoeff * localStepSize);
         
-        float phaseValue = WaterPhaseFunctionFast(phaseG, cosTheta);
+        float phaseValue = AAAWWaterPhaseFunctionFast(phaseG, cosTheta);
         
         float3 extinctionFactor = 1.0 - stepTransmittance;
         float3 scatterContribution = lightColor * extinctionFactor * scatterAlbedo * phaseValue * (1.0 - shadowValue);
@@ -113,7 +113,7 @@ float3 RayMarchVolumeScattering(
     return totalScatter;
 }
 
-float3 RayMarchVolumeScatteringLinear(
+float3 AAAWRayMarchVolumeScatteringLinear(
     float3 rayOrigin,
     float3 rayDirection,
     float maxDistance,
@@ -130,10 +130,10 @@ float3 RayMarchVolumeScatteringLinear(
     float3 accumulatedTransmittance = 1;
     
     float stepSize = maxDistance / float(stepCount);
-    float dither = InterleavedGradientNoise(rayOrigin.xy * _ScreenParams.xy);
+    float dither = AAAWInterleavedGradientNoise(rayOrigin.xy * _ScreenParams.xy);
     
-    float cosTheta = ComputePhaseCosTheta(viewDir, lightDir);
-    float phaseValue = WaterPhaseFunctionFast(phaseG, cosTheta);
+    float cosTheta = AAAWComputePhaseCosTheta(viewDir, lightDir);
+    float phaseValue = AAAWWaterPhaseFunctionFast(phaseG, cosTheta);
     
     [loop]
     for (int i = 0; i < stepCount; i++)
@@ -155,7 +155,7 @@ float3 RayMarchVolumeScatteringLinear(
     return totalScatter;
 }
 
-float3 RayMarchWithSceneColor(
+float3 AAAWRayMarchWithSceneColor(
     float3 rayOrigin,
     float3 rayDirection,
     float maxDistance,
@@ -168,9 +168,9 @@ float3 RayMarchWithSceneColor(
     float3 sceneColor,
     float phaseG,
     float shadowValue,
-    RayMarchConfig config)
+    AAAWRayMarchConfig config)
 {
-    float3 volumeScatter = RayMarchVolumeScattering(
+    float3 volumeScatter = AAAWRayMarchVolumeScattering(
         rayOrigin, rayDirection, maxDistance,
         extinctionCoeff, scatterAlbedo,
         lightDir, viewDir, lightColor,
@@ -179,12 +179,12 @@ float3 RayMarchWithSceneColor(
     
     float3 totalTransmittance = exp(-extinctionCoeff * maxDistance);
     
-    float3 sceneScatter = sceneColor * totalTransmittance * scatterCoeff * maxDistance * Luminance(lightColor) * 0.3;
+    float3 sceneScatter = sceneColor * totalTransmittance * scatterCoeff * maxDistance * AAAWLuminance(lightColor) * 0.3;
     
     return volumeScatter + sceneScatter;
 }
 
-float3 RayMarchDeepWater(
+float3 AAAWRayMarchDeepWater(
     float3 surfacePos,
     float3 viewDir,
     float waterDepth,
@@ -195,7 +195,7 @@ float3 RayMarchDeepWater(
     float phaseG,
     float shadowValue)
 {
-    RayMarchConfig config = CreateDefaultRayMarchConfig();
+    AAAWRayMarchConfig config = AAAWCreateDefaultRayMarchConfig();
     config.maxDistance = waterDepth;
     
     float3 rayDir = -viewDir;
@@ -204,7 +204,7 @@ float3 RayMarchDeepWater(
     
     float maxMarchDistance = min(waterDepth * 2.0, config.maxDistance);
     
-    return RayMarchVolumeScattering(
+    return AAAWRayMarchVolumeScattering(
         surfacePos, rayDir, maxMarchDistance,
         extinctionCoeff, scatterAlbedo,
         lightDir, viewDir, lightColor,
@@ -212,7 +212,7 @@ float3 RayMarchDeepWater(
     );
 }
 
-float3 FastVolumeScattering(
+float3 AAAWFastVolumeScattering(
     float waterDepth,
     float3 extinctionCoeff,
     float3 scatterAlbedo,
@@ -221,11 +221,11 @@ float3 FastVolumeScattering(
     float3 lightColor,
     float phaseG)
 {
-    float opticalDepth = Luminance(extinctionCoeff) * waterDepth;
+    float opticalDepth = AAAWLuminance(extinctionCoeff) * waterDepth;
     float3 transmittance = exp(-extinctionCoeff * waterDepth);
     
-    float cosTheta = ComputePhaseCosTheta(viewDir, lightDir);
-    float phaseValue = WaterPhaseFunctionFast(phaseG, cosTheta);
+    float cosTheta = AAAWComputePhaseCosTheta(viewDir, lightDir);
+    float phaseValue = AAAWWaterPhaseFunctionFast(phaseG, cosTheta);
     
     float3 extinctionFactor = 1.0 - transmittance;
     float3 scatter = lightColor * extinctionFactor * scatterAlbedo * phaseValue;
@@ -233,7 +233,7 @@ float3 FastVolumeScattering(
     return scatter;
 }
 
-float3 EstimateWaterDepth(float2 screenUV, float linearEyeDepth, float surfaceHeight)
+float AAAWEstimateWaterDepth(float2 screenUV, float linearEyeDepth, float surfaceHeight)
 {
     float sceneDepth = linearEyeDepth;
     float waterSurfaceDepth = surfaceHeight;
@@ -242,14 +242,14 @@ float3 EstimateWaterDepth(float2 screenUV, float linearEyeDepth, float surfaceHe
     return waterDepth;
 }
 
-float3 ComputeRefractionOffset(float3 normalWS, float3 viewDirWS, float refractionStrength, float depth)
+float3 AAAWComputeRefractionOffset(float3 normalWS, float3 viewDirWS, float refractionStrength, float depth)
 {
     float2 refractionOffset = normalWS.xz * refractionStrength;
     float depthFactor = saturate(depth / 10.0);
     return float3(refractionOffset * depthFactor, 0);
 }
 
-float3 SampleRefractionColor(float2 screenUV, float2 offset, float depth)
+float3 AAAWSampleRefractionColor(float2 screenUV, float2 offset, float depth)
 {
     float2 refractedUV = screenUV + offset;
     refractedUV = saturate(refractedUV);
@@ -262,7 +262,7 @@ float3 SampleRefractionColor(float2 screenUV, float2 offset, float depth)
     return refractionColor;
 }
 
-float ComputeFoam(float depth, float waveHeight, float threshold, float smoothness)
+float AAAWComputeFoam(float depth, float waveHeight, float threshold, float smoothness)
 {
     float foamFactor = 1.0 - saturate(depth / threshold);
     foamFactor = smoothstep(0.0, 1.0, foamFactor);
@@ -270,7 +270,7 @@ float ComputeFoam(float depth, float waveHeight, float threshold, float smoothne
     return foamFactor;
 }
 
-float3 ApplyFoam(float3 baseColor, float foamFactor, float3 foamColor, float intensity)
+float3 AAAWApplyFoam(float3 baseColor, float foamFactor, float3 foamColor, float intensity)
 {
     float3 foam = foamColor * foamFactor * intensity;
     return baseColor + foam;

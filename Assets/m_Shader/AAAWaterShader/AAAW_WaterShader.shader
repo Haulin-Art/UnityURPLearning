@@ -40,7 +40,7 @@ Shader "AAAWater/WaterSurface"
         
         [Header(Advanced)]
         [Toggle(_USE_RAY_MARCHING)] _UseRayMarching ("Use Ray Marching", Float) = 1
-        [IntRange] _RayMarchSteps ("Ray March Steps", Range(1, 16)) = 6
+        _RayMarchSteps ("Ray March Steps", Range(1, 16)) = 6
     }
     
     SubShader
@@ -97,7 +97,7 @@ Shader "AAAWater/WaterSurface"
                 float3 tangentWS : TEXCOORD2;
                 float3 bitangentWS : TEXCOORD3;
                 float2 uv : TEXCOORD4;
-                float2 screenUV : TEXCOORD5;
+                float4 screenPos : TEXCOORD5;
                 float4 shadowCoord : TEXCOORD6;
                 float3 viewDirWS : TEXCOORD7;
                 float fogFactor : TEXCOORD8;
@@ -120,22 +120,18 @@ Shader "AAAWater/WaterSurface"
                 output.bitangentWS = normalInput.bitangentWS;
                 
                 output.uv = input.uv;
-                output.screenUV = vertexInput.positionNDC.xy / vertexInput.positionNDC.w;
+                output.screenPos = ComputeScreenPos(vertexInput.positionCS);
                 
                 output.viewDirWS = GetWorldSpaceViewDir(vertexInput.positionWS);
                 
-                #if defined(_MAIN_LIGHT_SHADOWS_SCREEN) && !defined(_SURFACE_TYPE_TRANSPARENT)
-                    output.shadowCoord = ComputeScreenPos(vertexInput.positionCS);
-                #else
-                    output.shadowCoord = TransformWorldToShadowCoord(vertexInput.positionWS);
-                #endif
+                output.shadowCoord = TransformWorldToShadowCoord(vertexInput.positionWS);
                 
                 output.fogFactor = ComputeFogFactor(vertexInput.positionCS.z);
                 
                 return output;
             }
             
-            float3 CalculateSpecularReflection(float3 normalWS, float3 viewDirWS, float3 lightDirWS, float3 lightColor, float smoothness, float specularStrength)
+            float3 AAAWCalculateSpecularReflection(float3 normalWS, float3 viewDirWS, float3 lightDirWS, float3 lightColor, float smoothness, float specularStrength)
             {
                 float3 halfDir = normalize(lightDirWS + viewDirWS);
                 float NdotH = saturate(dot(normalWS, halfDir));
@@ -143,24 +139,29 @@ Shader "AAAWater/WaterSurface"
                 float roughness = 1.0 - smoothness;
                 float roughness2 = roughness * roughness;
                 
-                float D = roughness2 / (AAAW_PI * Square(NdotH * NdotH * (roughness2 - 1.0) + 1.0));
+                float denom = NdotH * NdotH * (roughness2 - 1.0) + 1.0;
+                float D = roughness2 / (AAAW_PI * denom * denom);
                 
                 float NdotV = saturate(dot(normalWS, viewDirWS));
                 float NdotL = saturate(dot(normalWS, lightDirWS));
-                float G = 0.25 / (NdotV * NdotL);
+                float G = 0.25 / (NdotV * NdotL + 0.0001);
                 
-                float3 F = FresnelSchlick(float3(0.04, 0.04, 0.04), saturate(dot(halfDir, viewDirWS)));
+                float3 F = AAAWFresnelSchlick3(float3(0.04, 0.04, 0.04), saturate(dot(halfDir, viewDirWS)));
                 
                 float3 specular = D * G * F * specularStrength * lightColor;
                 return specular * 0.25;
             }
             
-            float3 CalculateEnvironmentReflection(float3 normalWS, float3 viewDirWS, float smoothness, float envStrength)
+            float3 AAAWCalculateEnvironmentReflection(float3 normalWS, float3 viewDirWS, float smoothness, float envStrength, float fresnel0)
             {
                 float3 reflectDir = reflect(-viewDirWS, normalWS);
-                float3 envColor = GlossyEnvironmentReflection(reflectDir, 0.0, 1.0);
                 
-                float fresnel = FresnelSchlick(_Fresnel0, saturate(dot(normalWS, viewDirWS)));
+                float perceptualRoughness = 1.0 - smoothness;
+                float roughness = perceptualRoughness * perceptualRoughness;
+                
+                float3 envColor = GlossyEnvironmentReflection(reflectDir, roughness, 1.0);
+                
+                float fresnel = AAAWFresnelSchlick(fresnel0, saturate(dot(normalWS, viewDirWS)));
                 
                 return envColor * envStrength * fresnel;
             }
@@ -173,7 +174,7 @@ Shader "AAAWater/WaterSurface"
                 float3 viewDirWS = normalize(input.viewDirWS);
                 
                 float time = _Time.y;
-                float3 animatedNormal = GetWaterNormal(input.uv, time);
+                float3 animatedNormal = AAAWGetWaterNormal(input.uv, time);
                 
                 float3x3 tangentToWorld = float3x3(
                     normalize(input.tangentWS),
@@ -182,15 +183,15 @@ Shader "AAAWater/WaterSurface"
                 );
                 normalWS = normalize(mul(animatedNormal, tangentToWorld));
                 
-                float2 screenUV = input.screenUV;
+                float2 screenUV = input.screenPos.xy / input.screenPos.w;
                 
-                float sceneDepth = GetLinearEyeDepth(screenUV);
-                float waterDepth = abs(sceneDepth - input.positionCS.w);
+                float sceneDepth = AAAWGetLinearEyeDepth(screenUV);
+                float waterDepth = abs(sceneDepth - LinearEyeDepth(input.positionCS.z, _ZBufferParams));
                 waterDepth = max(0.01, waterDepth);
                 
                 float thickness = saturate(waterDepth / _DepthScale);
                 
-                Light mainLight = GetMainLight(input.shadowCoord, input.positionWS, 1.0);
+                Light mainLight = GetMainLight(input.shadowCoord);
                 float3 lightDirWS = mainLight.direction;
                 float3 lightColor = mainLight.color;
                 float shadowValue = mainLight.shadowAttenuation;
@@ -201,29 +202,29 @@ Shader "AAAWater/WaterSurface"
                 float3 waterScatter;
                 
                 #ifdef _USE_RAY_MARCHING
-                    RayMarchConfig rmConfig = CreateDefaultRayMarchConfig();
-                    rmConfig.stepCount = _RayMarchSteps;
+                    AAAWRayMarchConfig rmConfig = AAAWCreateDefaultRayMarchConfig();
+                    rmConfig.stepCount = (int)_RayMarchSteps;
                     rmConfig.maxDistance = waterDepth;
                     
                     float3 extinctionCoeff = scatterColor + absorptionColor;
-                    float3 scatterAlbedo = GetScatteringAlbedo(scatterColor, extinctionCoeff);
+                    float3 scatterAlbedo = AAAWGetScatteringAlbedo3(scatterColor, extinctionCoeff);
                     
                     float3 rayOrigin = input.positionWS;
                     float3 rayDir = -viewDirWS;
                     rayDir.y = -abs(rayDir.y);
                     rayDir = normalize(rayDir);
                     
-                    waterScatter = RayMarchVolumeScattering(
+                    waterScatter = AAAWRayMarchVolumeScattering(
                         rayOrigin, rayDir, waterDepth,
                         extinctionCoeff, scatterAlbedo,
                         lightDirWS, viewDirWS, lightColor,
                         _PhaseG, 1.0 - shadowValue, rmConfig
                     );
                     
-                    float T_exit = FresnelExit(_Fresnel0, normalWS, viewDirWS);
+                    float T_exit = AAAWFresnelExit(_Fresnel0, normalWS, viewDirWS);
                     waterScatter *= T_exit;
                 #else
-                    waterScatter = EvaluateWaterScattering(
+                    waterScatter = AAAWEvaluateWaterScattering(
                         normalWS, viewDirWS, lightDirWS, lightColor,
                         scatterColor, absorptionColor,
                         thickness, _Fresnel0, _PhaseG,
@@ -231,13 +232,13 @@ Shader "AAAWater/WaterSurface"
                     );
                 #endif
                 
-                float3 specular = CalculateSpecularReflection(
+                float3 specular = AAAWCalculateSpecularReflection(
                     normalWS, viewDirWS, lightDirWS, lightColor,
                     _Smoothness, _SpecularStrength
                 );
                 
-                float3 envReflection = CalculateEnvironmentReflection(
-                    normalWS, viewDirWS, _Smoothness, _EnvReflectionStrength
+                float3 envReflection = AAAWCalculateEnvironmentReflection(
+                    normalWS, viewDirWS, _Smoothness, _EnvReflectionStrength, _Fresnel0
                 );
                 
                 float2 refractionOffset = normalWS.xz * _RefractionStrength * saturate(waterDepth / 5.0);
@@ -247,17 +248,17 @@ Shader "AAAWater/WaterSurface"
                 float3 absorptionFactor = exp(-absorptionColor * waterDepth);
                 refractionColor *= absorptionFactor;
                 
-                float foamFactor = ComputeFoam(waterDepth, _WaveHeight, _FoamThreshold, _FoamSmoothness);
+                float foamFactor = AAAWComputeFoam(waterDepth, _WaveHeight, _FoamThreshold, _FoamSmoothness);
                 foamFactor = saturate(foamFactor);
                 
-                float fresnel = EvaluateFresnelWaterScalar(normalWS, viewDirWS, _Fresnel0);
+                float fresnel = AAAWEvaluateFresnelWaterScalar(normalWS, viewDirWS, _Fresnel0);
                 
                 float3 waterColor = lerp(refractionColor, envReflection, fresnel);
                 waterColor += waterScatter;
                 waterColor += specular;
                 
                 float3 foamColor = float3(1.0, 1.0, 1.0);
-                waterColor = ApplyFoam(waterColor, foamFactor, foamColor, _FoamIntensity);
+                waterColor = AAAWApplyFoam(waterColor, foamFactor, foamColor, _FoamIntensity);
                 
                 waterColor = MixFog(waterColor, input.fogFactor);
                 
@@ -268,7 +269,7 @@ Shader "AAAWater/WaterSurface"
             }
             ENDHLSL
         }
-        
+        /*
         Pass
         {
             Name "ShadowCaster"
@@ -372,6 +373,7 @@ Shader "AAAWater/WaterSurface"
             ENDHLSL
         }
     }
+    */
     
-    FallBack "Hidden/Universal Render Pipeline/FallbackError"
+       }   //FallBack "Hidden/Universal Render Pipeline/FallbackError"
 }
