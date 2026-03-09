@@ -281,6 +281,7 @@ Shader "Unlit/coastLineWaveShader"
                 //return float4(depth*float3(1,1,1),1.0);
                 //return float4(i.ttt,1);
                 //return float4(newUV.x,-newUV.y,0,1);
+                return float4(newUV.x*0.0,-newUV.y,0,1);
                 return float4(i.ttt.xy,0,1);
                 return float4(diffCol,trans);
                 //return float4(diffCol,1.0);

@@ -12,6 +12,7 @@ Material:
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
+  - _USE_RAY_MARCHING
   - _USE_SSS
   m_InvalidKeywords: []
   m_LightmapFlags: 4
@@ -24,6 +25,10 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _3DDisMap:
+        m_Texture: {fileID: 11700000, guid: 42f3a4de49b427341aca4738b3767f12, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _GradientTex:
         m_Texture: {fileID: 2800000, guid: 5a5494e617e6572478c04e83788175a0, type: 2}
         m_Scale: {x: 1, y: 1}
@@ -50,9 +55,9 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _CES: 0.29
+    - _CES: 0.2
     - _DepthScale: 10
-    - _EnvReflectionStrength: 1.24
+    - _EnvReflectionStrength: 1.28
     - _ForwardScatterDepthScale: 5
     - _ForwardScatterGlow: 0.96
     - _ForwardScatterIntensity: 0
@@ -62,30 +67,35 @@ Material:
     - _FresnelPower: 5
     - _PhaseG: 0.8
     - _RayMarchIntensity: 2.71
-    - _RayMarchMaxDistance: 20
+    - _RayMarchMaxDistance: 5
     - _RayMarchSteps: 6
-    - _RefractionStrength: 0.0172
-    - _Roughness: 0.344
+    - _RefractionStrength: 0.0396
+    - _Roughness: 0.2
     - _SSSDepthScale: 5
     - _SSSStrength: 2.97
-    - _SineCount: 3
+    - _SineCount: 2
     - _SpecularIntensity: 1
-    - _SpecularPower: 64
-    - _Speed: -1.04
+    - _SpecularPower: 54
+    - _Speed: -0.37
     - _SunGlitterIntensity: 0.79
     - _SunGlitterSpeed: 2.73
+    - _SurfNorScale: 3.32
+    - _SurfScale01: 0.05
+    - _SurfScale02: 0.025
+    - _SurfSpeed: 0.2
     - _Thickness: 0.5
     - _UseForwardScatter: 0
-    - _UseRayMarching: 0
+    - _UseRayMarching: 1
     - _UseSSS: 1
     - _VDMXOffset: 0
-    - _VDMXScale: -0.56
+    - _VDMXScale: -0.44
     - _VDMYOffset: 0
-    - _VDMYScale: 0.18
+    - _VDMYScale: 0.12
     - _VectorDisMapScale: 1
-    - _WavePos: 1
-    - _WaveScale: 2
-    - _sineScale: 0.15
+    - _WaveAngle: 1.33
+    - _WavePos: 1.6
+    - _WaveScale: 0.26
+    - _sineScale: 0.05
     m_Colors:
     - _AbsorptionColor: {r: 0.09999997, g: 0.19999996, b: 0.29999998, a: 1}
     - _BSDFAbsorptionColor: {r: 0.09999997, g: 0.19999996, b: 0.29999998, a: 1}

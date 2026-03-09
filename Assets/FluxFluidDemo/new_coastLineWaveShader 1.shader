@@ -183,7 +183,7 @@ Shader "Unlit/coastLineWaveShader"
                 float3 vdmNor =normalize( N -  (vdmR-vdm)*normalScale - (vdmU-vdm)*normalScale ) ;
                 vdmNor =normalize( N -  (vdmR+float3(0.01,0,0)-vdm)*normalScale - (vdmU+float3(0,0,0.01)-vdm)*normalScale ) ;
 
-                o.ttt = -vdmNor;
+                o.ttt = float3(sdfAUV,0);
                 // 向量置换2
                 float3 waveDis = SAMPLE_TEXTURE2D_LOD(_OceanNorTex,sampler_OceanNorTex,UV,0.0).xyz;
                 waveDis = 0.05*(waveDis*2.0-1.0);
@@ -348,7 +348,7 @@ Shader "Unlit/coastLineWaveShader"
                 //float sdf = SAMPLE_TEXTURE2D(_SDFTex,sampler_SDFTex,i.uv).x;
 
 
-                return float4(i.ttt.x*float3(1,1,1),1);
+                return float4(i.ttt*float3(1,1,1),1);
                 return float4(diffCol,trans);
 
             }
