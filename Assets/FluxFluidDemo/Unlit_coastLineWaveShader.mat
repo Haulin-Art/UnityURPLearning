@@ -69,11 +69,13 @@ Material:
     - _RayMarchIntensity: 2.71
     - _RayMarchMaxDistance: 5
     - _RayMarchSteps: 6
-    - _RefractionBlurStrength: 3.3
+    - _RefractionBlurEnd: 5
+    - _RefractionBlurStart: 0.3
+    - _RefractionBlurStrength: 4.54
     - _RefractionStrength: 0.0396
-    - _Roughness: 0.2
+    - _Roughness: 0.18
     - _SSSDepthScale: 5
-    - _SSSStrength: 2.97
+    - _SSSStrength: 3.76
     - _SineCount: 2
     - _SpecularIntensity: 1
     - _SpecularPower: 54
@@ -98,10 +100,10 @@ Material:
     - _WaveScale: 0.26
     - _sineScale: 0.05
     m_Colors:
-    - _AbsorptionColor: {r: 0.59085864, g: 0.69042575, b: 0.78616345, a: 1}
+    - _AbsorptionColor: {r: 0.5337803, g: 0.7010531, b: 0.8616352, a: 1}
     - _BSDFAbsorptionColor: {r: 0.10778838, g: 0.21315308, b: 0.31446534, a: 1}
     - _DeepWaterCol: {r: 0.25444004, g: 0.4826636, b: 0.52201253, a: 1}
-    - _SSSColor: {r: 0, g: 0.5, b: 0.8, a: 1}
+    - _SSSColor: {r: 0.7924528, g: 0.7924528, b: 0.7924528, a: 1}
     - _SSSFade: {r: 1, g: 1, b: 1, a: 1}
     - _ScatterColor: {r: 0.19999996, g: 0.5, b: 0.8, a: 1}
     - _WaterCol: {r: 0.11360805, g: 0.6509434, b: 0.5511153, a: 1}

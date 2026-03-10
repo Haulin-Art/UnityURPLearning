@@ -11,9 +11,6 @@ Shader "Example/ScreenMipMapUsage"
         TEXTURE2D(_ScreenMipMapRT);
         SAMPLER(sampler_ScreenMipMapRT);
         
-        TEXTURE2D(_ScreenMipMapDepthRT);
-        SAMPLER(sampler_ScreenMipMapDepthRT);
-        
         float _MipLevel;
         
         struct Attributes
@@ -36,17 +33,10 @@ Shader "Example/ScreenMipMapUsage"
             return output;
         }
         
-        float4 FragColor(Varyings input) : SV_Target
+        float4 Frag(Varyings input) : SV_Target
         {
             float4 color = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT, sampler_ScreenMipMapRT, input.uv, _MipLevel);
             return color;
-        }
-        
-        float4 FragDepth(Varyings input) : SV_Target
-        {
-            float viewSpaceZ = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapDepthRT, sampler_ScreenMipMapDepthRT, input.uv, _MipLevel).r;
-            float linearDepth = viewSpaceZ / _ProjectionParams.z;
-            return float4(linearDepth, linearDepth, linearDepth, 1.0);
         }
         
     ENDHLSL
@@ -58,21 +48,9 @@ Shader "Example/ScreenMipMapUsage"
         
         Pass
         {
-            Name "ColorMipMap"
-            
             HLSLPROGRAM
                 #pragma vertex Vert
-                #pragma fragment FragColor
-            ENDHLSL
-        }
-        
-        Pass
-        {
-            Name "DepthMipMap"
-            
-            HLSLPROGRAM
-                #pragma vertex Vert
-                #pragma fragment FragDepth
+                #pragma fragment Frag
             ENDHLSL
         }
     }

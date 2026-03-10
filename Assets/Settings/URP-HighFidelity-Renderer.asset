@@ -73,8 +73,8 @@ MonoBehaviour:
   mipLevelCount: 4
   rtFormat: 2
   filterMode: 1
-  depthOverrideMaterial: {fileID: 2100000, guid: 9efb696c29af4fe47a560ca8267b8a54,
-    type: 2}
+  enablePreProcess: 1
+  preProcessMaterial: {fileID: 2100000, guid: c786bdecd4e74ce479d6e12aff9e9ee5, type: 2}
 --- !u!114 &-1341785516918380094
 MonoBehaviour:
   m_ObjectHideFlags: 0

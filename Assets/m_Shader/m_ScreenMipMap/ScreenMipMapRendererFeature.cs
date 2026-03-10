@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 
 /// <summary>
 /// 屏幕Mipmap渲染器特性
-/// 用于生成带有Mipmap层级的降采样屏幕不透明物体纹理和深度纹理
+/// 用于生成带有Mipmap层级的降采样屏幕不透明物体纹理
 /// </summary>
 [ExecuteAlways]
 public class ScreenMipMapRendererFeature : ScriptableRendererFeature
@@ -28,8 +28,12 @@ public class ScreenMipMapRendererFeature : ScriptableRendererFeature
     private FilterMode filterMode = FilterMode.Bilinear;
     
     [SerializeField]
-    [Tooltip("深度覆盖材质，用于渲染View Space Z到深度Mipmap RT的R通道")]
-    private Material depthOverrideMaterial;
+    [Tooltip("是否启用预处理：在生成Mipmap前对纹理进行自定义处理")]
+    private bool enablePreProcess = false;
+    
+    [SerializeField]
+    [Tooltip("预处理材质：用于在生成Mipmap前对纹理进行自定义处理")]
+    private Material preProcessMaterial;
     
     private ScreenMipMapPass screenMipMapPass;
     
@@ -49,7 +53,7 @@ public class ScreenMipMapRendererFeature : ScriptableRendererFeature
     /// </summary>
     public override void Create()
     {
-        screenMipMapPass = new ScreenMipMapPass(downSampleQuality, mipLevelCount, rtFormat, filterMode, depthOverrideMaterial);
+        screenMipMapPass = new ScreenMipMapPass(downSampleQuality, mipLevelCount, rtFormat, filterMode, enablePreProcess, preProcessMaterial);
         screenMipMapPass.renderPassEvent = RenderPassEvent.AfterRenderingOpaques;
     }
     
@@ -79,15 +83,6 @@ public class ScreenMipMapRendererFeature : ScriptableRendererFeature
     public RTHandle GetScreenMipMapRT()
     {
         return screenMipMapPass?.GetScreenMipMapRT();
-    }
-    
-    /// <summary>
-    /// 获取生成的屏幕深度Mipmap RT
-    /// 可供其他Shader通过全局纹理变量使用
-    /// </summary>
-    public RTHandle GetScreenMipMapDepthRT()
-    {
-        return screenMipMapPass?.GetScreenMipMapDepthRT();
     }
     
     /// <summary>

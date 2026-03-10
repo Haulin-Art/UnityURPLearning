@@ -6,7 +6,7 @@ Shader "FluidFlux/water"
         _WaterCol ("浅水颜色",Color) = (0.0,0.3,0.6)
         _DeepWaterCol ("深水颜色",Color) = (0.0,0.3,0.6)
 
-        // 这个3D纹理是用于正常水面起伏的，x和y分量是不同Scale的Voronoi，zw是perlin噪声的FlowMap
+        // 这个3D纹理是用于正常水面起伏的，x是Voronoi分形的海面高度，yz是法向
         [Space(15)]
         _3DDisMap ("3D水面置换纹理", 3D) = "white" {}
         _SurfScale01 ("水面置换强度1", Range(-1.0,1.0)) = 1.0
@@ -51,6 +51,8 @@ Shader "FluidFlux/water"
         [Space(15)]
         _RefractionStrength ("折射强度", Range(0.0, 0.1)) = 0.02
         _AbsorptionColor ("折射吸收颜色", Color) = (0.1, 0.2, 0.3)
+        _RefractionBlurStart ("折射模糊开始深度", Range(0.0, 10.0)) = 0.0
+        _RefractionBlurEnd ("折射模糊结束深度", Range(0.1, 50.0)) = 2.0
         _RefractionBlurStrength ("折射模糊强度", Range(0.0,10.0)) = 2.0
         
         //[Header("反射设置")]
@@ -144,6 +146,9 @@ Shader "FluidFlux/water"
                 float _FresnelPower;
                 float _RefractionStrength;
                 float3 _AbsorptionColor;
+
+                float _RefractionBlurStart;
+                float _RefractionBlurEnd;
                 float _RefractionBlurStrength;
 
                 float _EnvReflectionStrength;
@@ -455,10 +460,14 @@ Shader "FluidFlux/water"
                 float waterDepth = depthLinear - selfDepthLinear;
                 float rampMask = smoothstep(0.0,2.0,waterDepth);
 
+                float3 screenColor = SAMPLE_TEXTURE2D(_ScreenMipMapRT, sampler_ScreenMipMapRT, screenUV).rgb;
+                //return float4(screenColor, 1.0);
+
                 // 采样折射后的背景颜色
                 // 使用自定义的带有Mipmap的屏幕不透明物体纹理，根据水深选择不同的Mipmap级别来采样颜色，以模拟水下物体的模糊效果
                 //float3 refractionColor = SAMPLE_TEXTURE2D(_CameraOpaqueTexture, sampler_CameraOpaqueTexture, refractedScreenUV).rgb;
-                float3 mipmapScreenColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT, sampler_ScreenMipMapRT, refractedScreenUV, rampMask*_RefractionBlurStrength).rgb;
+                float mipmapDepRamp = smoothstep(_RefractionBlurStart,_RefractionBlurEnd,waterDepth);
+                float3 mipmapScreenColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT, sampler_ScreenMipMapRT, refractedScreenUV, mipmapDepRamp*_RefractionBlurStrength).rgb;
                 float3 refractionColor = mipmapScreenColor;
 
                 Light ld = GetMainLight();
@@ -565,7 +574,7 @@ Shader "FluidFlux/water"
 
                 //return float4(dispCol.z*float3(1,1,1),1.0);
                 //return float4(bsdfScattering,1.0);
-                return float4((finalColor+foam*5.0)*float3(1,1,1), alpha);
+                return float4((finalColor+foam*4.0)*float3(1,1,1), alpha);
             }
             ENDHLSL
         }
