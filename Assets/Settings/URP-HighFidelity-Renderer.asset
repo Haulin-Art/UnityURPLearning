@@ -56,6 +56,25 @@ MonoBehaviour:
   m_Active: 0
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: c0be4d37c89af5f4f876513a67de283b, type: 2}
+--- !u!114 &-2947568646573396506
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a240227cc3e3af48a85deafed9c8364, type: 3}
+  m_Name: ScreenMipMapRendererFeature
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  downSampleQuality: 2
+  mipLevelCount: 4
+  rtFormat: 2
+  filterMode: 1
+  depthOverrideMaterial: {fileID: 2100000, guid: 9efb696c29af4fe47a560ca8267b8a54,
+    type: 2}
 --- !u!114 &-1341785516918380094
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -95,7 +114,8 @@ MonoBehaviour:
   - {fileID: 6126066738960194231}
   - {fileID: -7783706233956903524}
   - {fileID: 5253342207327538554}
-  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d2904559c5501896bb8fa937a0d5377e79ee748
+  - {fileID: -2947568646573396506}
+  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d2904559c5501896bb8fa937a0d5377e79ee748e6ede9cdee2118d7
   m_UseNativeRenderPass: 1
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}

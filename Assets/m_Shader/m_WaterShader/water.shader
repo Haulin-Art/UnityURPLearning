@@ -40,7 +40,7 @@ Shader "FluidFlux/water"
         _GradientTex ("梯度图", 2D) = "white" {}
 
         // 单纯用于调试的临时参数，什么地方需要就临时用一下测试效果
-        _CES ("CES参数",Range(-1.0,1.0)) = 0.0
+        _CES ("CES参数",Range(-1.0,5.0)) = 0.0
         
         [Space(15)]
         //[Header("菲涅尔设置")]
@@ -50,7 +50,8 @@ Shader "FluidFlux/water"
         //[Header("折射设置")]
         [Space(15)]
         _RefractionStrength ("折射强度", Range(0.0, 0.1)) = 0.02
-        _AbsorptionColor ("吸收颜色", Color) = (0.1, 0.2, 0.3)
+        _AbsorptionColor ("折射吸收颜色", Color) = (0.1, 0.2, 0.3)
+        _RefractionBlurStrength ("折射模糊强度", Range(0.0,10.0)) = 2.0
         
         //[Header("反射设置")]
         [Space(15)]
@@ -143,6 +144,8 @@ Shader "FluidFlux/water"
                 float _FresnelPower;
                 float _RefractionStrength;
                 float3 _AbsorptionColor;
+                float _RefractionBlurStrength;
+
                 float _EnvReflectionStrength;
                 float _Roughness;
                 float _SpecularPower;
@@ -179,6 +182,10 @@ Shader "FluidFlux/water"
 
             TEXTURE2D(_CameraOpaqueTexture);SAMPLER(sampler_CameraOpaqueTexture);
             float4 _CameraOpaqueTexture_TexelSize;
+
+            // 自定义的带有Mipmap的屏幕不透明物体纹理
+            TEXTURE2D(_ScreenMipMapRT);SAMPLER(sampler_ScreenMipMapRT); // 只用这个实现伪前向散射模糊效果
+            //TEXTURE2D(_ScreenMipMapDepthRT);SAMPLER(sampler_ScreenMipMapDepthRT);
 
             struct appdata
             {
@@ -411,6 +418,7 @@ Shader "FluidFlux/water"
             
                 //return float4(float3(Nor.z,Nor.y,-Nor.x)*float3(1,1,1),1.0);
 
+                // ========================= 基础数据准备 ==========================
                 float3 viewDirWS = normalize(i.viewDirWS);
                 float3 normal = normalize(i.norWS);
                 normal = Nor;
@@ -440,16 +448,18 @@ Shader "FluidFlux/water"
                 float2 refractedScreenUV = screenUV + refractionOffset;
                 refractedScreenUV = saturate(refractedScreenUV);
                 
-                // 采样折射后的背景颜色
-                float3 refractionColor = SAMPLE_TEXTURE2D(_CameraOpaqueTexture, sampler_CameraOpaqueTexture, refractedScreenUV).rgb;
                 // 采样折射后的背景深度
                 float3 refractionDepth = SAMPLE_TEXTURE2D(_CameraDepthTexture,  sampler_CameraDepthTexture , refractedScreenUV).rgb;
-                // 通过折射后的深度计算相对深度
-                //float depth = SAMPLE_TEXTURE2D(_CameraDepthTexture,sampler_CameraDepthTexture,screenUV).r;
                 float depthLinear = LinearEyeDepth(refractionDepth,_ZBufferParams);
                 float selfDepthLinear = LinearEyeDepth(i.pos.z,_ZBufferParams);
                 float waterDepth = depthLinear - selfDepthLinear;
                 float rampMask = smoothstep(0.0,2.0,waterDepth);
+
+                // 采样折射后的背景颜色
+                // 使用自定义的带有Mipmap的屏幕不透明物体纹理，根据水深选择不同的Mipmap级别来采样颜色，以模拟水下物体的模糊效果
+                //float3 refractionColor = SAMPLE_TEXTURE2D(_CameraOpaqueTexture, sampler_CameraOpaqueTexture, refractedScreenUV).rgb;
+                float3 mipmapScreenColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT, sampler_ScreenMipMapRT, refractedScreenUV, rampMask*_RefractionBlurStrength).rgb;
+                float3 refractionColor = mipmapScreenColor;
 
                 Light ld = GetMainLight();
                 float3 lightDir = normalize(ld.direction);
@@ -457,13 +467,12 @@ Shader "FluidFlux/water"
                 
                 // 根据水深应用水的吸收效果
                 refractionColor = FFApplyWaterAbsorption(refractionColor, waterDepth, _AbsorptionColor);
-                
                 // 混合浅水与深水颜色，得到最终颜色
                 float3 albedo = lerp(_WaterCol,_DeepWaterCol,rampMask);
                 
                 // 将折射颜色与水体颜色混合
-                albedo = lerp(refractionColor, albedo, saturate(rampMask * 1.0));
-                //albedo = refractionColor*albedo;
+                //albedo = lerp(refractionColor, albedo, saturate(rampMask * 1.0));
+                albedo = refractionColor;
                 
                 // ==================== BSDF水体散射 ====================
                 // 计算厚度（基于水深）
@@ -554,7 +563,7 @@ Shader "FluidFlux/water"
 
                 float alpha = lerp(saturate(rampMask*50.0), 1.0, fresnel * 0.5);
 
-                //return float4(-i.ttt.y*float3(1,1,1),1.0);
+                //return float4(dispCol.z*float3(1,1,1),1.0);
                 //return float4(bsdfScattering,1.0);
                 return float4((finalColor+foam*5.0)*float3(1,1,1), alpha);
             }
