@@ -1,0 +1,384 @@
+// ============================================================
+// FFT Compute Shader - 快速傅里叶变换计算着色器
+// 用于时域与频域之间的相互转换
+// 使用Cooley-Tukey算法，时间抽取(DIT)方式
+// ============================================================
+
+#pragma kernel CopyToOutput
+#pragma kernel BitReverseCopyReal
+#pragma kernel BitReverseCopyComplex
+#pragma kernel FFTStepHorizontal
+#pragma kernel FFTStepVertical
+#pragma kernel IFFTStepHorizontal
+#pragma kernel IFFTStepVertical
+#pragma kernel BitReverseOutput
+#pragma kernel Normalize
+#pragma kernel MultiplyComplex
+#pragma kernel FFTShift
+
+// 纹理资源
+Texture2D<float4> SourceTexture;    // 源纹理（只读）
+RWTexture2D<float4> InputTexture;   // 输入纹理（读写）
+RWTexture2D<float4> OutputTexture;  // 输出纹理（读写）
+Texture2D<float4> KernelTexture;    // 卷积核纹理（用于频域乘法）
+
+// 常量缓冲区参数
+cbuffer Params
+{
+    uint Size;      // 纹理尺寸（必须为2的幂次）
+    uint Step;      // 当前蝶形运算的步长
+    uint Stage;     // 当前阶段（未使用）
+    uint Direction; // 变换方向（未使用）
+}
+
+// ============================================================
+// 复数乘法: (a.r + a.i*j) * (b.r + b.i*j)
+// 结果: (a.r*b.r - a.i*b.i) + (a.r*b.i + a.i*b.r)*j
+// ============================================================
+float2 ComplexMul(float2 a, float2 b)
+{
+    return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+// ============================================================
+// 复数指数: e^(i*angle) = cos(angle) + sin(angle)*j
+// 用于计算旋转因子(Twiddle Factor)
+// ============================================================
+float2 ComplexExp(float angle)
+{
+    return float2(cos(angle), sin(angle));
+}
+
+// ============================================================
+// 位反转: 将整数的二进制位顺序颠倒
+// 例如: 6 (110) -> 3 (011)，当bits=3时
+// 这是DIT-FFT算法的关键步骤
+// ============================================================
+uint BitReverse(uint x, uint bits)
+{
+    uint result = 0;
+    [unroll]
+    for (uint i = 0; i < 32; i++)
+    {
+        if (i >= bits) break;
+        result = (result << 1) | (x & 1);
+        x >>= 1;
+    }
+    return result;
+}
+
+// ============================================================
+// 简单复制纹理数据
+// ============================================================
+[numthreads(8, 8, 1)]
+void CopyToOutput(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    OutputTexture[id.xy] = InputTexture[id.xy];
+}
+
+// ============================================================
+// 实数输入的位反转复制
+// 将时域实数信号转换为复数格式，并进行位反转重排
+// 输入: RGB图像 -> 灰度值作为实部，虚部为0
+// 输出: 位反转后的复数数据
+// ============================================================
+[numthreads(8, 8, 1)]
+void BitReverseCopyReal(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    // 计算位反转所需的位数
+    uint bits = 0;
+    uint temp = Size;
+    while (temp > 1)
+    {
+        bits++;
+        temp >>= 1;
+    }
+    
+    // 计算位反转后的坐标
+    uint revX = BitReverse(id.x, bits);
+    uint revY = BitReverse(id.y, bits);
+    
+    // 转换为灰度值作为实部
+    float3 color = SourceTexture[id.xy].rgb;
+    float gray = dot(color, float3(0.299, 0.587, 0.114));
+    OutputTexture[int2(revX, revY)] = float4(gray, 0, 0, 1);
+}
+
+// ============================================================
+// 复数输入的位反转复制
+// 用于IFFT，输入已经是复数格式(R=实部, G=虚部)
+// ============================================================
+[numthreads(8, 8, 1)]
+void BitReverseCopyComplex(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    uint bits = 0;
+    uint temp = Size;
+    while (temp > 1)
+    {
+        bits++;
+        temp >>= 1;
+    }
+    
+    uint revX = BitReverse(id.x, bits);
+    uint revY = BitReverse(id.y, bits);
+    
+    float2 complexVal = SourceTexture[id.xy].rg;
+    OutputTexture[int2(revX, revY)] = float4(complexVal, 0, 1);
+}
+
+// ============================================================
+// 位反转输出（从位反转位置读取，写入到正常位置）
+// 用于某些IFFT实现中的最后一步
+// ============================================================
+[numthreads(8, 8, 1)]
+void BitReverseOutput(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    uint bits = 0;
+    uint temp = Size;
+    while (temp > 1)
+    {
+        bits++;
+        temp >>= 1;
+    }
+    
+    uint revX = BitReverse(id.x, bits);
+    uint revY = BitReverse(id.y, bits);
+    
+    // 从位反转位置读取，写入到正常位置
+    float2 complexVal = InputTexture[int2(revX, revY)].rg;
+    OutputTexture[id.xy] = float4(complexVal, 0, 1);
+}
+
+// ============================================================
+// FFT水平方向蝶形运算
+// 对每一行执行一维FFT
+// 使用DIT(时间抽取)算法
+// ============================================================
+[numthreads(8, 8, 1)]
+void FFTStepHorizontal(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    uint halfStep = Step >> 1;
+    uint groupIdx = id.x / Step;    // 当前蝶形组索引
+    uint localIdx = id.x % Step;    // 组内位置
+    
+    uint idx1, idx2;
+    float sign;
+    
+    // 确定蝶形运算的两个输入位置和符号
+    if (localIdx < halfStep)
+    {
+        idx1 = groupIdx * Step + localIdx;
+        idx2 = idx1 + halfStep;
+        sign = 1.0;  // 蝶形上半部分，加法
+    }
+    else
+    {
+        idx1 = groupIdx * Step + (localIdx - halfStep);
+        idx2 = idx1 + halfStep;
+        sign = -1.0; // 蝶形下半部分，减法
+    }
+    
+    // 读取两个输入值
+    float2 val1 = InputTexture[int2(idx1, id.y)].rg;
+    float2 val2 = InputTexture[int2(idx2, id.y)].rg;
+    
+    // 计算旋转因子: W_N^k = e^(-2πik/N)
+    // FFT使用负角度
+    float k = localIdx < halfStep ? localIdx : (localIdx - halfStep);
+    float angle = -2.0 * 3.14159265359 * float(k) / float(Step);
+    float2 twiddle = ComplexExp(angle);
+    float2 twiddled = ComplexMul(twiddle, val2);
+    
+    // 蝶形运算结果
+    float2 result = val1 + sign * twiddled;
+    
+    OutputTexture[id.xy] = float4(result, 0, 1);
+}
+
+// ============================================================
+// FFT垂直方向蝶形运算
+// 对每一列执行一维FFT
+// ============================================================
+[numthreads(8, 8, 1)]
+void FFTStepVertical(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    uint halfStep = Step >> 1;
+    uint groupIdx = id.y / Step;
+    uint localIdx = id.y % Step;
+    
+    uint idx1, idx2;
+    float sign;
+    
+    if (localIdx < halfStep)
+    {
+        idx1 = groupIdx * Step + localIdx;
+        idx2 = idx1 + halfStep;
+        sign = 1.0;
+    }
+    else
+    {
+        idx1 = groupIdx * Step + (localIdx - halfStep);
+        idx2 = idx1 + halfStep;
+        sign = -1.0;
+    }
+    
+    float2 val1 = InputTexture[int2(id.x, idx1)].rg;
+    float2 val2 = InputTexture[int2(id.x, idx2)].rg;
+    
+    float k = localIdx < halfStep ? localIdx : (localIdx - halfStep);
+    float angle = -2.0 * 3.14159265359 * float(k) / float(Step);
+    float2 twiddle = ComplexExp(angle);
+    float2 twiddled = ComplexMul(twiddle, val2);
+    
+    float2 result = val1 + sign * twiddled;
+    
+    OutputTexture[id.xy] = float4(result, 0, 1);
+}
+
+// ============================================================
+// IFFT水平方向蝶形运算
+// 与FFT相同，但旋转因子使用正角度
+// ============================================================
+[numthreads(8, 8, 1)]
+void IFFTStepHorizontal(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    uint halfStep = Step >> 1;
+    uint groupIdx = id.x / Step;
+    uint localIdx = id.x % Step;
+    
+    uint idx1, idx2;
+    float sign;
+    
+    if (localIdx < halfStep)
+    {
+        idx1 = groupIdx * Step + localIdx;
+        idx2 = idx1 + halfStep;
+        sign = 1.0;
+    }
+    else
+    {
+        idx1 = groupIdx * Step + (localIdx - halfStep);
+        idx2 = idx1 + halfStep;
+        sign = -1.0;
+    }
+    
+    float2 val1 = InputTexture[int2(idx1, id.y)].rg;
+    float2 val2 = InputTexture[int2(idx2, id.y)].rg;
+    
+    // IFFT使用正角度
+    float k = localIdx < halfStep ? localIdx : (localIdx - halfStep);
+    float angle = 2.0 * 3.14159265359 * float(k) / float(Step);
+    float2 twiddle = ComplexExp(angle);
+    float2 twiddled = ComplexMul(twiddle, val2);
+    
+    float2 result = val1 + sign * twiddled;
+    
+    OutputTexture[id.xy] = float4(result, 0, 1);
+}
+
+// ============================================================
+// IFFT垂直方向蝶形运算
+// ============================================================
+[numthreads(8, 8, 1)]
+void IFFTStepVertical(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    uint halfStep = Step >> 1;
+    uint groupIdx = id.y / Step;
+    uint localIdx = id.y % Step;
+    
+    uint idx1, idx2;
+    float sign;
+    
+    if (localIdx < halfStep)
+    {
+        idx1 = groupIdx * Step + localIdx;
+        idx2 = idx1 + halfStep;
+        sign = 1.0;
+    }
+    else
+    {
+        idx1 = groupIdx * Step + (localIdx - halfStep);
+        idx2 = idx1 + halfStep;
+        sign = -1.0;
+    }
+    
+    float2 val1 = InputTexture[int2(id.x, idx1)].rg;
+    float2 val2 = InputTexture[int2(id.x, idx2)].rg;
+    
+    float k = localIdx < halfStep ? localIdx : (localIdx - halfStep);
+    float angle = 2.0 * 3.14159265359 * float(k) / float(Step);
+    float2 twiddle = ComplexExp(angle);
+    float2 twiddled = ComplexMul(twiddle, val2);
+    
+    float2 result = val1 + sign * twiddled;
+    
+    OutputTexture[id.xy] = float4(result, 0, 1);
+}
+
+// ============================================================
+// 归一化
+// IFFT最后需要除以N²（二维FFT）
+// ============================================================
+[numthreads(8, 8, 1)]
+void Normalize(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    float normalization = 1.0 / float(Size * Size);
+    float2 val = InputTexture[id.xy].rg * normalization;
+    OutputTexture[id.xy] = float4(val, 0, 1);
+}
+
+// ============================================================
+// 复数乘法（频域卷积）
+// 用于频域滤波：两个频域信号相乘等于时域卷积
+// ============================================================
+[numthreads(8, 8, 1)]
+void MultiplyComplex(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    float2 a = InputTexture[id.xy].rg;
+    float2 b = KernelTexture[id.xy].rg;
+    float2 result = ComplexMul(a, b);
+    
+    OutputTexture[id.xy] = float4(result, 0, 1);
+}
+
+// ============================================================
+// FFTShift - 频谱中心化
+// 将低频分量从四角移动到中心，便于可视化
+// 通过交换四个象限实现：
+//   ┌───┬───┐       ┌───┬───┐
+//   │ 3 │ 4 │  -->  │ 2 │ 1 │
+//   ├───┼───┤       ├───┼───┤
+//   │ 1 │ 2 │       │ 4 │ 3 │
+//   └───┴───┘       └───┴───┘
+// ============================================================
+[numthreads(8, 8, 1)]
+void FFTShift(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= Size || id.y >= Size) return;
+    
+    uint halfSize = Size / 2;
+    uint shiftedX = (id.x + halfSize) % Size;
+    uint shiftedY = (id.y + halfSize) % Size;
+    
+    float2 complexVal = InputTexture[id.xy].rg;
+    OutputTexture[int2(shiftedX, shiftedY)] = float4(complexVal, 0, 1);
+}

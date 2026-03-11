@@ -69,7 +69,7 @@ MonoBehaviour:
   m_Name: ScreenMipMapRendererFeature
   m_EditorClassIdentifier: 
   m_Active: 1
-  downSampleQuality: 2
+  downSampleQuality: 4
   mipLevelCount: 4
   rtFormat: 2
   filterMode: 1
