@@ -115,7 +115,8 @@ MonoBehaviour:
   - {fileID: -7783706233956903524}
   - {fileID: 5253342207327538554}
   - {fileID: -2947568646573396506}
-  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d2904559c5501896bb8fa937a0d5377e79ee748e6ede9cdee2118d7
+  - {fileID: 5276956939491072028}
+  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d2904559c5501896bb8fa937a0d5377e79ee748e6ede9cdee2118d71cd865c160843b49
   m_UseNativeRenderPass: 1
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
@@ -206,6 +207,36 @@ MonoBehaviour:
   m_Active: 0
   renderPassEvent: 1000
   featureMaterial: {fileID: 2100000, guid: 882febf2956997a43be5ef3f29aec3fd, type: 2}
+--- !u!114 &5276956939491072028
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 835781b1e9b0341468aad37328082f39, type: 3}
+  m_Name: FrequencyHighlightFeature
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  settings:
+    resolution: 512
+    threshold: 0.995
+    softness: 0.967
+    distanceMin: 1
+    distanceMax: 50
+    highlightShapeSource: {fileID: 2800000, guid: 02bbb2d4b1c9bd843a23aa0431cc5471,
+      type: 3}
+    highlightShapeScale: {x: 6, y: 3}
+    highlightKernelFrequencyRT: {fileID: 0}
+    needUpdateHighlightKernel: 0
+    intensity: 0.36
+    highlightColor: {r: 1, g: 1, b: 1, a: 1}
+    borderFade: 0.1
+    fftComputeShader: {fileID: 7200000, guid: 5e3479dfbf214c242a35aafbaa34ffdd, type: 3}
+    debugMode: 0
+    debugStage: 0
 --- !u!114 &6126066738960194231
 MonoBehaviour:
   m_ObjectHideFlags: 0
