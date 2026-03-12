@@ -188,7 +188,7 @@ float FFHenyeyGreensteinPhaseFast(float g, float cosTheta)
 {
     float g2 = g * g;
     float denom = 1.0 + g2 - 2.0 * g * cosTheta;
-    return (1.0 - g2) * pow(denom, -1.5) / (4.0 * FF_PI);
+    return (1.0 - g2) * pow(abs(denom), -1.5) / (4.0 * FF_PI);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
