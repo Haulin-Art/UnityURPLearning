@@ -226,9 +226,10 @@ MonoBehaviour:
     softness: 0.967
     distanceMin: 1
     distanceMax: 50
-    highlightShapeSource: {fileID: 2800000, guid: 02bbb2d4b1c9bd843a23aa0431cc5471,
+    highlightShapeSource: {fileID: 2800000, guid: 9d38f2888107b6a42a046d54d0077d5d,
       type: 3}
-    highlightShapeScale: {x: 6, y: 3}
+    highlightShapeScale: {x: 3, y: 3}
+    aspectRatio: 1.5717791
     highlightKernelFrequencyRT: {fileID: 0}
     needUpdateHighlightKernel: 0
     intensity: 0.36

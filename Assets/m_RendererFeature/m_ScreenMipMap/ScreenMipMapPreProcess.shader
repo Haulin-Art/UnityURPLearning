@@ -99,6 +99,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             float3 lightDir = normalize(ld.direction);
             float3 lightColor = ld.color;
 
+            // 通过深度还原世界位置
             float depth = SampleSceneDepth(input.uv);
             float linerDep = LinearEyeDepth(depth, _ZBufferParams);
             float3 worldPos = ReconstructWorldPosition(input.uv);

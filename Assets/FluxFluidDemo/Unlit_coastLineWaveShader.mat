@@ -71,7 +71,7 @@ Material:
     - _RayMarchSteps: 6
     - _RefractionBlurEnd: 5
     - _RefractionBlurStart: 0.3
-    - _RefractionBlurStrength: 4.54
+    - _RefractionBlurStrength: 2.12
     - _RefractionStrength: 0.0224
     - _Roughness: 0.18
     - _SSSDepthScale: 5

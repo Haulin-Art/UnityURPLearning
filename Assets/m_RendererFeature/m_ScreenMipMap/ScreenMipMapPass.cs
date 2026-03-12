@@ -14,6 +14,9 @@ public class ScreenMipMapPass : ScriptableRenderPass
     private RenderTextureFormat rtFormat;
     private FilterMode filterMode;
     private bool enablePreProcess;
+
+
+    private Shader preProcessShader;
     private Material preProcessMaterial;
     
     private RTHandle screenMipMapRT;
@@ -39,6 +42,7 @@ public class ScreenMipMapPass : ScriptableRenderPass
         shaderTagIds.Add(new ShaderTagId("UniversalForward"));
         shaderTagIds.Add(new ShaderTagId("UniversalForwardOnly"));
         shaderTagIds.Add(new ShaderTagId("LightweightForward"));
+        
     }
     
     /// <summary>
@@ -93,8 +97,8 @@ public class ScreenMipMapPass : ScriptableRenderPass
         };
         RenderingUtils.ReAllocateIfNeeded(ref tempDepthRT, tempDepthDesc, filterMode, TextureWrapMode.Clamp, name: "_TempDepthRT");
         
-        ConfigureTarget(screenMipMapRT, tempDepthRT);
-        ConfigureClear(ClearFlag.All, Color.black);
+        //ConfigureTarget(screenMipMapRT, tempDepthRT);
+        //ConfigureClear(ClearFlag.All, Color.black);
 
 
         Camera camera = renderingData.cameraData.camera;
@@ -118,9 +122,13 @@ public class ScreenMipMapPass : ScriptableRenderPass
             return;
         
         CommandBuffer cmd = CommandBufferPool.Get("ScreenMipMap");
+
+        // 屏幕纹理ID（相机颜色目标）
+        RenderTargetIdentifier cameraTarget = renderingData.cameraData.renderer.cameraColorTargetHandle;
         
         using (new ProfilingScope(cmd, new ProfilingSampler("ScreenMipMap Color")))
         {
+            
             cmd.SetRenderTarget(screenMipMapRT, tempDepthRT);
             cmd.ClearRenderTarget(true, true, Color.black);
             
@@ -133,6 +141,8 @@ public class ScreenMipMapPass : ScriptableRenderPass
             FilteringSettings filteringSettings = new FilteringSettings(RenderQueueRange.opaque);
             
             context.DrawRenderers(renderingData.cullResults, ref drawingSettings, ref filteringSettings);
+            
+            //cmd.Blit(cameraTarget, screenMipMapRT);
         }
         
         context.ExecuteCommandBuffer(cmd);

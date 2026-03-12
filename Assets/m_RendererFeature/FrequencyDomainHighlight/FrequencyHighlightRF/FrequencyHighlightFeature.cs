@@ -32,7 +32,7 @@ namespace FrequencyHighlight
             public float distanceMax = 50.0f;
             
             [Header("高光形状")]
-            [Tooltip("时域高光形状图（原始图片）")]
+            [Tooltip("时域高光形状图（原始图片），图片需要设置为Clamp模式，且宽高相等，建议使用黑底白图")]
             public Texture2D highlightShapeSource;
             [Tooltip("高光形状缩放")]
             public Vector2 highlightShapeScale = new Vector2(1.0f, 1.0f);
@@ -754,7 +754,7 @@ namespace FrequencyHighlight
                 // ========================================
                 PerformFFTShift(tempA, m_Settings.highlightKernelFrequencyRT, size);
                 
-                Debug.Log("HighlightKernelGenerator: 高光形状频谱图已生成");
+                //Debug.Log("HighlightKernelGenerator: 高光形状频谱图已生成");
             }
             finally
             {
