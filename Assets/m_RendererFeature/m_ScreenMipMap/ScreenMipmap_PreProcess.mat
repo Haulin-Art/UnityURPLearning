@@ -34,6 +34,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _Brightness: 1
+    - _CautionPow: 4
     - _Contrast: 1
     - _Saturation: 1
     - _SurfSpeed: 0.5

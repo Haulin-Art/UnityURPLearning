@@ -9,6 +9,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
 
         _SurfSpeed ("表面速度", Range(0, 1)) = 0.5
         _CautionTex ("焦散纹理", 3D) = "white" {}
+        _CautionPow ("焦散强度", Range(0, 10)) = 4.0
     }
     
     HLSLINCLUDE
@@ -25,6 +26,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         float _Brightness;
         float _Contrast;
         float _Saturation;
+        float _CautionPow;
         
         TEXTURE3D(_CautionTex);
         SAMPLER(sampler_CautionTex);
@@ -130,13 +132,13 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             float2 lightUV = frac(lightSpacePos.xy / 2.0) * mask;
             
             float2 cautionTex = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV, frac(_Time.y * _SurfSpeed))).rg;
-            float caution = pow((cautionTex.x + cautionTex.y * 1.0) / 1.8, 4.0) * 1.0;
+            float caution = pow((cautionTex.x + cautionTex.y * 1.0) / 1.8, _CautionPow) * 1.0;
             
             float2 cautionTexR = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV+float2(caution*0.02, 0.0), frac(_Time.y * _SurfSpeed))).rg;
-            float cautionR = pow((cautionTexR.x + cautionTexR.y * 1.0) / 1.8, 4.0) * 1.0;
+            float cautionR = pow((cautionTexR.x + cautionTexR.y * 1.0) / 1.8, _CautionPow) * 1.0;
             
-            float2 cautionTexU = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV+float2(0.0, caution*0.02), frac(_Time.y * _SurfSpeed))).rg;
-            float cautionU = pow((cautionTexU.x + cautionTexU.y * 1.0) / 1.8, 4.0) * 1.0;
+            float2 cautionTexU = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV-float2(caution*0.02,0.0), frac(_Time.y * _SurfSpeed))).rg;
+            float cautionU = pow((cautionTexU.x + cautionTexU.y * 1.0) / 1.8, _CautionPow) * 1.0;
 
             float3 cautionTotal = float3(cautionR, cautionU, caution) * mask * notInShadow;
             caution *= mask;
