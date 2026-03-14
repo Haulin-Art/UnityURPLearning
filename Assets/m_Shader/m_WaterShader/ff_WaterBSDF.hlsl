@@ -136,7 +136,7 @@
 #define FF_SSS_PATH_SCALE 20.0        // SSS光程缩放因子
 #define FF_SSS_NONLINEAR_STRENGTH 0.5 // 非线性光程强度
 #define FF_SSS_SCATTER_BOOST 1.5      // SSS散射增强因子
-#define FF_BACKLIT_PATH_SCALE 5.0     // 背光透射光程缩放
+#define FF_BACKLIT_PATH_SCALE 10.0     // 背光透射光程缩放
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 结构体定义
@@ -544,7 +544,7 @@ FFWaterBSDFOutput FFEvaluateWaterBSDFSimple(FFWaterBSDFInput input)
     
     // Step 5: 应用出射菲涅尔透射率
     float T_exit = FFFresnelExit(input.fresnel0, input.normalWS, input.viewDirWS);
-    output.totalScattering = (output.diffR + output.diffT) * T_exit;
+    output.totalScattering = (output.diffR + output.diffT) * lerp(T_exit,1.0,0.0);
     
     return output;
 }
@@ -604,7 +604,7 @@ float3 FFEvaluateWaterScattering(
     // 评估BSDF
     FFWaterBSDFOutput output = FFEvaluateWaterBSDFSimple(input);
     
-    return output.totalScattering;
+    return output.totalScattering  ;
 }
 
 #endif

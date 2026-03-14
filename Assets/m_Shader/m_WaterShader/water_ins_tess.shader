@@ -2,6 +2,8 @@ Shader "FluidFlux/water_ins_tess"
 {
     Properties
     {
+        [Enum(Final,0,Scattering1,1,Scattering2,2,Reflection,3,Foam,4,vNormal,5,fresnel,6)]
+        _DebugView ("显示结果", Float) = 0
         // 这个3D纹理是用于正常水面起伏的，x是Voronoi分形的海面高度，yz是法向
         _Tile01 ("================= 这个3D纹理是用于正常水面起伏的 ===============",Float) = 0.0 
         _3DDisMap ("3D水面置换纹理", 3D) = "white" {}
@@ -13,6 +15,7 @@ Shader "FluidFlux/water_ins_tess"
         [Space(15)]
         _Tile02 ("==================== 矢量置换图部分 ============================",Float) = 0.0 
         _VectorDisMap ("矢量置换纹理", 2D) = "white" {}
+        _VectorDisThickness ("矢量置换厚度", 2D ) = "black" {}
         [Space(15)]
         _VectorDisMapScale ("矢量置换整体强度", Float) = 3.0
         _VDMXScale ("矢量置换x强度", Range(-2,2)) = -0.44
@@ -28,6 +31,8 @@ Shader "FluidFlux/water_ins_tess"
         _HeighTex ("高度图", 2D) = "black" {}
 
         [Space(15)]
+        _WaveTilingX ("纵向浪花段数", Range(0.0, 30.0)) = 10.0
+        _WaveTilingY ("横向浪花段数", Range(0.0, 30.0)) = 10.0
         _WavePos ("浪花位置",Range(-2.0,2.0))= 1.79
         _WaveAngle ("浪花角度",Range(0.0,5.0)) = 1.33
         _WaveScale ("浪花出现范围",Range(0.0,2.0)) = 0.26
@@ -42,6 +47,9 @@ Shader "FluidFlux/water_ins_tess"
         _Tile05 ("================= 近岸浮沫部分 =======================",Float) = 0.0 
         _FoamTex ("泡沫贴图", 2D) = "black" {}
         _FoamTex_2 ("泡沫贴图2", 2D) = "black" {}
+        _FoamColor ("泡沫颜色", Color) = (1,1,1,1)
+        _FoamNorScale ("泡沫法线强度", Range(0.0, 5.0)) = 1.0
+        _FoamIntensity ("泡沫强度", Range(0.0, 5.0)) = 1.0
 
         // 单纯用于调试的临时参数，什么地方需要就临时用一下测试效果
         _CES ("CES参数",Range(-1.0,5.0)) = 0.0
@@ -57,6 +65,7 @@ Shader "FluidFlux/water_ins_tess"
         _Tile06 ("================= 水下折射设置 ========================",Float) = 0.0 
         _RefractionStrength ("折射强度", Range(0.0, 0.1)) = 0.02
         _AbsorptionColor ("折射吸收颜色", Color) = (0.53, 0.7, 0.86)
+        _AbsorptionScale ("折射吸收强度", Range(0.0, 10.0)) = 1.0
         _RefractionBlurStart ("折射模糊开始深度", Range(0.0, 10.0)) = 0.3
         _RefractionBlurEnd ("折射模糊结束深度", Range(0.1, 50.0)) = 5.0
         _RefractionBlurStrength ("折射模糊强度", Range(0.0,10.0)) = 2.0
@@ -64,6 +73,7 @@ Shader "FluidFlux/water_ins_tess"
         //[Header("反射设置")]
         [Space(15)]
         _Tile12 ("================= 环境反射设置 ========================",Float) = 0.0 
+        _EnvCubeMap ("环境反射贴图",Cube ) = "white" {}
         _EnvReflectionStrength ("环境反射强度", Range(0.0, 10.0)) = 1.2
         _Roughness ("粗糙度", Range(0.0, 1.0)) = 0.18
         
@@ -87,8 +97,9 @@ Shader "FluidFlux/water_ins_tess"
         _Tile07 ("================= 光线步进散射 ========================",Float) = 0.0 
         [Toggle(_USE_RAY_MARCHING)] _UseRayMarching ("启用光线步进", Float) = 0
         _RayMarchSteps ("步进次数", Range(1, 16)) = 6
-        _RayMarchIntensity ("步进强度", Range(0.0, 3.0)) = 2.71
+        _RayMarchIntensity ("步进强度", Range(0.0, 10.0)) = 2.71
         _RayMarchMaxDistance ("最大步进距离", Range(0.1, 50.0)) = 5.0
+        [Toggle] _UsePerSamPosShadow("使用采样点阴影",Float) = 0
         
         //[Header("次表面散射设置")]
         [Space(15)]
@@ -122,7 +133,7 @@ Shader "FluidFlux/water_ins_tess"
             #pragma shader_feature _USE_RAY_MARCHING
             #pragma shader_feature _USE_SSS
             #pragma multi_compile_instancing // 开启GPU Instancing支持
-
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
 
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -137,6 +148,8 @@ Shader "FluidFlux/water_ins_tess"
             #include "ff_WaterBSDF.hlsl"
             #include "ff_WaterRayMarching.hlsl"
             #include "ff_WaterForwardScatter.hlsl"
+
+            //#include "./BSDF/BSDF_SSS.hlsl"
             
             // ============================================================================
             // 细分着色器需要 Shader Model 5.0 或更高版本
@@ -156,6 +169,8 @@ Shader "FluidFlux/water_ins_tess"
             
             // 材质属性缓冲区
             CBUFFER_START(UnityPerMaterial)
+                int _DebugView;
+
                 float4 _VectorDisMap_ST;
                 float4 _FoamTex_ST;
                 float4 _FoamTex_2_ST;
@@ -166,6 +181,9 @@ Shader "FluidFlux/water_ins_tess"
                 float _VectorDisMapScale;
                 float _VDMXScale;
                 float _VDMYScale;
+
+                float _WaveTilingX;
+                float _WaveTilingY;
                 float _WavePos;
                 float _WaveScale;
                 float _WaveAngle;
@@ -186,10 +204,16 @@ Shader "FluidFlux/water_ins_tess"
                 float _FresnelPower;
                 float _RefractionStrength;
                 float3 _AbsorptionColor;
+                float _AbsorptionScale;
 
                 float _RefractionBlurStart;
                 float _RefractionBlurEnd;
                 float _RefractionBlurStrength;
+
+                float3 _FoamColor;
+                float _FoamNorScale;
+                float _FoamIntensity;
+
 
                 float _EnvReflectionStrength;
                 float _Roughness;
@@ -204,6 +228,8 @@ Shader "FluidFlux/water_ins_tess"
                 float _RayMarchSteps;
                 float _RayMarchIntensity;
                 float _RayMarchMaxDistance;
+                bool _UsePerSamPosShadow;
+
                 float _UseSSS;
                 float3 _SSSColor;
                 float _SSSStrength;
@@ -219,8 +245,12 @@ Shader "FluidFlux/water_ins_tess"
             CBUFFER_END
             
             TEXTURE2D(_VectorDisMap);SAMPLER(sampler_VectorDisMap); 
+            TEXTURE2D(_VectorDisThickness);SAMPLER(sampler_VectorDisThickness);
+
             TEXTURE2D(_FoamTex);SAMPLER(sampler_FoamTex); 
             TEXTURE2D(_FoamTex_2);SAMPLER(sampler_FoamTex_2);
+
+            TEXTURECUBE(_EnvCubeMap);SAMPLER(sampler_EnvCubeMap);
 
             TEXTURE3D(_3DDisMap);SAMPLER(sampler_3DDisMap); 
 
@@ -272,6 +302,7 @@ Shader "FluidFlux/water_ins_tess"
                 float3 deformWSPos : TEXCOORD2;
                 float2 newUV : TEXCOORD5;
                 float foamMask : TEXCOORD10;
+                float norMask : TEXCOORD13;
                 float4 screenUV : TEXCOORD6;
                 float3 norWS : TEXCOORD7;
                 float3 ttt : TEXCOORD8;
@@ -336,7 +367,8 @@ Shader "FluidFlux/water_ins_tess"
                 float3 forward = float3(gradient.x,0,gradient.y);
 
                 float ji = (atan2(UV.x-0.5,UV.y-0.5)+PI)/(2*PI); // 采样的y轴根据极坐标
-                float2 sdfUV = float2(sdf*10,frac(ji*10.0));
+                ji = (atan2(gradient.x,gradient.y)+PI)/(2*PI);
+                float2 sdfUV = float2(sdf*10,frac(ji*5.0));
                 float2 sdfAUV = animUV(sdfUV*1.0,ji*10,- _Time.y, _VectorDisMap_ST);
 
                 finalUV = sdfAUV;
@@ -535,7 +567,8 @@ Shader "FluidFlux/water_ins_tess"
                 o.ttt = float3(1,1,1)*foamMask; // 这个是用来测试近岸范围的mask的，红色部分是近岸范围，白色部分是远岸范围
 
                 // 正常的水面起伏置换与法线计算
-                float waterSurfMask = smoothstep(0.05,0.15,-sdf); // 在接近岸边的地方没有
+                float waterSurfMask = smoothstep(0.03,0.1,-sdf); // 在接近岸边的地方没有
+                o.norMask = waterSurfMask;
                 float4 waterSurf = waterSurfMask * SAMPLE_TEXTURE3D_LOD(_3DDisMap, sampler_3DDisMap, float3(1.0-frac(o.worldPos.xz*_SurfTiling),frac(_Time.y*_SurfSpeed)),0.0);
 
                 //o.ttt = newpos;
@@ -556,6 +589,8 @@ Shader "FluidFlux/water_ins_tess"
                 o.screenUV = ComputeScreenPos(o.pos);
                 
                 o.viewDirWS = normalize(_WorldSpaceCameraPos - deformWSPos);
+                o.viewDirWS = normalize(_WorldSpaceCameraPos - o.worldPos);
+
                 o.deformWSPos = deformWSPos;
                 
                 return o;
@@ -615,20 +650,24 @@ Shader "FluidFlux/water_ins_tess"
                 float2 worldUV=1.0- (i.worldPos/scale + 0.5).xz;
                 bool infanwei = worldUV.x < 1.0 && worldUV.y < 1.0 &&
                                 worldUV.x > 0.0 && worldUV.y > 0.0; // 处于SDF贴图范围内
+                float softUVMask = smoothstep(0.5,0.45,abs(worldUV.x-0.5)) * smoothstep(0.5,0.45,abs(worldUV.y-0.5));
+
 
                 // 还是在Frag Shader中计算水面起伏的法线，这样可以得到更准确的法线信息，之前在顶点着色器中计算的法线在这里做了一个修正
                 float3 WaveNor = SAMPLE_TEXTURE3D(_3DDisMap, sampler_3DDisMap, float3(1.0-frac(i.worldPos.xz*_SurfTiling) ,frac(_Time.y*_SurfSpeed))).xyz;
                 float3 Nor = float3((WaveNor.y*2.0-1.0)*_SurfNorScale,(WaveNor.z*2.0-1.0)*_SurfNorScale,0.0);
                 Nor.z = sqrt(1-pow(Nor.x,2)-pow(Nor.y,2));
+                Nor =float3(-Nor.y,Nor.x,Nor.z);
                 float3x3 waveTBN = float3x3(i.tanWave,i.bitWave,i.norWS);
                 Nor = mul(Nor,waveTBN);
-                Nor = normalize(float3(Nor.z,Nor.y,-Nor.x));
+                Nor = normalize(float3(Nor.x,Nor.y,Nor.z)); // 根据贴图计算的法线，但是靠近海岸边的依旧用波浪的
+                Nor = lerp( i.norWS,Nor, i.norMask); // 修正法线，岸边的法线
             
                 // 远处的海面粗糙度增加，且要让法线更平坦一些，这样看起来才像远处的海面
                 float dist = distance(i.worldPos, _WorldSpaceCameraPos);
-                float roughnessRamp = smoothstep(5.0,35.0,dist);
+                float roughnessRamp = smoothstep(5.0,40.0,dist);
                 Nor = lerp(Nor, float3(0,1,0), roughnessRamp);
-                _Roughness = lerp(_Roughness, 0.25, roughnessRamp);
+                _Roughness = lerp(_Roughness, 0.3, roughnessRamp);
                 //return float4(float3(Nor.z,Nor.y,-Nor.x)*float3(1,1,1),1.0);
 
                 // ========================= 基础数据准备 ==========================
@@ -671,7 +710,7 @@ Shader "FluidFlux/water_ins_tess"
                 float3 lightColor = ld.color;
                 
                 // 根据水深应用水的吸收效果
-                refractionColor = FFApplyWaterAbsorption(refractionColor, waterDepth, _AbsorptionColor);
+                refractionColor = FFApplyWaterAbsorption(refractionColor, waterDepth*_AbsorptionScale, _AbsorptionColor);
                 
                 // 将折射颜色与水体颜色混合
                 float3 albedo = refractionColor;
@@ -680,7 +719,21 @@ Shader "FluidFlux/water_ins_tess"
                 // ==================== BSDF水体散射 ====================
                 // 计算厚度（基于水深）
                 float thickness = saturate(waterDepth / _DepthScale);
-                
+                float thicknessTex = SAMPLE_TEXTURE2D(_VectorDisThickness, sampler_VectorDisThickness,i.newUV).r;
+                float mixThickness = thicknessTex*smoothstep(1.0,0.95,thicknessTex)*infanwei;
+                float depMixFactor = dot(-i.viewDirWS,i.norWS);
+                float finalThickness = lerp(thickness, thicknessTex, mixThickness);
+                finalThickness = lerp(waterDepth,thicknessTex,depMixFactor);
+                //thickness = finalThickness;
+                thickness = lerp(1,thicknessTex,softUVMask);
+
+                //return float4(float3(1,1,1)*thickness,1);
+
+                float thinDepth = smoothstep(0.45,0.7,i.deformWSPos.y)*thicknessTex*infanwei;
+
+                //return float4(float3(1,1,1)*thicknessTex,1);
+                //return float4(float3(1,1,1)*thinDepth,1);
+
                 // 计算消光系数和散射反照率
                 float3 extinctionCoeff = _ScatterColor + _BSDFAbsorptionColor;
                 float3 scatterAlbedo = _ScatterColor / max(extinctionCoeff, 1e-6);
@@ -692,13 +745,14 @@ Shader "FluidFlux/water_ins_tess"
                     FFRayMarchConfig rmConfig = FFCreateDefaultRayMarchConfig();
                     rmConfig.stepCount = (int)_RayMarchSteps;
                     rmConfig.maxDistance = min(waterDepth, _RayMarchMaxDistance);
+                    rmConfig.usePerStepShadow = _UsePerSamPosShadow;
                     
                     float3 rayDir = -viewDirWS;
                     rayDir.y = -abs(rayDir.y);
                     rayDir = normalize(rayDir);
                     
                     bsdfScattering = FFRayMarchVolumeScattering(
-                        i.worldPos, rayDir, rmConfig.maxDistance,
+                        i.deformWSPos, rayDir, rmConfig.maxDistance,
                         extinctionCoeff, scatterAlbedo,
                         lightDir, viewDirWS, lightColor,
                         _PhaseG, 0.0, rmConfig
@@ -707,17 +761,40 @@ Shader "FluidFlux/water_ins_tess"
                     bsdfScattering *= _RayMarchIntensity;
                     
                     float T_exit = FFFresnelExit(_FresnelF0, normal, viewDirWS);
-                    bsdfScattering *= T_exit;
-                #else
+                    //bsdfScattering *= lerp(T_exit,1.0,0.7);
+
                     // 使用简化的BSDF计算
-                    bsdfScattering = FFEvaluateWaterScattering(
-                        normal, viewDirWS, lightDir, lightColor,
+                    bsdfScattering += 2.0*FFEvaluateWaterScattering(
+                        i.norWS, viewDirWS, lightDir, lightColor,
                         _ScatterColor, _BSDFAbsorptionColor,
                         thickness, _FresnelF0, _PhaseG,
                         0.0
                     );
+
+                #else
+                    // 使用简化的BSDF计算
+                    bsdfScattering = FFEvaluateWaterScattering(
+                        i.norWS, viewDirWS, lightDir, lightColor,
+                        _ScatterColor, _BSDFAbsorptionColor,
+                        thickness, _FresnelF0, _PhaseG,
+                        0.0
+                    );
+                    bsdfScattering *= 2.0;
                 #endif
-                
+                //return float4(bsdfScattering,1);
+                //return float4(float3(1,1,1)*i.norWS.x,1);
+
+                // 阴影处理
+                // ================================= 阴影检测 ==================================
+                float4 shadowCoord = TransformWorldToShadowCoord(i.deformWSPos);
+                float shadowMask = 1.0;
+                #if defined(_MAIN_LIGHT_SHADOWS) || defined(_MAIN_LIGHT_SHADOWS_CASCADE) || defined(_MAIN_LIGHT_SHADOWS_SCREEN)
+                    ShadowSamplingData shadowSamplingData = GetMainLightShadowSamplingData();
+                    float shadowStrength = GetMainLightShadowStrength();
+                    shadowMask = SampleShadowmap(shadowCoord, TEXTURE2D_ARGS(_MainLightShadowmapTexture, sampler_MainLightShadowmapTexture), shadowSamplingData, shadowStrength, false);
+                #endif
+                //return float4(shadowMask*float3(1,1,1),1);
+
                 // ==================== 高光计算 ====================
                 // Blinn-Phong高光模型
                 /*
@@ -734,21 +811,25 @@ Shader "FluidFlux/water_ins_tess"
 
                 float fresnel = FFFresnelWater(normal, viewDirWS, _FresnelF0);
                 fresnel = pow(abs(fresnel), _FresnelPower);
-
+                //return float4(float3(1,1,1)*fresnel,1);
                 // ==================== 环境反射 ====================
                 float3 reflectDir = reflect(-viewDirWS, normal);
                 float3 envReflection = FFSampleEnvReflection(reflectDir, _Roughness, _EnvReflectionStrength);
+                envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
+
                 float3 reflectionColor = FFBlendReflection(albedo, envReflection, fresnel, 1.0);
+                reflectionColor *= lerp(shadowMask,1.0,0.5); // 将环境反射与阴影遮罩相乘，使得在阴影区域环境反射变暗
 
                 // ==================== 最终颜色合成 ====================
                 // 将BSDF散射与反射混合
-                float3 finalColor = reflectionColor + lerp(float3(0,0,0), bsdfScattering, rampMask);
+                float3 finalColor = reflectionColor  + lerp(float3(0,0,0), bsdfScattering, rampMask);
                 finalColor += specCol;
 
                 // ==================== SSS次表面散射 ====================
+                float3 sss;
                 #ifdef _USE_SSS
                 {
-                    float3 sss = FFComputeWaterSSSFull(
+                    sss = FFComputeWaterSSSFull(
                         normal, normal, viewDirWS,
                         lightDir, lightColor, waterDepth,
                         _SSSColor, _SSSStrength, _SSSDepthScale, _SSSFade
@@ -760,7 +841,7 @@ Shader "FluidFlux/water_ins_tess"
                         _Roughness, _SunGlitterIntensity,
                         _Time.y, _SunGlitterSpeed
                     );
-                    finalColor += sunGlitter;
+                    //finalColor += sunGlitter;
                 }
                 #endif
 
@@ -775,7 +856,7 @@ Shader "FluidFlux/water_ins_tess"
                 // 计算三层浮沫的权重，第一层是基于SDF的，第二层是基于矢量置换贴图的，第三层是基于SDF和foamMask的综合权重，这样可以让浮沫在岸边更自然地过渡，同时在远处也有一定的浮沫效果
                 float fMask_1 = (smoothstep(0.2,0.05,-sdf) + i.foamMask)*infanwei; // 在靠近海岸的地方
                 float fMask_2 = i.foamMask; // 在矢量置换图的浪尖
-                float fMask_3 = (smoothstep(0.2,0.05,-sdf)*i.newUV.x*3.0 + i.foamMask)*infanwei; // 在每层浪的前面
+                float fMask_3 = 0.2*(smoothstep(0.2,0.05,-sdf)*i.newUV.x*3.0 + i.foamMask)*infanwei; // 在每层浪的前面
                 // 计算每一层浮沫
                 float fff = fMask_1*foaml.z;
                 fff = clamp(fff*2.0,0.0,1.0);
@@ -785,22 +866,44 @@ Shader "FluidFlux/water_ins_tess"
                 float totalFoam = fff + fff2 + fff3;
                 totalFoam = clamp(totalFoam,0.0,1.0);
                 // 计算浮沫的法线，以及光照
-                float3 fffnor;
-                fffnor.xy = foaml.xy*fMask_1 + foaml2.xy*fMask_2 + foaml2.xy*fMask_3;
-                fffnor.xy /= 3.0;
-                fffnor.xy = fffnor.xy * 2.0 - 1.0;
-                fffnor.z = sqrt(1.0 - 1.0*saturate(dot(fffnor.xy, fffnor.xy)));
-                fffnor = normalize(fffnor); 
+                float3 fffnor = float3(0,0,0);
+                fffnor.xy = (foaml.xy*2.0-1.0)*fMask_1 + (foaml2.xy*2.0-1.0)*fMask_2 + (foaml2.xy*2.0-1.0)*fMask_3;
+                //fffnor.xy /= 3.0;
+                //fffnor.xy = fffnor.xy * 2.0 - 1.0;
+                fffnor.xy *= saturate(fMask_1+fMask_2+fMask_3); // 避免因为遮罩导致纠正后变成-1
+                fffnor = normalize(float3(fffnor.yx*_FoamNorScale,1)); 
                 fffnor = mul(fffnor,waveTBN);
-                fffnor = normalize(float3(-fffnor.z,fffnor.y,fffnor.x));
+                fffnor = float3(-fffnor.x,fffnor.y,fffnor.z);
                 float fffDiff = max(0, dot(fffnor, lightDir));
                 fffDiff = lerp(fffDiff,1.0,0.3);
-                fffDiff *= clamp(totalFoam*1.0,0.0,1.0) ;
+                fffDiff *= clamp(totalFoam* _FoamIntensity,0.0,1.0)  ;
+                float3 foamCol = _FoamColor*fffDiff;
 
+                if(_DebugView == 0) // 最终结果
+                {
+                    return float4((finalColor + foamCol)*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
+                }else if(_DebugView == 1) // BSDF + RayMarching 散射
+                {
+                    return float4(bsdfScattering,1);
+                }else if(_DebugView == 2) // 简化增强散射
+                {
+                    return float4(sss,1);
+                }else if(_DebugView == 3) // 反射
+                {
+                    return float4(reflectionColor,1);
+                }else if(_DebugView == 4) // 浮沫
+                {
+                    return float4(foamCol*float3(1,1,1),1);
+                }else if(_DebugView == 5) // 法线
+                {
+                    return float4(normal*float3(1,1,1),1);
+                }else if(_DebugView == 6) // 菲涅尔
+                {
+                    return float4(fresnel*float3(1,1,1),1);
+                }
 
-                //return float4(float3(1,1,1)*i.ttt,1);
-                //return float4(fff2*float3(1,1,1), 1);
-                return float4((finalColor + fffDiff)*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
+                return float4(1,0,1,0);
+                
             }
             ENDHLSL
         }

@@ -41,13 +41,25 @@
  * 每步的贡献计算：
  *   1. 计算当前步的透射率：T_step = e^(-σ_t * stepSize)
  *   2. 计算消光因子：extinction = 1 - T_step
- *   3. 计算散射贡献：scatter = L * extinction * ω * P(θ)
+ *   3. 计算散射贡献：scatter = L * extinction * ω * P(θ) * (1 - shadow)
  *   4. 累积：totalScatter += scatter * accumulatedTransmittance
  *   5. 更新累积透射率：accumulatedTransmittance *= T_step
  * 
  * 其中 ω = σ_s / σ_t 为散射反照率 (scatterAlbedo)
  * 
- * 四、抖动去伪影
+ * 四、逐点阴影采样
+ * ─────────────────────────────────────────────────────────────────────────
+ * 传统的体积散射使用统一的阴影值，无法准确表现水下阴影变化。
+ * 逐点阴影采样在每个步进点计算世界坐标并采样阴影贴图，
+ * 使水下物体的阴影效果更加精确和真实。
+ * 
+ * 启用方式：
+ *   config.usePerStepShadow = true;
+ * 
+ * 或使用便捷函数：
+ *   FFRayMarchWithPerStepShadow(...)
+ * 
+ * 五、抖动去伪影
  * ─────────────────────────────────────────────────────────────────────────
  * 固定步长会产生带状伪影 (banding artifacts)。
  * 通过在采样位置添加随机偏移 (dithering)，打破规律性，消除伪影。
@@ -59,30 +71,34 @@
  * 1. 基本使用流程：
  *    a) 创建配置：FFRayMarchConfig config = FFCreateDefaultRayMarchConfig();
  *    b) 设置参数：config.stepCount = 8; config.maxDistance = 20.0;
- *    c) 调用计算：float3 scatter = FFRayMarchVolumeScattering(...);
+ *    c) 可选启用逐点阴影：config.usePerStepShadow = true;
+ *    d) 调用计算：float3 scatter = FFRayMarchVolumeScattering(...);
  * 
  * 2. 配置参数说明：
- *    - stepCount      : 步进次数 (1-16)，越多越精确但越慢
- *    - expFactor      : 指数因子 (默认3.0)，控制采样密度分布
- *    - maxDistance    : 最大步进距离，限制计算范围
- *    - jitterStrength : 抖动强度 (0-1)，消除带状伪影
+ *    - stepCount        : 步进次数 (1-16)，越多越精确但越慢
+ *    - expFactor        : 指数因子 (默认3.0)，控制采样密度分布
+ *    - maxDistance      : 最大步进距离，限制计算范围
+ *    - jitterStrength   : 抖动强度 (0-1)，消除带状伪影
+ *    - usePerStepShadow : 是否启用逐点阴影采样（默认 false）
  * 
  * 3. 性能建议：
- *    - 移动端：stepCount = 4-6
- *    - PC端：stepCount = 8-12
- *    - 高质量：stepCount = 16+
+ *    - 移动端：stepCount = 4-6，不启用逐点阴影
+ *    - PC端：stepCount = 8-12，可选启用逐点阴影
+ *    - 高质量：stepCount = 16+，启用逐点阴影
  * 
  * 4. 函数选择指南：
  *    - FFRayMarchVolumeScattering()     : 完整版，指数步进，推荐使用
  *    - FFRayMarchVolumeScatteringLinear(): 线性步进，简单但效果一般
- *    - FFFastVolumeScattering()         : 快速近似，无迭代，性能最佳
+ *    - FFRayMarchWithPerStepShadow()    : 自动启用逐点阴影的便捷函数
  *    - FFRayMarchDeepWater()            : 深水专用，自动设置光线方向
+ *    - FFFastVolumeScattering()         : 快速近似，无迭代，性能最佳
  * 
  * 5. 与主Shader集成示例：
  *    #ifdef _USE_RAY_MARCHING
  *        FFRayMarchConfig rmConfig = FFCreateDefaultRayMarchConfig();
  *        rmConfig.stepCount = (int)_RayMarchSteps;
  *        rmConfig.maxDistance = min(waterDepth, _RayMarchMaxDistance);
+ *        rmConfig.usePerStepShadow = true;  // 启用逐点阴影
  *        
  *        float3 rayDir = -viewDirWS;
  *        rayDir.y = -abs(rayDir.y);
@@ -95,6 +111,12 @@
  *            _PhaseG, 0.0, rmConfig
  *        );
  *    #endif
+ * 
+ * 6. 阴影采样注意事项：
+ *    - 需要主shader中包含阴影相关的 multi_compile：
+ *      #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+ *    - 逐点阴影会增加性能开销（每步一次阴影采样）
+ *    - 对于深水区域，建议减少步数以平衡性能
  * 
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │                           依赖关系                                      │
@@ -138,6 +160,7 @@ struct FFRayMarchConfig
     float expFactor;        // 指数因子，控制采样点分布密度
     float maxDistance;      // 最大步进距离，限制计算范围
     float jitterStrength;   // 抖动强度，用于消除带状伪影
+    bool usePerStepShadow;  // 是否启用逐点阴影采样
 };
 
 /*
@@ -153,6 +176,7 @@ FFRayMarchConfig FFCreateDefaultRayMarchConfig()
     config.expFactor = FF_EXP_FACTOR_DEFAULT;
     config.maxDistance = 100.0;
     config.jitterStrength = 1.0;
+    config.usePerStepShadow = false;
     return config;
 }
 
@@ -225,6 +249,61 @@ float FFGetLinearStepSize(float maxDistance, int stepCount)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 阴影采样函数
+// ═══════════════════════════════════════════════════════════════════════════
+
+/*
+ * FFSampleShadowAtPosition - 在指定世界位置采样阴影
+ * 
+ * 计算给定世界坐标处的阴影值。
+ * 需要主shader中定义了阴影相关的multi_compile。
+ * 
+ * 参数：
+ *   worldPos - 世界空间位置
+ * 
+ * 返回：
+ *   阴影值 [0, 1]，0 = 完全阴影，1 = 完全照亮
+ * 
+ * 注意：
+ *   此函数依赖 URP 的阴影系统，需要主shader中包含：
+ *   #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+ */
+float FFSampleShadowAtPosition(float3 worldPos)
+{
+    float4 shadowCoord = TransformWorldToShadowCoord(worldPos);
+    
+    #if defined(_MAIN_LIGHT_SHADOWS) || defined(_MAIN_LIGHT_SHADOWS_CASCADE) || defined(_MAIN_LIGHT_SHADOWS_SCREEN)
+        ShadowSamplingData shadowSamplingData = GetMainLightShadowSamplingData();
+        float shadowStrength = GetMainLightShadowStrength();
+        return SampleShadowmap(shadowCoord, TEXTURE2D_ARGS(_MainLightShadowmapTexture, sampler_MainLightShadowmapTexture), shadowSamplingData, shadowStrength, false);
+    #else
+        return 1.0;
+    #endif
+}
+
+/*
+ * FFSampleShadowAtPositionFast - 快速阴影采样（简化版）
+ * 
+ * 使用主光源的阴影坐标进行快速采样。
+ * 适用于性能敏感的场景。
+ * 
+ * 参数：
+ *   worldPos - 世界空间位置
+ * 
+ * 返回：
+ *   阴影值 [0, 1]
+ */
+float FFSampleShadowAtPositionFast(float3 worldPos)
+{
+    #if defined(_MAIN_LIGHT_SHADOWS_SCREEN)
+        return 1.0;
+    #else
+        float4 shadowCoord = TransformWorldToShadowCoord(worldPos);
+        return MainLightRealtimeShadow(shadowCoord);
+    #endif
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 散射累积函数
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -291,7 +370,7 @@ float3 FFAccumulateScattering(
  *   viewDir        - 视线方向
  *   lightColor     - 光源颜色
  *   phaseG         - Henyey-Greenstein相位函数参数g
- *   shadowValue    - 阴影值
+ *   shadowValue    - 阴影值（当 config.usePerStepShadow = false 时使用）
  *   config         - 步进配置
  * 
  * 返回：
@@ -303,10 +382,17 @@ float3 FFAccumulateScattering(
  *   3. 预计算相位函数参数
  *   4. 循环步进：
  *      a. 计算当前步位置和步长
- *      b. 计算透射率和消光因子
- *      c. 计算散射贡献并累积
- *      d. 更新累积透射率
+ *      b. 计算当前步进点的世界坐标
+ *      c. 根据配置采样阴影或使用传入的阴影值
+ *      d. 计算透射率和消光因子
+ *      e. 计算散射贡献并累积
+ *      f. 更新累积透射率
  *   5. 返回总散射值
+ * 
+ * 阴影采样说明：
+ *   - 当 config.usePerStepShadow = true 时，每步都会计算当前步进点的世界坐标并采样阴影贴图
+ *   - 当 config.usePerStepShadow = false 时，使用传入的 shadowValue（统一阴影值）
+ *   - 逐点阴影采样更精确但性能开销更大
  */
 float3 FFRayMarchVolumeScattering(
     float3 rayOrigin,
@@ -347,6 +433,17 @@ float3 FFRayMarchVolumeScattering(
         // 计算当前步长
         float stepSize = FFGetExponentialStepSize(t, config.expFactor, config.stepCount, maxDistance);
         
+        // 计算当前步进点的世界坐标
+        float3 currentWorldPos = rayOrigin + rayDirection * currentDistance;
+        
+        // 计算当前步的阴影值
+        float currentShadow = shadowValue;
+        if (config.usePerStepShadow)
+        {
+            currentShadow = 1.0 - FFSampleShadowAtPositionFast(currentWorldPos);
+            //currentShadow = 1.0 - FFSampleShadowAtPosition(currentWorldPos);
+        }
+        
         // 计算当前步的透射率
         float3 stepTransmittance = exp(-extinctionCoeff * stepSize);
         
@@ -355,7 +452,7 @@ float3 FFRayMarchVolumeScattering(
         
         // 计算消光因子和散射贡献
         float3 extinctionFactor = 1.0 - stepTransmittance;
-        float3 scatterContribution = lightColor * extinctionFactor * scatterAlbedo * phaseValue * (1.0 - shadowValue);
+        float3 scatterContribution = lightColor * extinctionFactor * scatterAlbedo * phaseValue * (1.0 - currentShadow);
         
         // 累积散射
         totalScatter += scatterContribution * accumulatedTransmittance;
@@ -376,6 +473,7 @@ float3 FFRayMarchVolumeScattering(
  * 参数与 FFRayMarchVolumeScattering 类似，区别在于：
  *   - 使用固定步长而非指数分布
  *   - 相位函数在循环外预计算（假设各处相同）
+ *   - usePerStepShadow - 是否启用逐点阴影采样
  */
 float3 FFRayMarchVolumeScatteringLinear(
     float3 rayOrigin,
@@ -388,7 +486,8 @@ float3 FFRayMarchVolumeScatteringLinear(
     float3 lightColor,
     float phaseG,
     float shadowValue,
-    int stepCount)
+    int stepCount,
+    bool usePerStepShadow = false)
 {
     // 初始化累积变量
     float3 totalScatter = 0;
@@ -411,12 +510,22 @@ float3 FFRayMarchVolumeScatteringLinear(
         float t = (float(i) + dither) / float(stepCount);
         float currentDistance = t * maxDistance;
         
+        // 计算当前步进点的世界坐标
+        float3 currentWorldPos = rayOrigin + rayDirection * currentDistance;
+        
+        // 计算当前步的阴影值
+        float currentShadow = shadowValue;
+        if (usePerStepShadow)
+        {
+            currentShadow = 1.0 - FFSampleShadowAtPositionFast(currentWorldPos);
+        }
+        
         // 计算透射率和消光因子
         float3 stepTransmittance = exp(-extinctionCoeff * stepSize);
         float3 extinctionFactor = 1.0 - stepTransmittance;
         
         // 计算散射贡献
-        float3 scatterContribution = lightColor * extinctionFactor * scatterAlbedo * phaseValue * (1.0 - shadowValue);
+        float3 scatterContribution = lightColor * extinctionFactor * scatterAlbedo * phaseValue * (1.0 - currentShadow);
         
         // 累积
         totalScatter += scatterContribution * accumulatedTransmittance;
@@ -488,14 +597,22 @@ float3 FFRayMarchWithSceneColor(
  * 自动设置光线方向向下，适合海洋等深水场景。
  * 
  * 参数：
- *   surfacePos  - 水面位置
- *   viewDir     - 视线方向
- *   waterDepth  - 水深
- *   其他参数同上
+ *   surfacePos       - 水面位置
+ *   viewDir          - 视线方向
+ *   waterDepth       - 水深
+ *   extinctionCoeff  - 消光系数
+ *   scatterAlbedo    - 散射反照率
+ *   lightDir         - 光源方向
+ *   lightColor       - 光源颜色
+ *   phaseG           - 相位参数
+ *   shadowValue      - 阴影值（当 usePerStepShadow = false 时使用）
+ *   stepCount        - 步进次数
+ *   usePerStepShadow - 是否启用逐点阴影采样（默认 false）
  * 
  * 特点：
  *   - 光线方向自动向下（y分量为负）
  *   - 最大步进距离限制为水深的2倍
+ *   - 支持逐点阴影采样，使水下阴影更精确
  */
 float3 FFRayMarchDeepWater(
     float3 surfacePos,
@@ -507,12 +624,14 @@ float3 FFRayMarchDeepWater(
     float3 lightColor,
     float phaseG,
     float shadowValue,
-    int stepCount)
+    int stepCount,
+    bool usePerStepShadow = false)
 {
     // 创建配置
     FFRayMarchConfig config = FFCreateDefaultRayMarchConfig();
     config.stepCount = stepCount;
     config.maxDistance = waterDepth;
+    config.usePerStepShadow = usePerStepShadow;
     
     // 计算光线方向：反转视线方向并确保向下
     float3 rayDir = -viewDir;
@@ -527,6 +646,58 @@ float3 FFRayMarchDeepWater(
         extinctionCoeff, scatterAlbedo,
         lightDir, viewDir, lightColor,
         phaseG, shadowValue, config
+    );
+}
+
+/*
+ * FFRayMarchWithPerStepShadow - 带逐点阴影的光线步进（便捷函数）
+ * 
+ * 自动启用逐点阴影采样的光线步进函数。
+ * 适用于需要精确水下阴影效果的场景。
+ * 
+ * 参数：
+ *   rayOrigin      - 光线起点（水面位置）
+ *   rayDirection   - 光线方向（通常指向水下）
+ *   maxDistance    - 最大步进距离
+ *   extinctionCoeff - 消光系数 σ_t = σ_s + σ_a
+ *   scatterAlbedo  - 散射反照率 ω = σ_s / σ_t
+ *   lightDir       - 光源方向
+ *   viewDir        - 视线方向
+ *   lightColor     - 光源颜色
+ *   phaseG         - Henyey-Greenstein相位函数参数g
+ *   stepCount      - 步进次数
+ * 
+ * 返回：
+ *   累积的散射颜色（已考虑逐点阴影）
+ * 
+ * 注意：
+ *   - 此函数会自动启用逐点阴影采样
+ *   - 需要主shader中包含阴影相关的 multi_compile
+ *   - 性能开销比统一阴影版本高
+ */
+float3 FFRayMarchWithPerStepShadow(
+    float3 rayOrigin,
+    float3 rayDirection,
+    float maxDistance,
+    float3 extinctionCoeff,
+    float3 scatterAlbedo,
+    float3 lightDir,
+    float3 viewDir,
+    float3 lightColor,
+    float phaseG,
+    int stepCount)
+{
+    FFRayMarchConfig config = FFCreateDefaultRayMarchConfig();
+    config.stepCount = stepCount;
+    config.maxDistance = maxDistance;
+    config.usePerStepShadow = true;
+    
+    // shadowValue 在逐点阴影模式下被忽略，传入0即可
+    return FFRayMarchVolumeScattering(
+        rayOrigin, rayDirection, maxDistance,
+        extinctionCoeff, scatterAlbedo,
+        lightDir, viewDir, lightColor,
+        phaseG, 0.0, config
     );
 }
 

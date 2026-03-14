@@ -54,6 +54,7 @@ Shader "Custom/ArrayDistributionInstanced_Tutorial"
         [Space(10)]     - 添加垂直间距
         [Header("标题")] - 添加分组标题
 
+
         【常用属性类型】
         
         Color       - 颜色值，显示为颜色选择器

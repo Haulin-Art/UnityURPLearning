@@ -108,15 +108,11 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             
             // ================================= 阴影检测 ==================================
             float4 shadowCoord = TransformWorldToShadowCoord(worldPos);
-
-
             float notInShadow = 1.0;
-            
             #if defined(_MAIN_LIGHT_SHADOWS) || defined(_MAIN_LIGHT_SHADOWS_CASCADE) || defined(_MAIN_LIGHT_SHADOWS_SCREEN)
                 ShadowSamplingData shadowSamplingData = GetMainLightShadowSamplingData();
                 float shadowStrength = GetMainLightShadowStrength();
                 float shadowMask = SampleShadowmap(shadowCoord, TEXTURE2D_ARGS(_MainLightShadowmapTexture, sampler_MainLightShadowmapTexture), shadowSamplingData, shadowStrength, false);
-                
                 notInShadow = shadowMask;
             #else
                 return float4(1, 0, 0, 1);
