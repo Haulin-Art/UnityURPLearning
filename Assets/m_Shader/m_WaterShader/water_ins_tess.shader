@@ -89,7 +89,7 @@ Shader "FluidFlux/water_ins_tess"
         _ScatterColor ("散射颜色", Color) = (0.2, 0.5, 0.8)
         _BSDFAbsorptionColor ("BSDF吸收颜色", Color) = (0.1, 0.2, 0.3)
         _PhaseG ("相位参数G", Range(-1.0, 1.0)) = 0.8
-        _Thickness ("厚度", Range(0.0, 1.0)) = 0.5
+        _Thickness ("厚度", Range(0.0, 20.0)) = 0.5
         _DepthScale ("深度缩放", Range(0.1, 50.0)) = 10.0
         
         //[Header("光线步进设置")]
@@ -149,7 +149,7 @@ Shader "FluidFlux/water_ins_tess"
             #include "ff_WaterRayMarching.hlsl"
             #include "ff_WaterForwardScatter.hlsl"
 
-            //#include "./BSDF/BSDF_SSS.hlsl"
+            #include "./BSDF/BSDF_SSS.hlsl"
             
             // ============================================================================
             // 细分着色器需要 Shader Model 5.0 或更高版本
@@ -532,7 +532,7 @@ Shader "FluidFlux/water_ins_tess"
 
                 o.worldPos = vertexInput.positionWS;
                 o.uv = v.uv;
-                float scale = 20.0;
+                float scale = 100.0;
                 float2 worldUV=1.0- (o.worldPos/scale + 0.5).xz;
                 float2 UV = saturate(worldUV);
 
@@ -567,7 +567,7 @@ Shader "FluidFlux/water_ins_tess"
                 o.ttt = float3(1,1,1)*foamMask; // 这个是用来测试近岸范围的mask的，红色部分是近岸范围，白色部分是远岸范围
 
                 // 正常的水面起伏置换与法线计算
-                float waterSurfMask = smoothstep(0.03,0.1,-sdf); // 在接近岸边的地方没有
+                float waterSurfMask = smoothstep(0.005,0.1,-sdf); // 在接近岸边的地方没有
                 o.norMask = waterSurfMask;
                 float4 waterSurf = waterSurfMask * SAMPLE_TEXTURE3D_LOD(_3DDisMap, sampler_3DDisMap, float3(1.0-frac(o.worldPos.xz*_SurfTiling),frac(_Time.y*_SurfSpeed)),0.0);
 
@@ -644,9 +644,9 @@ Shader "FluidFlux/water_ins_tess"
                 // GPU Instancing：在片元着色器中设置实例ID
                 // 如果需要访问实例属性，这是必须的
                 UNITY_SETUP_INSTANCE_ID(i);
-                float2 newUV = animUV(i.uv,1, _Time.y, _VectorDisMap_ST);
-                newUV = i.newUV;
-                float scale = 20.0;
+                //float2 newUV = animUV(i.uv,1, _Time.y, _VectorDisMap_ST);
+                float2 newUV = i.newUV;
+                float scale = 100.0;
                 float2 worldUV=1.0- (i.worldPos/scale + 0.5).xz;
                 bool infanwei = worldUV.x < 1.0 && worldUV.y < 1.0 &&
                                 worldUV.x > 0.0 && worldUV.y > 0.0; // 处于SDF贴图范围内
@@ -665,17 +665,20 @@ Shader "FluidFlux/water_ins_tess"
             
                 // 远处的海面粗糙度增加，且要让法线更平坦一些，这样看起来才像远处的海面
                 float dist = distance(i.worldPos, _WorldSpaceCameraPos);
-                float roughnessRamp = smoothstep(5.0,40.0,dist);
+                float roughnessRamp = smoothstep(10.0,70.0,dist);
                 Nor = lerp(Nor, float3(0,1,0), roughnessRamp);
                 _Roughness = lerp(_Roughness, 0.3, roughnessRamp);
                 //return float4(float3(Nor.z,Nor.y,-Nor.x)*float3(1,1,1),1.0);
 
                 // ========================= 基础数据准备 ==========================
                 float3 viewDirWS = normalize(i.viewDirWS);
-                float3 normal = normalize(i.norWS);
-                normal = Nor;
+                //float3 normal = normalize(i.norWS);
+                float3 normal = Nor;
                 float sdf = SAMPLE_TEXTURE2D(_SDFTex,sampler_SDFTex,worldUV).x;
 
+                // ========================= 菲涅尔 ===================================
+                float fresnel = FFFresnelWater(normal, viewDirWS, _FresnelF0);
+                fresnel = pow(abs(fresnel), _FresnelPower);
                 // 屏幕UV
                 float2 screenUV = i.screenUV.xy/i.screenUV.w;
 
@@ -694,6 +697,8 @@ Shader "FluidFlux/water_ins_tess"
                 bool isVaildRefr = depthLinear > selfDepthLinear; // 当折射背景深度比水面深度更远时，才认为折射有效，否则就是采样到了水面或者水面前的东西，这时候就不显示折射效果
                 float waterDepth = lerp(linearDepth - selfDepthLinear,depthLinear - selfDepthLinear, isVaildRefr);
                 float rampMask = smoothstep(0.0,2.0,waterDepth);
+
+                
 
                 float3 screenColor = SAMPLE_TEXTURE2D(_ScreenMipMapRT, sampler_ScreenMipMapRT, screenUV).rgb;
                 //return float4(screenColor, 1.0);
@@ -725,11 +730,19 @@ Shader "FluidFlux/water_ins_tess"
                 float finalThickness = lerp(thickness, thicknessTex, mixThickness);
                 finalThickness = lerp(waterDepth,thicknessTex,depMixFactor);
                 //thickness = finalThickness;
-                thickness = lerp(1,thicknessTex,softUVMask);
+                //thickness = lerp(1,thicknessTex,softUVMask);
+                //thickness /= _DepthScale;
+                //thickness = pow(thickness,_Thickness)/_DepthScale;
+                
+                thickness = pow(1.0-fresnel,1.0)*100;
+                //return float4(float3(1,1,1)*waterDepth/30 *thicknessTex , 1.0);
+                
+
+                //float thinDepth = smoothstep(0.45,0.7,i.deformWSPos.y)*thickness*infanwei;
+                //thickness = lerp(waterDepth, thinDepth, infanwei*smoothstep(0.45,0.7,i.deformWSPos.y));
+
 
                 //return float4(float3(1,1,1)*thickness,1);
-
-                float thinDepth = smoothstep(0.45,0.7,i.deformWSPos.y)*thicknessTex*infanwei;
 
                 //return float4(float3(1,1,1)*thicknessTex,1);
                 //return float4(float3(1,1,1)*thinDepth,1);
@@ -765,7 +778,7 @@ Shader "FluidFlux/water_ins_tess"
 
                     // 使用简化的BSDF计算
                     bsdfScattering += 2.0*FFEvaluateWaterScattering(
-                        i.norWS, viewDirWS, lightDir, lightColor,
+                        normal, viewDirWS, lightDir, lightColor,
                         _ScatterColor, _BSDFAbsorptionColor,
                         thickness, _FresnelF0, _PhaseG,
                         0.0
@@ -809,8 +822,7 @@ Shader "FluidFlux/water_ins_tess"
                     _Roughness,_SpecularIntensity
                 );
 
-                float fresnel = FFFresnelWater(normal, viewDirWS, _FresnelF0);
-                fresnel = pow(abs(fresnel), _FresnelPower);
+
                 //return float4(float3(1,1,1)*fresnel,1);
                 // ==================== 环境反射 ====================
                 float3 reflectDir = reflect(-viewDirWS, normal);
@@ -847,12 +859,12 @@ Shader "FluidFlux/water_ins_tess"
 
                 // 计算三层Alpha，第一层是基础的深度透明，第二个是使得岛屿下的看不见的变透明，第三个是靠近海岸的地方透明
                 float depAlpha = lerp(saturate(rampMask*50.0), 1.0, fresnel * 0.5);
-                float sdfAlpha = lerp(1.0,step(sdf,-0.015),infanwei); // 用于将没用使用的部分剔除
+                float sdfAlpha = lerp(1.0,step(sdf,-0.0105),infanwei); // 用于将没用使用的部分剔除
                 float sdfEdgeAlpha = lerp(1.0,smoothstep(0.0,0.05,-sdf),infanwei); // 用于使岸边变得透明，避免突兀的边界
 
                 // 用于修正浮沫在贴图边缘的白边问题
-                float3 foaml =  SAMPLE_TEXTURE2D(_FoamTex,sampler_FoamTex, i.uv * _FoamTex_ST.xy + _FoamTex_ST.zw);
-                float3 foaml2 =  SAMPLE_TEXTURE2D(_FoamTex_2,sampler_FoamTex_2, i.uv * _FoamTex_2_ST.xy + _FoamTex_2_ST.zw);
+                float3 foaml =  SAMPLE_TEXTURE2D(_FoamTex,sampler_FoamTex, worldUV * _FoamTex_ST.xy + _FoamTex_ST.zw);
+                float3 foaml2 =  SAMPLE_TEXTURE2D(_FoamTex_2,sampler_FoamTex_2, worldUV * _FoamTex_2_ST.xy + _FoamTex_2_ST.zw);
                 // 计算三层浮沫的权重，第一层是基于SDF的，第二层是基于矢量置换贴图的，第三层是基于SDF和foamMask的综合权重，这样可以让浮沫在岸边更自然地过渡，同时在远处也有一定的浮沫效果
                 float fMask_1 = (smoothstep(0.2,0.05,-sdf) + i.foamMask)*infanwei; // 在靠近海岸的地方
                 float fMask_2 = i.foamMask; // 在矢量置换图的浪尖

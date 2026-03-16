@@ -13,6 +13,7 @@ Material:
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
   - _USE_RAY_MARCHING
+  - _USE_SSS
   m_InvalidKeywords:
   - _USEPERSAMPOSSHADOW_ON
   m_LightmapFlags: 4
@@ -35,18 +36,18 @@ Material:
         m_Offset: {x: 0, y: 0}
     - _FoamTex:
         m_Texture: {fileID: 2800000, guid: 19945c7d2da13b44fb456d00ea82c01d, type: 3}
-        m_Scale: {x: 1, y: 1}
+        m_Scale: {x: 20, y: 15}
         m_Offset: {x: 0, y: 0}
     - _FoamTex_2:
         m_Texture: {fileID: 2800000, guid: 77e989aa0611b4347a8456baf458b849, type: 3}
-        m_Scale: {x: 1, y: 1}
+        m_Scale: {x: 50, y: 50}
         m_Offset: {x: 0, y: 0}
     - _GradientTex:
-        m_Texture: {fileID: 2800000, guid: af2d136cfd3e74f439b49878266be3de, type: 2}
+        m_Texture: {fileID: 2800000, guid: 5a5494e617e6572478c04e83788175a0, type: 2}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _HeighTex:
-        m_Texture: {fileID: 2800000, guid: 7ed79fcd361954042b9bf774faef84f3, type: 3}
+        m_Texture: {fileID: 2800000, guid: 075421e731e8ad042800b31132a1a10d, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
@@ -58,7 +59,7 @@ Material:
         m_Scale: {x: 2, y: 2}
         m_Offset: {x: 0, y: 0}
     - _SDFTex:
-        m_Texture: {fileID: 2800000, guid: c873071156978d4419db550bd5db079b, type: 2}
+        m_Texture: {fileID: 2800000, guid: 80d86dc3630c51a409d699a8474d917d, type: 2}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _VectorDisMap:
@@ -77,33 +78,33 @@ Material:
     m_Floats:
     - TessFactor: 10
     - Use_perSamPosShadow: 0
-    - _AbsorptionScale: 1.92
+    - _AbsorptionScale: 1.53
     - _CES: 2.76
     - _DebugView: 0
-    - _DepthScale: 0.1
+    - _DepthScale: 1
     - _EnvReflectionStrength: 1
-    - _FoamIntensity: 2
-    - _FoamNorScale: 1
-    - _FresnelF0: 0.0908
-    - _FresnelPower: 1.64
+    - _FoamIntensity: 0
+    - _FoamNorScale: 1.23
+    - _FresnelF0: 0.1
+    - _FresnelPower: 2.18
     - _PhaseG: 0.45
-    - _RayMarchIntensity: 0.66
+    - _RayMarchIntensity: 0.35
     - _RayMarchMaxDistance: 5
     - _RayMarchSteps: 6
     - _RefractionBlurEnd: 5
     - _RefractionBlurStart: 0.3
     - _RefractionBlurStrength: 8.55
-    - _RefractionStrength: 0.0361
+    - _RefractionStrength: 0.053
     - _Roughness: 0.162
-    - _SSSDepthScale: 19.4
-    - _SSSStrength: 1.92
+    - _SSSDepthScale: 18
+    - _SSSStrength: 2.07
     - _SineCount: 2
     - _SpecularIntensity: 1
     - _SpecularPower: 64
     - _Speed: -0.5
     - _SunGlitterIntensity: 0.15
     - _SunGlitterSpeed: 2
-    - _SurfNorScale: 3.42
+    - _SurfNorScale: 1.81
     - _SurfScale: 0.14
     - _SurfScale01: 0.09
     - _SurfScale02: 0.025
@@ -113,7 +114,7 @@ Material:
     - _TessFactor: 15
     - _TessMaxDistance: 30
     - _TessMinDistance: 4
-    - _Thickness: 0.553
+    - _Thickness: 1
     - _Tile01: 0
     - _Tile02: 0
     - _Tile04: 0
@@ -128,26 +129,26 @@ Material:
     - _Tile13: 0
     - _UsePerSamPosShadow: 1
     - _UseRayMarching: 1
-    - _UseSSS: 0
+    - _UseSSS: 1
     - _VDMXOffset: 0
     - _VDMXScale: -0.44
     - _VDMYOffset: 0
     - _VDMYScale: 0.12
-    - _VectorDisMapScale: 3
+    - _VectorDisMapScale: 8
     - _WaveAngle: 1.48
     - _WavePos: 2
     - _WaveScale: 0.75
     - _WaveTilingX: 10
     - _WaveTilingY: 10.3
     - _sineScale: 0.04
-    - _waveUpwellingIntensity: 0.5
+    - _waveUpwellingIntensity: 0.13
     m_Colors:
-    - _AbsorptionColor: {r: 0.69803923, g: 0.83297825, b: 0.8980392, a: 1}
-    - _BSDFAbsorptionColor: {r: 0, g: 0.3366629, b: 0.6603774, a: 1}
+    - _AbsorptionColor: {r: 0.8980392, g: 0.69803923, b: 0.7051979, a: 1}
+    - _BSDFAbsorptionColor: {r: 0.7058824, g: 0.5764706, b: 0.5991496, a: 1}
     - _DeepWaterCol: {r: 0.25490198, g: 0.48235294, b: 0.52156866, a: 1}
     - _FoamColor: {r: 1, g: 0.9934821, b: 0.98427665, a: 1}
     - _SSSColor: {r: 0.4, g: 0.58970916, b: 0.6431373, a: 1}
-    - _SSSFade: {r: 0.8238993, g: 0.6088564, b: 0.6088564, a: 1}
-    - _ScatterColor: {r: 0.7394089, g: 0.77318615, b: 0.84276724, a: 1}
+    - _SSSFade: {r: 1, g: 1, b: 1, a: 1}
+    - _ScatterColor: {r: 0.28365165, g: 0.47116846, b: 0.8930817, a: 1}
     - _WaterCol: {r: 0.3187967, g: 0.509434, b: 0.47464615, a: 1}
   m_BuildTextureStacks: []

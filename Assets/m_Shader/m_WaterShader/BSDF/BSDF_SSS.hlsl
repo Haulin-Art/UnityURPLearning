@@ -16,7 +16,7 @@ struct BSDFParameters
     float SSSDistortion;
     float SSSPower;
     float SSSScale;
-    float4 SSSColor;
+    float3 SSSColor;
 };
 
 float3 BSDF_SSS_Calculate(BSDFParameters para)
