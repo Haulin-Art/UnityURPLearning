@@ -18,6 +18,8 @@ float3 _boundsMin;              // 采样区域包围盒最小点
 float3 _boundsMax;              // 采样区域包围盒最大点
 float4x4 _VPMatrix;             // 主摄像机的视图投影矩阵
 float4x4 _VMatrix;              // 主摄像机的视图矩阵
+// =================== 实例配置 ================================
+int _MaxInstancePerType;        // 每种草类型的最大实例数量（分段式Buffer存储）
 // =================== Tile ================================
 bool _useTileFiltering;         // 是否使用Tile过滤
 int2 _tileGridStartIndex;
@@ -95,7 +97,11 @@ void SegmentedBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_Gr
     int2 currentIndex = _gridStartIndex + id.xy;
     // 2. 计算草的初始XZ世界位置（网格索引 * 草间距 = 基础位置）
     float2 positionXZ = currentIndex * _spacing;
+    
+    // 【越界保护】计算Tile索引并检查边界
+    // Tile网格为8x8，索引必须在0~7范围内，否则会越界访问 _TileActivationStatusR
     int2 correspondingTileIndex = floor((positionXZ + 22.0*0.5+ 22.0*4 -_centerPos)/22.0);
+    if (any(correspondingTileIndex < 0) || any(correspondingTileIndex >= 8)) return;
     if (_TileActivationStatusR[correspondingTileIndex.x + 8*correspondingTileIndex.y]==0) return;
 
 
@@ -199,7 +205,12 @@ void SegmentedBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_Gr
                 uint globalIndex = 0; // 全局索引，样本在其类型内的索引 加上 类型索引偏移量
 
                 InterlockedAdd(_Counters[type],1,localIndex); // 原子操作，更新计数器以及获取局部索引
-                globalIndex = 50000*type + localIndex ; // 第一个样本没有偏移量
+                
+                // 【溢出保护】如果超过每类型最大实例数，跳过写入
+                if (localIndex >= (uint)_MaxInstancePerType) return;
+                
+                // 分段式存储：全局索引 = 类型偏移 + 局部索引
+                globalIndex = (uint)_MaxInstancePerType * type + localIndex;
 
                 _SegmentedBuffer[globalIndex] = positionWS;
             }

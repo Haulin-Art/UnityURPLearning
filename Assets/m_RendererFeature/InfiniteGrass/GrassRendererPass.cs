@@ -11,6 +11,13 @@ using UnityEngine.VFX;
 
 public class GrassRendererPass : ScriptableRendererFeature
 {
+    // =================== 草地系统全局配置常量 ===================
+    /// <summary>
+    /// 每种草类型的最大实例数量（用于分段式Buffer存储）
+    /// Buffer结构：[类型0: 0~MAX-1] [类型1: MAX~2*MAX-1] [类型2: 2*MAX~3*MAX-1] ...
+    /// </summary>
+    public const int MAX_INSTANCE_PER_TYPE = 200000;
+    
     // 输入信息
     [System.Serializable]
     public class Settings
@@ -79,6 +86,15 @@ public class GrassRendererPass : ScriptableRendererFeature
         private ComputeBuffer _numberOfThreadsToCall; // 由有效瓦片数决定的总调用线程组数量
         private ComputeBuffer _countersBuffer; // 储存每个类型的数量的Buffer
         private ComputeBuffer _segmentedBuffer;
+        
+        // Buffer 容量跟踪变量（用于避免每帧重建Buffer，只在容量变化时才重新创建）
+        private int _countersBufferCapacity;           // 计数器Buffer当前容量
+        private int _segmentedBufferCapacity;          // 分段Buffer当前容量
+        private int _tileFilteringBufferCapacity;      // Tile过滤Buffer当前容量
+        private int _tileActivationStatusCapacity;     // Tile激活状态Buffer当前容量
+        private int _numberOfValidTilesCapacity;       // 有效Tile数量Buffer当前容量
+        private int _numberOfThreadsToCallCapacity;    // 线程调用数Buffer当前容量
+        private int _validTilePositionCapacity;        // 有效Tile位置Buffer当前容量
 
 
 
@@ -100,6 +116,41 @@ public class GrassRendererPass : ScriptableRendererFeature
             shaderTagList.Add(new ShaderTagId("UniversalForward"));
             shaderTagList.Add(new ShaderTagId("UniversalForwardOnly"));
         }
+        
+        /// <summary>
+        /// 按需重新分配ComputeBuffer（避免每帧重建，减少GC压力）
+        /// 只有当Buffer为空或容量发生变化时才重新创建
+        /// </summary>
+        /// <param name="buffer">要管理的Buffer引用</param>
+        /// <param name="count">需要的元素数量</param>
+        /// <param name="stride">每个元素的字节大小</param>
+        /// <param name="currentCapacity">当前容量（用于跟踪）</param>
+        /// <param name="type">Buffer类型（默认为Default）</param>
+        private void ReAllocateBufferIfNeeded(ref ComputeBuffer buffer, int count, int stride, 
+            ref int currentCapacity, ComputeBufferType type = ComputeBufferType.Default)
+        {
+            if (buffer == null || currentCapacity != count)
+            {
+                buffer?.Release();
+                buffer = new ComputeBuffer(count, stride, type);
+                currentCapacity = count;
+            }
+        }
+        
+        /// <summary>
+        /// 按需重新分配ComputeBuffer（带名称的重载版本，便于调试）
+        /// </summary>
+        private void ReAllocateBufferIfNeeded(ref ComputeBuffer buffer, int count, int stride, 
+            ref int currentCapacity, ComputeBufferType type, string name)
+        {
+            if (buffer == null || currentCapacity != count)
+            {
+                buffer?.Release();
+                buffer = new ComputeBuffer(count, stride, type);
+                buffer.name = name;
+                currentCapacity = count;
+            }
+        }
         // 初始化渲染纹理
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
@@ -109,6 +160,8 @@ public class GrassRendererPass : ScriptableRendererFeature
                 Debug.Log("请指定材质与CS");
                 return;
             }
+            if(myRendererData.instance == null) return;
+
             RenderingUtils.ReAllocateIfNeeded(ref topOrthographicDepth,
                 new RenderTextureDescriptor(settings.textureSize,settings.textureSize,RenderTextureFormat.RFloat,32),
                 FilterMode.Bilinear);
@@ -136,6 +189,7 @@ public class GrassRendererPass : ScriptableRendererFeature
                 Debug.Log("请指定材质与CS");
                 return;
             }
+            if(myRendererData.instance == null) return;
 
             CommandBuffer cmd = CommandBufferPool.Get(passName);
             Bounds camBounds = CalCamBounds(Camera.main,settings.drawDistance);
@@ -200,27 +254,22 @@ public class GrassRendererPass : ScriptableRendererFeature
 
             // ================== 以下使用compute shader计算草地位置 =================
             int typeCounters = myRendererData.instance.dataArray.Length; // 类型数量,通过获取单例当中的组数量来得知
-            _countersBuffer?.Release();
-            _countersBuffer = new ComputeBuffer(typeCounters, sizeof(uint)); 
-            // 重置计数器
-            uint[] zeroCounters = new uint[2];
+            
+            // 【性能优化】使用 ReAllocateBufferIfNeeded 避免每帧重建 Buffer
+            // 只有当 Buffer 为空或容量发生变化时才重新创建，减少 GC 压力和 GPU 资源抖动
+            // Buffer大小 = 类型数量 × 每类型最大实例数（分段式存储）
+            int segmentedBufferSize = typeCounters * MAX_INSTANCE_PER_TYPE;
+            ReAllocateBufferIfNeeded(ref _countersBuffer, typeCounters, sizeof(uint), ref _countersBufferCapacity);
+            ReAllocateBufferIfNeeded(ref _segmentedBuffer, segmentedBufferSize, sizeof(float) * 3, ref _segmentedBufferCapacity);
+            ReAllocateBufferIfNeeded(ref _tileFilteringBuffer, 64, sizeof(float) * 3, ref _tileFilteringBufferCapacity);
+            ReAllocateBufferIfNeeded(ref _TileActivationStatus, 64, sizeof(int), ref _tileActivationStatusCapacity);
+            ReAllocateBufferIfNeeded(ref _numberOfValidTiles, 1, sizeof(uint), ref _numberOfValidTilesCapacity);
+            ReAllocateBufferIfNeeded(ref _numberOfThreadsToCall, 1, 3 * sizeof(uint), ref _numberOfThreadsToCallCapacity, ComputeBufferType.IndirectArguments);
+            ReAllocateBufferIfNeeded(ref _validTilePosition, 64, sizeof(float) * 3, ref _validTilePositionCapacity);
+            
+            // 重置计数器数据（不重建Buffer，只更新数据）
+            uint[] zeroCounters = new uint[typeCounters];
             _countersBuffer.SetData(zeroCounters);
-            _countersBuffer.SetCounterValue(0);
-
-            _segmentedBuffer?.Release();
-            _segmentedBuffer = new ComputeBuffer((int)(100000 * settings.maxBufferCount) , sizeof(float) * 3);
-
-            // 粗筛的采用Append类型的Compute Buffer，自带一个计数器
-            _tileFilteringBuffer?.Release();
-            _tileFilteringBuffer = new ComputeBuffer(64, sizeof(float) * 3);
-            _TileActivationStatus?.Release();
-            _TileActivationStatus = new ComputeBuffer(64,sizeof(int)); // 总计64个Tile
-            _numberOfValidTiles?.Release();
-            _numberOfValidTiles = new ComputeBuffer(1,sizeof(uint)); // 记录有多少个Tile是激活状态
-            _numberOfThreadsToCall?.Release();
-            _numberOfThreadsToCall = new ComputeBuffer(1,3*sizeof(uint),ComputeBufferType.IndirectArguments);
-            _validTilePosition?.Release();
-            _validTilePosition = new ComputeBuffer(64,sizeof(float) * 3);
 
             // 第一遍Tile过滤
             ComputeTileFilteringPosBuffer(ref cmd,ref _TileActivationStatus,ref _tileFilteringBuffer,
@@ -327,7 +376,7 @@ public class GrassRendererPass : ScriptableRendererFeature
                 Mathf.FloorToInt(camBounds.min.x / spacingX),
                 Mathf.FloorToInt(camBounds.min.z / spacingZ)
             );
-            Debug.Log(gridStartIndex);
+            //Debug.Log(gridStartIndex);
             // ========== 关键修改：使用CommandBuffer设置所有参数 ==========
             cmd.SetComputeFloatParam(cs, "_tileSpacing", 22.0f);
             cmd.SetComputeFloatParam(cs, "_drawDistance", settings.drawDistance);
@@ -345,6 +394,9 @@ public class GrassRendererPass : ScriptableRendererFeature
             cmd.SetComputeVectorParam(cs, "_boundsMax", new Vector4(camBounds.max.x, camBounds.max.y, camBounds.max.z, 0));
             cmd.SetComputeMatrixParam(cs, "_VPMatrix", Camera.main.projectionMatrix * Camera.main.worldToCameraMatrix);
             cmd.SetComputeMatrixParam(cs, "_VMatrix", Camera.main.worldToCameraMatrix);
+            
+            // 【分段式存储配置】传递每类型最大实例数给Compute Shader
+            cmd.SetComputeIntParam(cs, "_MaxInstancePerType", MAX_INSTANCE_PER_TYPE);
 
             cmd.SetComputeTextureParam(cs, kernelID, "_grassHeightTex", topOrthographicDepth);
 

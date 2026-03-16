@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
 using UnityEngine.UIElements;
+using System.Xml;
 [ExecuteAlways]
 public class myRendererData : MonoBehaviour
 {
@@ -14,7 +15,23 @@ public class myRendererData : MonoBehaviour
         public Mesh mesh;
         public Material mat;
     }
+    // 用于测试的debug参数
+    [System.Serializable]
+    public struct m_debug
+    {
+        public bool enableTileView;
+        public Mesh TileMesh;
+    }
+
     public Datas[] dataArray;
+
+
+    public m_debug m_Debug;
+    private Shader tileDebugViewShader; // 用于显示Tile的shader
+    private Material tileDebugViewMat; 
+    private ComputeBuffer tileDebugArgs;
+
+
 
     public int textureSize = 256;
     public float drawDistance = 10.0f;
@@ -23,24 +40,27 @@ public class myRendererData : MonoBehaviour
     public float maxBufferCount = 1.0f;
     public GameObject customCam;
     [SerializeField]private Mesh cacheMesh;
-    public Mesh[] meshArray;
-    public float[] scale;
+
 
     public bool previewVisibleGrassCount = false;
     // 间接渲染参数缓冲区：存储DrawMeshInstancedIndirect所需的参数（索引数、实例数等）
-    public ComputeBuffer argsBuffer;
     public ComputeBuffer[] argsBufferArray;
-    public int counters;
     // 临时缓冲区：用于预览可见草叶数量（调试用，性能开销大）
     public ComputeBuffer tBuffer;
     // 草叶渲染材质（关联前文的GrassBladeShader）
-    public Material grassMaterial;
     [HideInInspector] public static myRendererData instance;
 
     void Awake()
     {
         if (argsBufferArray == null)
             argsBufferArray = new ComputeBuffer[dataArray.Length];
+
+        // 初始化Tile显示Mat
+        tileDebugViewShader = Shader.Find("Hidden/InfiniteGrass/TileDebugView");
+        if (tileDebugViewMat == null)
+        {
+            tileDebugViewMat = new Material(tileDebugViewShader);
+        }
     }
     void OnEnable()
     {
@@ -49,18 +69,17 @@ public class myRendererData : MonoBehaviour
     void OnDisable()
     {
         instance = null;
-        // 释放单个 argsBuffer
-        if (argsBuffer != null)
-        {
-            argsBuffer.Release();
-            argsBuffer = null;
-        }
-
         // 释放临时缓冲区
         if (tBuffer != null)
         {
             tBuffer.Release();
             tBuffer = null;
+        }
+
+        if (tileDebugArgs != null)
+        {
+            tileDebugArgs.Release();
+            tileDebugArgs = null;
         }
 
         // 安全释放 argsBufferArray 内的每一个
@@ -89,7 +108,7 @@ public class myRendererData : MonoBehaviour
         if (Camera.main == null)
             return;
         // 安全检查：间距为0或材质为空时，直接返回（避免无效操作）
-        if (spacing == 0 || grassMaterial == null || cacheMesh == null) return;
+        if (spacing == 0 ||  cacheMesh == null) return;
         // 1. 计算相机的包围盒（基于绘制距离，确定草叶的渲染范围）
         Bounds cameraBounds = CalCamBounds(Camera.main, drawDistance);
         // 2. 计算纹理更新的中心位置（步进式，对齐到阈值的整数倍）
@@ -101,10 +120,6 @@ public class myRendererData : MonoBehaviour
         // 缓冲区大小：1个元素，每个元素包含5个uint（间接渲染的5个参数）
         // 缓冲区类型：IndirectArguments（专门用于间接渲染的参数缓冲区）
         // 3. 确保 argsBuffer 已创建（如果已经存在则复用）
-        if (argsBuffer == null)
-        {
-            argsBuffer = new ComputeBuffer(1, 5 * sizeof(uint), ComputeBufferType.IndirectArguments);
-        }
 
 
         int typeCounts = dataArray.Length;
@@ -120,6 +135,12 @@ public class myRendererData : MonoBehaviour
         if (tBuffer == null)
             tBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Raw);
     
+        // Tile debug buffer
+        if (tileDebugArgs == null)
+        {
+            tileDebugArgs = new ComputeBuffer(1,5*sizeof(uint),ComputeBufferType.IndirectArguments);
+        }
+
         //typeCounts = 2;
         for ( int t = 0 ; t < 2 ; t++)
         {
@@ -145,23 +166,45 @@ public class myRendererData : MonoBehaviour
             // 7. 执行GPU实例化间接渲染（核心：百万级草叶渲染）
             // 参数：草叶网格、子网格索引、材质、渲染范围包围盒、间接参数缓冲区
             MaterialPropertyBlock mpb = new MaterialPropertyBlock();
-            mpb.SetInt("_Grass_Instance_Offset",t*50000);
+            // 【分段式存储】实例偏移 = 类型索引 × 每类型最大实例数
+            mpb.SetInt("_Grass_Instance_Offset", t * GrassRendererPass.MAX_INSTANCE_PER_TYPE);
             //mpb.SetFloat("_GrassScale",scale[t]);
             Graphics.DrawMeshInstancedIndirect(mesh, 0, dataArray[t].mat, cameraBounds, argsBufferArray[t],0,mpb);
         }
-        bool ces = true;
-        if (ces)
+        // 显示 Tile 调试
+        if (m_Debug.enableTileView)
         {
-            Mesh mesh = dataArray[2].mesh;
+            // 要是没有指定mesh直接返回
+            if (m_Debug.TileMesh == null)
+            {
+                m_Debug.enableTileView = false;
+                Debug.Log("需要指定TileMesh");
+                return;
+            }
+            // 确保 tileDebugViewMat 已初始化
+            if (tileDebugViewMat == null)
+            {
+                tileDebugViewShader = Shader.Find("Hidden/InfiniteGrass/TileDebugView");
+                if (tileDebugViewShader != null)
+                {
+                    tileDebugViewMat = new Material(tileDebugViewShader);
+                }
+            }
+            
+            // 安全检查：确保所有必要资源都已准备好
+            if (m_Debug.TileMesh == null || tileDebugViewMat == null || tileDebugArgs == null)
+                return;
+                
+            Mesh mesh = m_Debug.TileMesh;
             uint[] args = new uint[5];
             args[0] = (uint)mesh.GetIndexCount(0);
             args[1] = (uint)(64);
             args[2] = (uint)mesh.GetIndexStart(0);
             args[3] = (uint)mesh.GetBaseVertex(0);
             args[4] = 0;
-            argsBufferArray[2].SetData(args);
+            tileDebugArgs.SetData(args);
 
-            Graphics.DrawMeshInstancedIndirect(mesh, 0, dataArray[2].mat, cameraBounds, argsBufferArray[2]);
+            Graphics.DrawMeshInstancedIndirect(mesh, 0, tileDebugViewMat, cameraBounds, tileDebugArgs);
         }
         bool ces2 = false;
         if (ces2)
@@ -209,7 +252,7 @@ public class myRendererData : MonoBehaviour
     }
     */
     
-    public Bounds camBounds;
+    [HideInInspector]public Bounds camBounds;
 
     void OnDrawGizmos()
     {

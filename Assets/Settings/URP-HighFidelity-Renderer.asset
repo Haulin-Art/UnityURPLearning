@@ -27,7 +27,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f186e895d6bc92c4582f2bdd4755eaac, type: 3}
   m_Name: GrassRendererPass
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   settings:
     renderLayer:
       serializedVersion: 2
@@ -56,6 +56,29 @@ MonoBehaviour:
   m_Active: 0
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: c0be4d37c89af5f4f876513a67de283b, type: 2}
+--- !u!114 &-6080455395541124650
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 637bc24fef7489747b8986bff34e7b81, type: 3}
+  m_Name: HiZGenerationFeature
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  downsampleLevel: 2
+  maxMipCount: 5
+  depthFormat: 14
+  filterMode: 0
+  wrapMode: 1
+  renderPassEvent: 500
+  hiZComputeShader: {fileID: 7200000, guid: 24ddb3ed404f31d459a34b04600a5712, type: 3}
+  debugMaterial: {fileID: 2100000, guid: 6f86a367394f1cd40af1b918f566b441, type: 2}
+  debugStep: 3
+  debugMipLevel: 0
 --- !u!114 &-2947568646573396506
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -68,7 +91,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2a240227cc3e3af48a85deafed9c8364, type: 3}
   m_Name: ScreenMipMapRendererFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   downSampleQuality: 2
   mipLevelCount: 5
   rtFormat: 2
@@ -116,7 +139,8 @@ MonoBehaviour:
   - {fileID: 5253342207327538554}
   - {fileID: -2947568646573396506}
   - {fileID: 5276956939491072028}
-  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d2904559c5501896bb8fa937a0d5377e79ee748e6ede9cdee2118d71cd865c160843b49
+  - {fileID: -6080455395541124650}
+  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d2904559c5501896bb8fa937a0d5377e79ee748e6ede9cdee2118d71cd865c160843b49d6f9298c08e29dab
   m_UseNativeRenderPass: 1
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
@@ -165,6 +189,21 @@ MonoBehaviour:
   m_CopyDepthMode: 0
   m_AccurateGbufferNormals: 0
   m_IntermediateTextureMode: 1
+--- !u!114 &323161158784002534
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cf549f89adfebd145a29ae649981ecb6, type: 3}
+  m_Name: HiZFeature
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  settings: {hiZComputeShader: {fileID: 7200000, guid: 24ddb3ed404f31d459a34b04600a5712,
+      type: 3}, textureSize: 1024, renderPassEvent: 200}
 --- !u!114 &1105617598985902463
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -219,7 +258,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 835781b1e9b0341468aad37328082f39, type: 3}
   m_Name: FrequencyHighlightFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   settings:
     resolution: 512
     threshold: 0.995
@@ -229,7 +268,7 @@ MonoBehaviour:
     highlightShapeSource: {fileID: 2800000, guid: 9d38f2888107b6a42a046d54d0077d5d,
       type: 3}
     highlightShapeScale: {x: 3, y: 3}
-    aspectRatio: 1.8814913
+    aspectRatio: 1.954727
     highlightKernelFrequencyRT: {fileID: 0}
     needUpdateHighlightKernel: 0
     intensity: 0.33

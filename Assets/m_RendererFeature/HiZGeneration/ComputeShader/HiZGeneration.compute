@@ -1,0 +1,54 @@
+#pragma kernel CopyDepth
+#pragma kernel GenerateMip
+
+Texture2D<float> _CameraDepthTexture;
+SamplerState sampler_CameraDepthTexture;
+RWTexture2D<float> _Result;
+
+Texture2D<float> _HiZSource;
+SamplerState sampler_HiZSource;
+uint _SourceWidth;
+uint _SourceHeight;
+uint _DownsampleFactor;
+
+[numthreads(8, 8, 1)]
+void CopyDepth(uint3 id : SV_DispatchThreadID)
+{
+    float2 uv = (float2(id.xy) + 0.5) / float2(_SourceWidth, _SourceHeight);
+    
+    if (_DownsampleFactor == 1)
+    {
+        _Result[id.xy] = _CameraDepthTexture.SampleLevel(sampler_CameraDepthTexture, uv, 0);
+        return;
+    }
+    
+    float maxDepth = 0.0;
+    float2 texelSize = 1.0 / float2(_SourceWidth * _DownsampleFactor, _SourceHeight * _DownsampleFactor);
+    
+    for (uint y = 0; y < _DownsampleFactor; y++)
+    {
+        for (uint x = 0; x < _DownsampleFactor; x++)
+        {
+            float2 offsetUV = uv + (float2(x, y) + 0.5) * texelSize;
+            float depth = _CameraDepthTexture.SampleLevel(sampler_CameraDepthTexture, offsetUV, 0);
+            maxDepth = max(maxDepth, depth);
+        }
+    }
+    
+    _Result[id.xy] = maxDepth;
+}
+
+[numthreads(8, 8, 1)]
+void GenerateMip(uint3 id : SV_DispatchThreadID)
+{
+    uint2 srcPos = id.xy * 2;
+    
+    float d0 = _HiZSource[srcPos];
+    float d1 = _HiZSource[uint2(srcPos.x + 1, srcPos.y)];
+    float d2 = _HiZSource[uint2(srcPos.x, srcPos.y + 1)];
+    float d3 = _HiZSource[uint2(srcPos.x + 1, srcPos.y + 1)];
+    
+    float maxDepth = max(max(d0, d1), max(d2, d3));
+    
+    _Result[id.xy] = maxDepth;
+}

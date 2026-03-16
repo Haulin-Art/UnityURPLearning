@@ -1,4 +1,4 @@
-Shader "Unlit/InstanceCES"
+Shader "Hidden/InfiniteGrass/TileDebugView"
 {
     Properties
     {
