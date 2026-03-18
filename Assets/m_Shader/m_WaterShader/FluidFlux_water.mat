@@ -28,7 +28,7 @@ Material:
     m_TexEnvs:
     - _3DDisMap:
         m_Texture: {fileID: 11700000, guid: 42f3a4de49b427341aca4738b3767f12, type: 2}
-        m_Scale: {x: 1, y: 1}
+        m_Scale: {x: 0.5, y: 0.5}
         m_Offset: {x: 0, y: 0}
     - _EnvCubeMap:
         m_Texture: {fileID: 8900000, guid: 9f1ad7bb367669a43b9c33e80d1c1996, type: 3}
@@ -87,7 +87,7 @@ Material:
     - _FoamNorScale: 1.23
     - _FresnelF0: 0.1
     - _FresnelPower: 2.18
-    - _PhaseG: 0.45
+    - _PhaseG: -0.34
     - _RayMarchIntensity: 0.35
     - _RayMarchMaxDistance: 5
     - _RayMarchSteps: 6
@@ -109,7 +109,7 @@ Material:
     - _SurfScale01: 0.09
     - _SurfScale02: 0.025
     - _SurfSpeed: 0.2
-    - _SurfTiling: 0.27
+    - _SurfTiling: 0.15
     - _TessDistanceFalloff: 7.83
     - _TessFactor: 15
     - _TessMaxDistance: 30

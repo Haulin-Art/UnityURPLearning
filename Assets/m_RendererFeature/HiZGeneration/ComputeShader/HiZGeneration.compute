@@ -1,27 +1,44 @@
+// Hi-Z（Hierarchical Z-Buffer）生成Compute Shader
+// 用于生成层次化深度缓冲，支持GPU遮挡剔除等优化技术
+
 #pragma kernel CopyDepth
 #pragma kernel GenerateMip
 
+// 相机深度纹理（Unity URP内置）
 Texture2D<float> _CameraDepthTexture;
 SamplerState sampler_CameraDepthTexture;
+
+// 输出结果纹理
 RWTexture2D<float> _Result;
 
+// Hi-Z源纹理（上一级Mip或原始深度）
 Texture2D<float> _HiZSource;
 SamplerState sampler_HiZSource;
+
+// 源纹理尺寸
 uint _SourceWidth;
 uint _SourceHeight;
+// 降采样因子
 uint _DownsampleFactor;
 
+/// <summary>
+/// CopyDepth Kernel: 从相机深度纹理复制并降采样
+/// 当降采样因子>1时，取采样区域内最大深度值（保守策略）
+/// </summary>
 [numthreads(8, 8, 1)]
 void CopyDepth(uint3 id : SV_DispatchThreadID)
 {
     float2 uv = (float2(id.xy) + 0.5) / float2(_SourceWidth, _SourceHeight);
     
+    // 无降采样：直接复制
     if (_DownsampleFactor == 1)
     {
         _Result[id.xy] = _CameraDepthTexture.SampleLevel(sampler_CameraDepthTexture, uv, 0);
         return;
     }
     
+    // 有降采样：取采样区域内最大深度
+    // 这是Hi-Z的核心思想——保守深度估计，确保不会错误剔除可见物体
     float maxDepth = 0.0;
     float2 texelSize = 1.0 / float2(_SourceWidth * _DownsampleFactor, _SourceHeight * _DownsampleFactor);
     
@@ -38,16 +55,24 @@ void CopyDepth(uint3 id : SV_DispatchThreadID)
     _Result[id.xy] = maxDepth;
 }
 
+/// <summary>
+/// GenerateMip Kernel: 生成Hi-Z Mip层级
+/// 从上一级Mip生成下一级，每次2x2下采样
+/// 取2x2像素块中的最大深度值，形成层次化深度结构
+/// </summary>
 [numthreads(8, 8, 1)]
 void GenerateMip(uint3 id : SV_DispatchThreadID)
 {
+    // 计算2x2像素块的起始位置
     uint2 srcPos = id.xy * 2;
     
+    // 采样2x2像素块的四个深度值
     float d0 = _HiZSource[srcPos];
     float d1 = _HiZSource[uint2(srcPos.x + 1, srcPos.y)];
     float d2 = _HiZSource[uint2(srcPos.x, srcPos.y + 1)];
     float d3 = _HiZSource[uint2(srcPos.x + 1, srcPos.y + 1)];
     
+    // 取最大深度值（Hi-Z的核心：保守深度估计）
     float maxDepth = max(max(d0, d1), max(d2, d3));
     
     _Result[id.xy] = maxDepth;

@@ -321,7 +321,9 @@ float FFFresnelTransmission(float f0, float cosTheta)
 float FFFresnelExit(float f0, float3 normalWS, float3 viewDirWS)
 {
     float NdotV = saturate(dot(normalWS, viewDirWS));
-    return FFFresnelTransmission(f0, NdotV);
+    float ff = FFFresnelTransmission(f0, NdotV);
+    //ff = lerp(ff,1.0,0.5);
+    return ff;
 }
 
 /*

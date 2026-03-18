@@ -136,7 +136,7 @@
 #define FF_SSS_PATH_SCALE 20.0        // SSS光程缩放因子
 #define FF_SSS_NONLINEAR_STRENGTH 0.5 // 非线性光程强度
 #define FF_SSS_SCATTER_BOOST 1.5      // SSS散射增强因子
-#define FF_BACKLIT_PATH_SCALE 10.0     // 背光透射光程缩放
+#define FF_BACKLIT_PATH_SCALE 1.0     // 背光透射光程缩放
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 结构体定义
@@ -269,6 +269,7 @@ float3 FFCalculateScatteredLight(
     float3 transmittance = exp(-extinctionCoeff * opticalDepth);
     // 消光因子：被散射或吸收的光比例
     float3 extinctionFactor = 1.0 - transmittance;
+    extinctionFactor = 1; // 这个部分不知道怎么回事，可能这样有问题，但是感觉更通透
     // 散射光 = 入射光 * 消光因子 * 散射反照率 * 相位函数
     float3 scatteredLight = lightColor * extinctionFactor * scatterAlbedo * phaseValue;
     // 应用阴影
@@ -432,11 +433,11 @@ float3 FFComputeBacklitTransmission(
     FFIncidentGeometry geo)
 {
     // 计算有效光程
-    float effectivePath = input.thickness * FF_BACKLIT_PATH_SCALE;
+    float effectivePath = input.thickness *  FF_BACKLIT_PATH_SCALE;
     
     // 计算透射率
     float3 transmittance = exp(-input.extinctionCoeff * effectivePath);
-    
+
     // 使用背光专用相位函数（极强前向散射）
     float cosTheta = FFComputePhaseCosTheta(input.viewDirWS, input.lightDirWS);
     float phaseValue = FFPhaseWaterBacklitFast(cosTheta);
@@ -540,11 +541,11 @@ FFWaterBSDFOutput FFEvaluateWaterBSDFSimple(FFWaterBSDFInput input)
     // diffT = 薄层SSS + 背光透射
     float3 thinLayerSSS = FFComputeThinLayerSSS(input, geo, volumeScatter);
     float3 backlitTransmission = FFComputeBacklitTransmission(input, geo);
-    output.diffT = thinLayerSSS + backlitTransmission;
+    output.diffT =thinLayerSSS + backlitTransmission;
     
     // Step 5: 应用出射菲涅尔透射率
     float T_exit = FFFresnelExit(input.fresnel0, input.normalWS, input.viewDirWS);
-    output.totalScattering = (output.diffR + output.diffT) * lerp(T_exit,1.0,0.3) ;
+    output.totalScattering = (output.diffR + output.diffT) * T_exit ;
     
     return output;
 }

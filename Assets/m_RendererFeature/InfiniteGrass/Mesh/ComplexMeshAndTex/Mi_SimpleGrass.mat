@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Mi01_PlaneFog
-  m_Shader: {fileID: 4800000, guid: 087189452d004d34382ea34e46cb8a87, type: 3}
+  m_Name: Mi_SimpleGrass
+  m_Shader: {fileID: 4800000, guid: 8cc21ebe7e364114e98a305e1ddbdd5a, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -23,19 +23,26 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
-    - _Density:
-        m_Texture: {fileID: 2800000, guid: 69b9eb223b4551b448c1f8d3dfd74c6c, type: 3}
+    - _MainTex:
+        m_Texture: {fileID: 2800000, guid: e2a4109a2c457d94f9e52401cc83ce51, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
-    - _Flowmap:
-        m_Texture: {fileID: 0}
+    - _NormalTex:
+        m_Texture: {fileID: 2800000, guid: 06e5388b27a4f7c46a67c9528c263e77, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
-    - _Normal:
-        m_Texture: {fileID: 2800000, guid: ba130e27410892748b40d699e5c8a6c2, type: 3}
+    - _RoughnessTex:
+        m_Texture: {fileID: 2800000, guid: ff98f4eab4d408e498c6cbc8ba3e1c69, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
-    m_Floats: []
-    m_Colors: []
+    m_Floats:
+    - _ColRamp: 2
+    - _Metallic: 0
+    - _Roughness: 0.5
+    - _TotalScale: 3.66
+    m_Colors:
+    - _DownCol: {r: 1, g: 1, b: 1, a: 0}
+    - _GrassScale: {r: 1, g: 1, b: 1, a: 1}
+    - _UpCol: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

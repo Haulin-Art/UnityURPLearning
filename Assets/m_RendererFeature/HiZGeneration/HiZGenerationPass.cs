@@ -2,6 +2,10 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
+/// <summary>
+/// Hi-Z（Hierarchical Z-Buffer）生成渲染Pass
+/// 用于生成层次化深度缓冲，支持遮挡剔除等优化技术
+/// </summary>
 public class HiZGenerationPass : ScriptableRenderPass
 {
     private HiZGenerationFeature.DebugStep debugStep;
@@ -18,11 +22,13 @@ public class HiZGenerationPass : ScriptableRenderPass
     private RTHandle[] hiZMipRTs;
     private int mipCount;
     
-    private int kernelCopyDepth;
     private int kernelGenerateMip;
 
     private const string PROFILER_TAG = "HiZ Generation";
 
+    /// <summary>
+    /// 构造函数：初始化Hi-Z生成Pass
+    /// </summary>
     public HiZGenerationPass(
         HiZGenerationFeature.DebugStep step, 
         int debugMip, 
@@ -48,11 +54,13 @@ public class HiZGenerationPass : ScriptableRenderPass
 
         if (hiZComputeShader != null)
         {
-            kernelCopyDepth = hiZComputeShader.FindKernel("CopyDepth");
             kernelGenerateMip = hiZComputeShader.FindKernel("GenerateMip");
         }
     }
 
+    /// <summary>
+    /// 相机设置时调用：分配和初始化渲染纹理资源
+    /// </summary>
     public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
     {
         int screenWidth = renderingData.cameraData.camera.pixelWidth;
@@ -98,6 +106,9 @@ public class HiZGenerationPass : ScriptableRenderPass
         }
     }
 
+    /// <summary>
+    /// 执行渲染Pass：根据调试步骤执行不同的Hi-Z生成流程
+    /// </summary>
     public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
     {
         if (hiZDepthRT == null || hiZComputeShader == null)
@@ -119,10 +130,12 @@ public class HiZGenerationPass : ScriptableRenderPass
                 case HiZGenerationFeature.DebugStep.GenerateAllMips:
                     ExecuteCopyDepth(cmd, ref renderingData);
                     ExecuteGenerateAllMips(cmd, ref renderingData);
+                    SetGlobalTextures(cmd);
                     break;
                 case HiZGenerationFeature.DebugStep.ShowMipLevel:
                     ExecuteCopyDepth(cmd, ref renderingData);
                     ExecuteGenerateAllMips(cmd, ref renderingData);
+                    SetGlobalTextures(cmd);
                     int mipIndex = Mathf.Clamp(debugMipLevel, 0, mipCount - 1);
                     ExecuteDebugShow(cmd, ref renderingData, hiZMipRTs[mipIndex]);
                     break;
@@ -133,27 +146,19 @@ public class HiZGenerationPass : ScriptableRenderPass
         CommandBufferPool.Release(cmd);
     }
 
+    /// <summary>
+    /// 复制相机深度缓冲到Hi-Z深度纹理
+    /// </summary>
     private void ExecuteCopyDepth(CommandBuffer cmd, ref RenderingData renderingData)
     {
-        int screenWidth = renderingData.cameraData.camera.pixelWidth;
-        int screenHeight = renderingData.cameraData.camera.pixelHeight;
-
-        int width = Mathf.Max(1, screenWidth / downsampleFactor);
-        int height = Mathf.Max(1, screenHeight / downsampleFactor);
-
-        cmd.SetComputeTextureParam(hiZComputeShader, kernelCopyDepth, "_Result", hiZDepthRT);
-        cmd.SetComputeTextureParam(hiZComputeShader, kernelCopyDepth, "_CameraDepthTexture", 
-            renderingData.cameraData.renderer.cameraDepthTargetHandle);
-        cmd.SetComputeIntParam(hiZComputeShader, "_SourceWidth", width);
-        cmd.SetComputeIntParam(hiZComputeShader, "_SourceHeight", height);
-        cmd.SetComputeIntParam(hiZComputeShader, "_DownsampleFactor", downsampleFactor);
-
-        int threadGroupsX = Mathf.CeilToInt(width / 8.0f);
-        int threadGroupsY = Mathf.CeilToInt(height / 8.0f);
-
-        cmd.DispatchCompute(hiZComputeShader, kernelCopyDepth, threadGroupsX, threadGroupsY, 1);
+        RTHandle cameraDepth = renderingData.cameraData.renderer.cameraDepthTargetHandle;
+        cmd.Blit(cameraDepth, hiZDepthRT);
     }
 
+    /// <summary>
+    /// 生成所有Hi-Z Mip层级
+    /// 每个层级取上一层级2x2像素的最大深度值，形成层次化深度结构
+    /// </summary>
     private void ExecuteGenerateAllMips(CommandBuffer cmd, ref RenderingData renderingData)
     {
         int screenWidth = renderingData.cameraData.camera.pixelWidth;
@@ -187,6 +192,23 @@ public class HiZGenerationPass : ScriptableRenderPass
         }
     }
 
+    /// <summary>
+    /// 将Hi-Z纹理注册为全局Shader变量，供其他Pass或Shader使用
+    /// _HiZDepthTexture: 原始深度副本
+    /// _HiZMip0Texture ~ _HiZMipNTexture: 各级下采样深度纹理
+    /// </summary>
+    private void SetGlobalTextures(CommandBuffer cmd)
+    {
+        cmd.SetGlobalTexture("_HiZDepthTexture", hiZDepthRT);
+        for (int i = 0; i < mipCount; i++)
+        {
+            cmd.SetGlobalTexture($"_HiZMip{i}Texture", hiZMipRTs[i]);
+        }
+    }
+
+    /// <summary>
+    /// 调试显示：将指定的Hi-Z纹理Blit到屏幕
+    /// </summary>
     private void ExecuteDebugShow(CommandBuffer cmd, ref RenderingData renderingData, RTHandle sourceRT)
     {
         if (debugMaterial == null || sourceRT == null)
@@ -202,6 +224,9 @@ public class HiZGenerationPass : ScriptableRenderPass
     {
     }
 
+    /// <summary>
+    /// 释放渲染纹理资源
+    /// </summary>
     public void Dispose()
     {
         hiZDepthRT?.Release();
@@ -211,11 +236,17 @@ public class HiZGenerationPass : ScriptableRenderPass
         }
     }
 
+    /// <summary>
+    /// 获取Hi-Z深度纹理（原始副本）
+    /// </summary>
     public RTHandle GetHiZDepthRT()
     {
         return hiZDepthRT;
     }
 
+    /// <summary>
+    /// 获取指定层级的Hi-Z Mip纹理
+    /// </summary>
     public RTHandle GetHiZMipRT(int level)
     {
         if (level >= 0 && level < hiZMipRTs.Length)
@@ -223,6 +254,9 @@ public class HiZGenerationPass : ScriptableRenderPass
         return null;
     }
 
+    /// <summary>
+    /// 获取实际生成的Mip层级数量
+    /// </summary>
     public int GetMipCount()
     {
         return mipCount;

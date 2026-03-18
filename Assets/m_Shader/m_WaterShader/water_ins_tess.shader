@@ -550,6 +550,7 @@ Shader "FluidFlux/water_ins_tess"
                 // 计算法线，这里需要注意的是，计算法线用的是世界坐标采样，因此，用这个映射过的世界坐标采样后
                 // 得到的矢量位移信息转换到世界空间后，得在加上偏移后的世界位置，这样差分得到的法向才是对的
                 float sdfMask = step(sdf,-0.01);
+                sdfMask = smoothstep(-0.01,0.01,-sdf);
                 float mask = sdfMask*smoothstep(0.5,0.45,abs(UV.x-0.5)) * smoothstep(0.5,0.45,abs(UV.y-0.5));
 
                 float3 wp  = o.worldPos+TransformObjectToWorld(vdm*mask);
@@ -578,10 +579,20 @@ Shader "FluidFlux/water_ins_tess"
                 float3 deformWSPos = TransformObjectToWorld(newPos);
 
                 // 处理浪花上涌部分
+                float mmm = smoothstep(0.12,0.0,-sdf)*o.newUV.x;
+                // 这个遮罩是浪花上涌的时候前面会是空的，所以将浪最前面的部分遮罩弄出来，到时候把这部分往下移动
+                float langqian = smoothstep(0.7,1.0,o.newUV.x)*smoothstep(0.09,0.0,-sdf);
                 float2 newWorldUV=1.0- (deformWSPos/scale + 0.5).xz;
                 float upwell = SAMPLE_TEXTURE2D_LOD(_HeighTex, sampler_HeighTex, newWorldUV, 0.0).x;
-                deformWSPos += float3(0,1,0) * upwell * _waveUpwellingIntensity * mask ;
+                //deformWSPos += float3(0,1,0) * upwell * _waveUpwellingIntensity * mask ;
+                deformWSPos.xz += mmm*(-gradient*4.0);
+                deformWSPos.y += pow(mmm,2.0)*1.0 - langqian*1.0 ;
+                //deformWSPos.y += upwell;
                 deformWSPos.y = lerp(-1,deformWSPos.y,sdfMask); // 只有在近岸范围内才有浪花上涌的效果，远处的海面就没有了
+
+                
+
+                o.ttt = langqian*float3(1,1,1);
 
                 //o.pos = TransformObjectToHClip(newPos);
                 o.pos = TransformWorldToHClip(deformWSPos);
@@ -679,6 +690,7 @@ Shader "FluidFlux/water_ins_tess"
                 // ========================= 菲涅尔 ===================================
                 float fresnel = FFFresnelWater(normal, viewDirWS, _FresnelF0);
                 fresnel = pow(abs(fresnel), _FresnelPower);
+                fresnel *= smoothstep(0.5,3.0,length(_WorldSpaceCameraPos - i.deformWSPos));
                 // 屏幕UV
                 float2 screenUV = i.screenUV.xy/i.screenUV.w;
 
@@ -714,6 +726,8 @@ Shader "FluidFlux/water_ins_tess"
                 float3 lightDir = normalize(ld.direction);
                 float3 lightColor = ld.color;
                 
+                //return float4(float3(1,1,1)*dot(normal,lightDir),1);
+
                 // 根据水深应用水的吸收效果
                 refractionColor = FFApplyWaterAbsorption(refractionColor, waterDepth*_AbsorptionScale, _AbsorptionColor);
                 
@@ -734,7 +748,7 @@ Shader "FluidFlux/water_ins_tess"
                 //thickness /= _DepthScale;
                 //thickness = pow(thickness,_Thickness)/_DepthScale;
                 
-                thickness = pow(1.0-fresnel,1.0)*100;
+                thickness = pow(1.0-fresnel,1.0)*1;
                 //return float4(float3(1,1,1)*waterDepth/30 *thicknessTex , 1.0);
                 
 
@@ -787,7 +801,7 @@ Shader "FluidFlux/water_ins_tess"
                 #else
                     // 使用简化的BSDF计算
                     bsdfScattering = FFEvaluateWaterScattering(
-                        i.norWS, viewDirWS, lightDir, lightColor,
+                        normal, viewDirWS, lightDir, lightColor,
                         _ScatterColor, _BSDFAbsorptionColor,
                         thickness, _FresnelF0, _PhaseG,
                         0.0
@@ -862,6 +876,8 @@ Shader "FluidFlux/water_ins_tess"
                 float sdfAlpha = lerp(1.0,step(sdf,-0.0105),infanwei); // 用于将没用使用的部分剔除
                 float sdfEdgeAlpha = lerp(1.0,smoothstep(0.0,0.05,-sdf),infanwei); // 用于使岸边变得透明，避免突兀的边界
 
+                //return float4(float3(1,1,1)*sdfEdgeAlpha,1);
+
                 // 用于修正浮沫在贴图边缘的白边问题
                 float3 foaml =  SAMPLE_TEXTURE2D(_FoamTex,sampler_FoamTex, worldUV * _FoamTex_ST.xy + _FoamTex_ST.zw);
                 float3 foaml2 =  SAMPLE_TEXTURE2D(_FoamTex_2,sampler_FoamTex_2, worldUV * _FoamTex_2_ST.xy + _FoamTex_2_ST.zw);
@@ -890,6 +906,8 @@ Shader "FluidFlux/water_ins_tess"
                 fffDiff = lerp(fffDiff,1.0,0.3);
                 fffDiff *= clamp(totalFoam* _FoamIntensity,0.0,1.0)  ;
                 float3 foamCol = _FoamColor*fffDiff;
+
+                //return float4(i.ttt,1.0);
 
                 if(_DebugView == 0) // 最终结果
                 {

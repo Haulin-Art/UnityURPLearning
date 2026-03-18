@@ -1003,7 +1003,7 @@
     "m_SourceType": 1,
     "m_FunctionName": "SmoothStep",
     "m_FunctionSource": "",
-    "m_FunctionBody": "float sm = smoothstep(2.7,3.2,inFloat+2.0);\n\noutFloat = pow(lerp(sm,1.0,0.7),2.0);"
+    "m_FunctionBody": "float sm = smoothstep(2.8,3.0,inFloat+2.0);\n\noutFloat = pow(lerp(sm,1.0,0.7),2.0);"
 }
 
 {

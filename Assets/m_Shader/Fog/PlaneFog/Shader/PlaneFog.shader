@@ -3,8 +3,12 @@ Shader "Unlit/PlaneFog"
     Properties
     {
         _Density ("密度纹理", 2D) = "white" {}
-        _Normal ("法向纹理",2D) = "blue" {}
+        _Normal ("法向纹理",2D) = "bump" {}
         _Flowmap ("流动贴图",2D) = "black" {}
+        _FlowSpeed ("流动速度", Range(0, 2)) = 0.5
+        _FlowIntensity ("流动强度", Range(0, 1)) = 0.3
+        _FogColor ("雾气颜色", Color) = (1, 1, 1, 1)
+        _AmbientStrength ("环境光强度", Range(0, 1)) = 0.2
     }
     SubShader
     {
@@ -29,6 +33,11 @@ Shader "Unlit/PlaneFog"
             TEXTURE2D(_Density);SAMPLER(sampler_Density);
             TEXTURE2D(_Normal);SAMPLER(sampler_Normal);
             TEXTURE2D(_Flowmap);SAMPLER(sampler_Flowmap);
+            
+            float _FlowSpeed;
+            float _FlowIntensity;
+            float4 _FogColor;
+            float _AmbientStrength;
 
             struct appdata
             {
@@ -85,25 +94,34 @@ Shader "Unlit/PlaneFog"
 
             float4 frag (v2f i) : SV_Target
             {
-                float3 norTS = DecodeNormalRGB(SAMPLE_TEXTURE2D(_Normal,sampler_Normal,i.uv));
-
-                float3x3 TBN = float3x3(i.tangent.xyz,i.tangent.w*cross(i.normal.xyz,i.tangent.xyz),i.normal.xyz);
-                float3 norWS = normalize(mul(norTS,TBN));
-                norWS = float3(norWS.x,-norWS.y,norWS.z);
+                float2 flowUV = SAMPLE_TEXTURE2D(_Flowmap, sampler_Flowmap, i.uv).rg * 2.0 - 1.0;
+                float phase0 = frac(_Time.y * _FlowSpeed);
+                float phase1 = frac(phase0 + 0.5);
                 
-                float trans = SAMPLE_TEXTURE2D(_Density,sampler_Density,i.uv).x;
-                //float dis = length(float3(i.posWS-_CameraWorldPos.xyz));
-                //float disFade = smoothstep(5.0,20.0,dis);
-                //trans *= disFade;
+                float2 uv0 = i.uv + flowUV * phase0 * _FlowIntensity;
+                float2 uv1 = i.uv + flowUV * phase1 * _FlowIntensity;
+                
+                float trans0 = SAMPLE_TEXTURE2D(_Density, sampler_Density, uv0).r;
+                float trans1 = SAMPLE_TEXTURE2D(_Density, sampler_Density, uv1).r;
+                
+                float flowWeight = abs(phase0 - 0.5) * 2.0;
+                float trans = lerp(trans0, trans1, flowWeight);
+                
+                float3 norTS0 = DecodeNormalRGB(SAMPLE_TEXTURE2D(_Normal, sampler_Normal, uv0));
+                float3 norTS1 = DecodeNormalRGB(SAMPLE_TEXTURE2D(_Normal, sampler_Normal, uv1));
+                float3 norTS = lerp(norTS0, norTS1, flowWeight);
 
-
+                float3x3 TBN = float3x3(i.tangent.xyz, i.tangent.w * cross(i.normal.xyz, i.tangent.xyz), i.normal.xyz);
+                float3 norWS = normalize(mul(norTS, TBN));
+                norWS = float3(norWS.x, -norWS.y, norWS.z);
+                
                 Light ld = GetMainLight();
-                float3 lightDir = normalize(ld.direction); // 主光源方向（世界空间，ForwardBase通道）
+                float3 lightDir = normalize(ld.direction);
                 float3 lightColor = ld.color;
-                float diff = max(0,dot(lightDir,norWS));
-
-                //return float4(norWS,1.0);
-                return float4(diff*float3(1,1,1),trans);
+                float diff = saturate(dot(lightDir, norWS));
+                
+                float3 finalColor = _FogColor.rgb * lightColor * (diff + _AmbientStrength);
+                return float4(finalColor, trans);
             }
             ENDHLSL
         }
