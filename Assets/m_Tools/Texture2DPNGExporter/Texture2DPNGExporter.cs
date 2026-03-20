@@ -13,6 +13,7 @@ public class Texture2DPNGExporter : EditorWindow
     private Texture2D sourceTexture;
     private string exportPath = "Exports";
     private string fileName = "";
+    private bool enableNormalize = false;
 
     private void OnGUI()
     {
@@ -57,6 +58,14 @@ public class Texture2DPNGExporter : EditorWindow
 
         fileName = EditorGUILayout.TextField("File Name", fileName);
 
+        EditorGUILayout.Space(5);
+
+        enableNormalize = EditorGUILayout.Toggle("Enable Normalize", enableNormalize);
+        if (enableNormalize)
+        {
+            EditorGUILayout.HelpBox("规格化: 值 = 原值 * 0.5 + 0.5\n将 [-1, 1] 范围映射到 [0, 1] 范围", MessageType.Info);
+        }
+
         EditorGUILayout.Space(10);
 
         EditorGUI.BeginDisabledGroup(sourceTexture == null);
@@ -92,6 +101,16 @@ public class Texture2DPNGExporter : EditorWindow
         string filePath = Path.Combine(fullPath, $"{fileName}.png");
 
         Texture2D exportTexture = GetReadableTexture(sourceTexture);
+
+        if (enableNormalize)
+        {
+            Texture2D normalizedTexture = NormalizeTexture(exportTexture);
+            if (exportTexture != sourceTexture)
+            {
+                DestroyImmediate(exportTexture);
+            }
+            exportTexture = normalizedTexture;
+        }
 
         byte[] pngData = exportTexture.EncodeToPNG();
         
@@ -137,5 +156,23 @@ public class Texture2DPNGExporter : EditorWindow
         }
 
         return source;
+    }
+
+    private Texture2D NormalizeTexture(Texture2D source)
+    {
+        Texture2D normalizedTexture = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+        Color[] pixels = source.GetPixels();
+        
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i].r = pixels[i].r * 0.5f + 0.5f;
+            pixels[i].g = pixels[i].g * 0.5f + 0.5f;
+            pixels[i].b = pixels[i].b * 0.5f + 0.5f;
+        }
+        
+        normalizedTexture.SetPixels(pixels);
+        normalizedTexture.Apply();
+        
+        return normalizedTexture;
     }
 }

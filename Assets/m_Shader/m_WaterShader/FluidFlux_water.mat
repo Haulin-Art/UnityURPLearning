@@ -78,7 +78,7 @@ Material:
     m_Floats:
     - TessFactor: 10
     - Use_perSamPosShadow: 0
-    - _AbsorptionScale: 1.53
+    - _AbsorptionScale: 6.37
     - _CES: 2.76
     - _DebugView: 0
     - _DepthScale: 1
@@ -87,25 +87,25 @@ Material:
     - _FoamNorScale: 1.23
     - _FresnelF0: 0.1
     - _FresnelPower: 2.18
-    - _PhaseG: -0.34
-    - _RayMarchIntensity: 0.35
+    - _PhaseG: 0.49
+    - _RayMarchIntensity: 1.1
     - _RayMarchMaxDistance: 5
     - _RayMarchSteps: 6
     - _RefractionBlurEnd: 5
     - _RefractionBlurStart: 0.3
-    - _RefractionBlurStrength: 8.55
-    - _RefractionStrength: 0.053
+    - _RefractionBlurStrength: 9.83
+    - _RefractionStrength: 0.0694
     - _Roughness: 0.162
     - _SSSDepthScale: 18
-    - _SSSStrength: 2.07
+    - _SSSStrength: 1.03
     - _SineCount: 2
     - _SpecularIntensity: 1
     - _SpecularPower: 64
     - _Speed: -0.5
     - _SunGlitterIntensity: 0.15
     - _SunGlitterSpeed: 2
-    - _SurfNorScale: 1.81
-    - _SurfScale: 0.14
+    - _SurfNorScale: 3.2
+    - _SurfScale: 0.12
     - _SurfScale01: 0.09
     - _SurfScale02: 0.025
     - _SurfSpeed: 0.2
@@ -136,7 +136,7 @@ Material:
     - _VDMYScale: 0.12
     - _VectorDisMapScale: 8
     - _WaveAngle: 1.48
-    - _WavePos: 2
+    - _WavePos: 1.94
     - _WaveScale: 0.75
     - _WaveTilingX: 10
     - _WaveTilingY: 10.3

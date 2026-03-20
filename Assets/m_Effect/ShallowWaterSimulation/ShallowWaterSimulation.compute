@@ -1,0 +1,110 @@
+#pragma kernel AdvectionKernel
+
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+// 速度场纹理
+Texture2D<float2> VelocityRead;
+RWTexture2D<float2> VelocityWrite;
+
+// 高度场纹理
+Texture2D<float> HeightRead;
+RWTexture2D<float> HeightWrite;
+
+// 压力场纹理（用于Debug可视化）
+RWTexture2D<float2> PressureWrite;
+
+// 通用参数
+float texSize;
+float dt;
+float advectSpeed;
+float damping;
+float pressureStrength;
+
+// 源参数
+float2 sourcePos;
+float sourceRadius;
+float velocityStrength;
+float heightStrength;
+bool enableSource;
+
+[numthreads(8, 8, 1)]
+void AdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixelPos = id.xy;
+    float2 uv = ((float2)pixelPos + 0.5) / texSize;
+    
+    // 像素间距（UV空间）
+    float h = 1.0 / texSize;
+
+    // ========== 1. 读取当前状态 ==========
+    float2 velocity = VelocityRead.SampleLevel(samplerLinearClamp, uv, 0);
+    float height = HeightRead.SampleLevel(samplerLinearClamp, uv, 0);
+
+    // ========== 2. 平流（半拉格朗日方法）==========
+    float2 adUV = uv - advectSpeed * velocity * dt;
+    adUV = clamp(adUV, 0.0, 1.0);
+
+    // 速度平流
+    float2 newVelocity = VelocityRead.SampleLevel(samplerLinearClamp, adUV, 0);
+
+    // 高度平流
+    float newHeight = HeightRead.SampleLevel(samplerLinearClamp, adUV, 0);
+
+    // ========== 3. 压力项（高度梯度 → 速度）==========
+    // 计算高度梯度 ∇h（使用中心差分）
+    float hR = HeightRead.SampleLevel(samplerLinearClamp, uv + float2(h, 0), 0);
+    float hL = HeightRead.SampleLevel(samplerLinearClamp, uv - float2(h, 0), 0);
+    float hD = HeightRead.SampleLevel(samplerLinearClamp, uv + float2(0, h), 0);
+    float hU = HeightRead.SampleLevel(samplerLinearClamp, uv - float2(0, h), 0);
+
+    float dhdx = (hR - hL) * 0.5;
+    float dhdy = (hD - hU) * 0.5;
+    float2 heightGradient = float2(dhdx, dhdy);
+
+    // 压力项：速度变化 = -g * ∇h * dt
+    float2 pressureForce = -pressureStrength * heightGradient * dt;
+    
+    // 应用压力项到速度！
+    newVelocity += pressureForce;
+
+    // 输出压力场（Debug）
+    PressureWrite[pixelPos] = pressureForce;
+
+    // ========== 4. 连续性方程（速度散度 → 高度变化）==========
+    // 计算速度散度 ∇·v
+    float2 vR = VelocityRead.SampleLevel(samplerLinearClamp, uv + float2(h, 0), 0);
+    float2 vL = VelocityRead.SampleLevel(samplerLinearClamp, uv - float2(h, 0), 0);
+    float2 vD = VelocityRead.SampleLevel(samplerLinearClamp, uv + float2(0, h), 0);
+    float2 vU = VelocityRead.SampleLevel(samplerLinearClamp, uv - float2(0, h), 0);
+
+    float divergence = (vR.x - vL.x + vD.y - vU.y) * 0.5;
+
+    // 连续性方程：高度变化 = -∇·v * dt
+    float heightChange = -divergence * dt;
+    
+    // 应用连续性方程到高度！
+    newHeight += heightChange;
+
+    // ========== 5. 添加源 ==========
+    if (enableSource)
+    {
+        float dist = distance(uv, sourcePos);
+        if (dist < sourceRadius)
+        {
+            float factor = 1.0 - smoothstep(0.0, sourceRadius, dist);
+            newHeight += heightStrength * factor * dt;
+        }
+    }
+
+    // ========== 6. 衰减 ==========
+    newVelocity = lerp(newVelocity, float2(0.0, 0.0), damping);
+    newHeight = lerp(newHeight, 0.0, damping);
+
+    VelocityWrite[pixelPos] = newVelocity;
+    HeightWrite[pixelPos] = newHeight;
+}

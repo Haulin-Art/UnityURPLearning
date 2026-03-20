@@ -1,0 +1,357 @@
+#pragma kernel AdvectionKernel
+#pragma kernel PressureKernel
+#pragma kernel ProjectionKernel
+#pragma kernel DyeKernel
+#pragma kernel DebugKernel
+
+#include "UnityCG.cginc"
+
+// 模拟参数
+float texSize;          // 纹理大小
+float dt;               // 时间步长
+float advectSpeed;      // 平流速度
+float2 attenuation;     // 速度衰减与染料衰减
+
+// 射线检测源参数
+float2 sourceUV;        // 射线检测到的UV位置
+int isHit;              // 是否命中目标
+float2 sourceDelta;     // UV变化量（用于计算力的方向）
+float forceScale;       // 力的大小缩放
+float radius;           // 画笔半径
+
+// UV跳跃贴图参数
+Texture2D<float2> UVJumpMap;  // UV跳跃贴图（RG通道存储跳跃目标UV）
+int useUVJump;                // 是否启用UV跳跃功能
+
+// 重力方向图参数
+Texture2D<float2> GravityMap; // 重力方向贴图（RG通道存储方向，范围0~1）
+int useGravityMap;            // 是否启用重力图
+float gravityStrength;        // 重力强度
+
+// 调试模式参数
+// 0: None, 1: ShowUVJumpMap, 2: ShowBacktracedUV, 3: ShowJumpedUV, 4: ShowVelocityField, 5: ShowSourcePosition, 6: ShowGravityMap
+int debugMode;
+
+// 纹理采样器（线性插值）
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+// 读写纹理
+RWTexture2D<float2> VelocityRead;
+RWTexture2D<float2> VelocityWrite;
+RWTexture2D<float> PressureRead;
+RWTexture2D<float> PressureWrite;
+RWTexture2D<float3> DyeRead;
+RWTexture2D<float3> DyeWrite;
+RWTexture2D<float4> DebugOutput;  // 调试输出纹理
+
+// 只读纹理（用于采样器采样）
+Texture2D<float2> VelocityTex;
+Texture2D<float> PressureTex;
+Texture2D<float3> DyeTex;
+
+/// <summary>
+/// UV跳跃函数：通过UV跳跃图获取最终采样UV
+/// </summary>
+/// <param name="backtracedUV">回溯后的UV坐标</param>
+/// <returns>跳跃后的UV坐标</returns>
+float2 ApplyUVJump(float2 backtracedUV)
+{
+    // 如果未启用UV跳跃功能，直接返回原UV
+    if (useUVJump == 0)
+    {
+        return backtracedUV;
+    }
+
+    // 采样UV跳跃图
+    float2 jumpUV = UVJumpMap.SampleLevel(samplerLinearClamp, backtracedUV, 0).xy;
+
+    // 判断是否需要跳跃（RG通道值不为0表示需要跳跃）
+    // 跳跃图在边界区域存储跳跃目标UV，非边界区域存储(0,0)
+    float jumpMask = step(0.001, length(jumpUV));
+
+    // 如果跳跃UV有效，则使用跳跃UV，否则使用原UV
+    return lerp(backtracedUV, jumpUV, jumpMask);
+}
+
+/// <summary>
+/// 获取重力方向（从重力图采样并映射到-1~1）
+/// </summary>
+/// <param name="uv">当前UV坐标</param>
+/// <returns>重力方向向量（范围-1~1）</returns>
+float2 GetGravityDirection(float2 uv)
+{
+    // 如果未启用重力图，返回零向量
+    if (useGravityMap == 0)
+    {
+        return float2(0, 0);
+    }
+
+    // 采样重力图（RG通道范围0~1）
+    float2 gravityDir = GravityMap.SampleLevel(samplerLinearClamp, uv, 0).xy;
+
+    // 映射到-1~1范围
+    gravityDir = gravityDir * 2.0 - 1.0;
+
+    return gravityDir;
+}
+
+/// <summary>
+/// 平流核：计算速度场的平流和扩散
+/// </summary>
+[numthreads(8, 8, 1)]
+void AdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    // hlsl的SampleLevel函数默认uv坐标对应的是像素中心
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+    
+    // 读取历史速度
+    float2 old_velocity = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+    
+    // 半拉格朗日法：回溯UV
+    float2 backtracedUV = uv - advectSpeed * old_velocity * dt;
+    backtracedUV = clamp(backtracedUV, 0.0, 1.0);
+
+    // 应用UV跳跃
+    float2 adUV = ApplyUVJump(backtracedUV);
+
+    // 采样周围像素进行扩散
+    float2 w = float2(1.0 / texSize, 0.0);
+    float2 adData = VelocityTex.SampleLevel(samplerLinearClamp, adUV, 0).xy;
+    float2 adr = VelocityTex.SampleLevel(samplerLinearClamp, adUV + w.xy, 0).xy;
+    float2 adl = VelocityTex.SampleLevel(samplerLinearClamp, adUV - w.xy, 0).xy;
+    float2 add = VelocityTex.SampleLevel(samplerLinearClamp, adUV + w.yx, 0).xy;
+    float2 adu = VelocityTex.SampleLevel(samplerLinearClamp, adUV - w.yx, 0).xy;
+
+    // 混合扩散结果
+    float2 velocity = adData.xy;
+    float2 diffusion = (adData + adr + adl + adu + add) * 0.2;
+    velocity = 0.9 * adData.xy + 0.1 * diffusion.xy;
+    
+    // 重力项：从重力图获取方向，始终作用于流体
+    float2 gravityDir = GetGravityDirection(uv);
+    velocity += gravityDir * gravityStrength * dt;
+    
+    // 外力项：从射线检测位置添加力
+    float2 toSource = sourceUV - uv;
+    float distToSource = length(toSource);
+    float sourceMask = step(distToSource, radius) * isHit;
+    
+    // 根据UV变化量计算力的方向
+    float2 force = sourceDelta * sourceMask;
+    velocity += force * dt * forceScale;
+    
+    // 速度限制
+    velocity = clamp(velocity, -5.0, 5.0);
+    
+    // 速度衰减
+    velocity = lerp(velocity, 0.0, attenuation.x);
+    
+    // 写入新缓冲
+    VelocityWrite[pixel_pos] = velocity;
+}
+
+/// <summary>
+/// 计算速度场的散度
+/// </summary>
+float ComputeDivergence(uint2 pos)
+{
+    float2 u_right = VelocityTex[pos + int2(1, 0)];
+    float2 u_left = VelocityTex[pos - int2(1, 0)];
+    float2 u_up = VelocityTex[pos - int2(0, 1)];
+    float2 u_down = VelocityTex[pos + int2(0, 1)];
+
+    float dudx = (u_right.x - u_left.x) * 0.5;
+    float dvdy = (u_down.y - u_up.y) * 0.5;
+    
+    return dudx + dvdy;
+}
+
+/// <summary>
+/// 压力求解核：使用雅可比迭代法求解压力场
+/// </summary>
+[numthreads(8, 8, 1)]
+void PressureKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    uint2 utexSize;
+    VelocityTex.GetDimensions(utexSize.x, utexSize.y);
+    
+    // 边界处理
+    if (pixel_pos.x <= 1 || pixel_pos.x >= utexSize.x - 2 || 
+        pixel_pos.y <= 1 || pixel_pos.y >= utexSize.y - 2)
+    {
+        PressureWrite[pixel_pos] = 0.0;
+        return;
+    }
+    
+    // 雅可比迭代核心公式
+    float p_left = PressureRead[pixel_pos - uint2(1, 0)].x;
+    float p_right = PressureRead[pixel_pos + uint2(1, 0)].x;
+    float p_up = PressureRead[pixel_pos - uint2(0, 1)].x;
+    float p_down = PressureRead[pixel_pos + uint2(0, 1)].x;
+
+    float div_u = ComputeDivergence(pixel_pos);
+    float p_new = (p_left + p_right + p_up + p_down - div_u) * 0.25;
+    
+    PressureWrite[pixel_pos] = p_new;
+}
+
+/// <summary>
+/// 投影核：从速度场中减去压力梯度，使速度场无散
+/// </summary>
+[numthreads(8, 8, 1)]
+void ProjectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    uint2 utexSize;
+    VelocityRead.GetDimensions(utexSize.x, utexSize.y);
+    
+    // 边缘像素直接保留原速度
+    if (pixel_pos.x <= 1 || pixel_pos.x >= utexSize.x - 2 || 
+        pixel_pos.y <= 1 || pixel_pos.y >= utexSize.y - 2)
+    {
+        float2 old_vel = VelocityRead[pixel_pos];
+        VelocityWrite[pixel_pos] = old_vel;
+        return;
+    }
+    
+    // 计算压力梯度
+    float p_right = PressureTex[pixel_pos + uint2(1, 0)];
+    float p_left = PressureTex[pixel_pos - uint2(1, 0)];
+    float p_up = PressureTex[pixel_pos - uint2(0, 1)];
+    float p_down = PressureTex[pixel_pos + uint2(0, 1)];
+
+    float dpdx = (p_right - p_left) * 0.5;
+    float dpdy = (p_down - p_up) * 0.5;
+    
+    // 投影修正：v_new = v_old - ∇p
+    float2 old_vel = VelocityRead[pixel_pos].xy;
+    float2 new_vel = old_vel - float2(dpdx, dpdy);
+
+    VelocityWrite[pixel_pos] = new_vel;
+}
+
+/// <summary>
+/// 染料核：计算染料的平流和添加新染料
+/// </summary>
+[numthreads(8, 8, 1)]
+void DyeKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+    
+    // 读取速度
+    float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+    
+    // 半拉格朗日法：回溯UV
+    float2 backtracedUV = uv - advectSpeed * old_vel * dt;
+    backtracedUV = clamp(backtracedUV, 0.0, 1.0);
+    
+    // 应用UV跳跃
+    float2 adUV = ApplyUVJump(backtracedUV);
+    
+    // 通过新UV采样之前的染料场
+    float3 newCol = DyeTex.SampleLevel(samplerLinearClamp, adUV, 0);
+    
+    // 靠近边界消除
+    float boundary = smoothstep(0.5, 0.3, abs(uv.x - 0.5)) * smoothstep(0.5, 0.3, abs(uv.y - 0.5));
+    newCol = lerp(newCol, newCol * boundary, 0.1);
+    
+    // 从射线检测位置添加新的染料
+    float2 toSource = sourceUV - uv;
+    float distToSource = length(toSource);
+    float sourceMask = step(distToSource, radius) * isHit;
+    
+    // 染料颜色（红色）
+    float3 addCol = float3(1, 0, 0) * sourceMask;
+
+    // 写入新的染料场
+    DyeWrite[pixel_pos] = newCol * (1.0 - attenuation.y) + addCol;
+}
+
+/// <summary>
+/// 调试核：输出各种调试信息到调试纹理
+/// </summary>
+[numthreads(8, 8, 1)]
+void DebugKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+    
+    float4 debugColor = float4(0, 0, 0, 1);
+
+    // 根据调试模式选择输出内容
+    if (debugMode == 1)  // ShowUVJumpMap
+    {
+        // 显示UV跳跃图
+        if (useUVJump)
+        {
+            float2 jumpUV = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0).xy;
+            debugColor = float4(jumpUV, 0, 1);
+        }
+        else
+        {
+            debugColor = float4(0.5, 0, 0, 1);  // 红色表示未启用
+        }
+    }
+    else if (debugMode == 2)  // ShowBacktracedUV
+    {
+        // 显示回溯UV
+        float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+        float2 backtracedUV = uv - advectSpeed * old_vel * dt;
+        backtracedUV = clamp(backtracedUV, 0.0, 1.0);
+        debugColor = float4(backtracedUV, 0, 1);
+    }
+    else if (debugMode == 3)  // ShowJumpedUV
+    {
+        // 显示跳跃后UV
+        float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+        float2 backtracedUV = uv - advectSpeed * old_vel * dt;
+        backtracedUV = clamp(backtracedUV, 0.0, 1.0);
+        float2 jumpedUV = ApplyUVJump(backtracedUV);
+        debugColor = float4(jumpedUV, 0, 1);
+    }
+    else if (debugMode == 4)  // ShowVelocityField
+    {
+        // 显示速度场（将速度映射到颜色）
+        float2 vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+        // 将速度从[-5,5]映射到[0,1]
+        float2 velColor = vel * 0.1 + 0.5;
+        debugColor = float4(velColor, 0, 1);
+    }
+    else if (debugMode == 5)  // ShowSourcePosition
+    {
+        // 显示源位置
+        float2 toSource = sourceUV - uv;
+        float distToSource = length(toSource);
+        float sourceMask = step(distToSource, radius) * isHit;
+        debugColor = float4(sourceMask, sourceUV, isHit);
+    }
+    else if (debugMode == 6)  // ShowGravityMap
+    {
+        // 显示重力图
+        if (useGravityMap)
+        {
+            // 采样重力图并映射到-1~1，然后映射到0~1用于显示
+            float2 gravityDir = GravityMap.SampleLevel(samplerLinearClamp, uv, 0).xy;
+            float2 gravityDisplay = gravityDir;  // 原始0~1范围直接显示
+            debugColor = float4(gravityDisplay, 0, 1);
+        }
+        else
+        {
+            debugColor = float4(0, 0.5, 0, 1);  // 绿色表示未启用
+        }
+    }
+    else  // None - 显示正常染料
+    {
+        debugColor = float4(DyeTex.SampleLevel(samplerLinearClamp, uv, 0), 1);
+    }
+
+    DebugOutput[pixel_pos] = debugColor;
+}
