@@ -77,10 +77,9 @@ float2 ApplyUVJump(float2 backtracedUV)
     // 如果跳跃UV有效，则使用跳跃UV，否则使用原UV
     return lerp(backtracedUV, jumpUV, jumpMask);
 }
-
 /// <summary>
 /// 获取重力方向（从重力图采样并映射到-1~1）
-/// </summary>
+/// </summary>CV
 /// <param name="uv">当前UV坐标</param>
 /// <returns>重力方向向量（范围-1~1）</returns>
 float2 GetGravityDirection(float2 uv)
@@ -110,15 +109,16 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     // hlsl的SampleLevel函数默认uv坐标对应的是像素中心
     float2 uv = ((float2)id.xy + 0.5) / texSize;
     
-    // 读取历史速度
     float2 old_velocity = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
-    
+
     // 半拉格朗日法：回溯UV
     float2 backtracedUV = uv - advectSpeed * old_velocity * dt;
+    //backtracedUV = jump_uvMap - advectSpeed * old_velocity * dt;
     backtracedUV = clamp(backtracedUV, 0.0, 1.0);
 
     // 应用UV跳跃
     float2 adUV = ApplyUVJump(backtracedUV);
+    //adUV = backtracedUV;
 
     // 采样周围像素进行扩散
     float2 w = float2(1.0 / texSize, 0.0);
@@ -133,19 +133,26 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     float2 diffusion = (adData + adr + adl + adu + add) * 0.2;
     velocity = 0.9 * adData.xy + 0.1 * diffusion.xy;
     
-    // 重力项：从重力图获取方向，始终作用于流体
-    float2 gravityDir = GetGravityDirection(uv);
-    velocity += gravityDir * gravityStrength * dt;
-    
     // 外力项：从射线检测位置添加力
     float2 toSource = sourceUV - uv;
     float distToSource = length(toSource);
     float sourceMask = step(distToSource, radius) * isHit;
     
+    // 重力项：从重力图获取方向，始终作用于流体
+    float2 gravityDir = GetGravityDirection(uv);
+    velocity += gravityDir * gravityStrength * dt * 0.1;
+
+
     // 根据UV变化量计算力的方向
-    float2 force = sourceDelta * sourceMask;
-    velocity += force * dt * forceScale;
+    //float2 force = sourceDelta * sourceMask;
+    float2 force = gravityDir * sourceMask;
+    velocity += force * dt * forceScale * 0.1;
     
+    // 处理UV跳转图
+    float2 jump_uvMap = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0).xy;
+    float2 jump_vel = VelocityTex.SampleLevel(samplerLinearClamp, jump_uvMap, 0).xy;
+    velocity += 0.1*jump_vel * dt * step(0.0005,length(jump_uvMap));
+
     // 速度限制
     velocity = clamp(velocity, -5.0, 5.0);
     
@@ -268,6 +275,11 @@ void DyeKernel(uint3 id : SV_DispatchThreadID)
     float distToSource = length(toSource);
     float sourceMask = step(distToSource, radius) * isHit;
     
+    // 处理UV跳转图
+    float2 jump_uvMap = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0).xy;
+    float jump_dye = DyeTex.SampleLevel(samplerLinearClamp, jump_uvMap, 0).x;
+    newCol += jump_dye * dt * 0.1 ;
+
     // 染料颜色（红色）
     float3 addCol = float3(1, 0, 0) * sourceMask;
 

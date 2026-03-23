@@ -1,0 +1,250 @@
+#pragma kernel ClearTexture
+#pragma kernel RasterizeTriangles
+#pragma kernel WriteEdgeAdjacency
+#pragma kernel DilateEdges
+
+// 纹理分辨率
+int _Resolution;
+
+// 三角形数据
+StructuredBuffer<float4> _TriangleUVs;
+int _TriangleCount;
+
+// 接缝数据
+// 结构体布局必须与C#中的SeamData匹配 (48 bytes)
+struct SeamData
+{
+    float2 uvA1;           // 边A的UV起点 (8 bytes)
+    float2 uvA2;           // 边A的UV终点 (8 bytes)
+    float2 uvB1;           // 边B的UV起点 (8 bytes)
+    float2 uvB2;           // 边B的UV终点 (8 bytes)
+    float reversedMapping; // 是否反向映射 (4 bytes)
+    float padding1;        // 填充 (4 bytes)
+    float padding2;        // 填充 (4 bytes)
+    float padding3;        // 填充 (4 bytes)
+    // 总共 48 bytes
+};
+StructuredBuffer<SeamData> _SeamData;
+int _SeamCount;
+
+// 边缘扩展参数
+int _EdgePadding;
+int _DilateRadius;
+
+// 输出纹理
+RWTexture2D<float4> _Result;
+
+// ============================================
+// Kernel: ClearTexture
+// 清空纹理
+// ============================================
+[numthreads(8, 8, 1)]
+void ClearTexture(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Resolution || id.y >= _Resolution)
+        return;
+    
+    // 默认值：R=0, G=0, B=1, A=0
+    _Result[id.xy] = float4(0, 0, 1, 0);
+}
+
+// ============================================
+// Kernel: RasterizeTriangles
+// 光栅化三角形，标记UV覆盖区域
+// ============================================
+bool PointInTriangle(float2 p, float2 a, float2 b, float2 c)
+{
+    float2 v0 = c - a;
+    float2 v1 = b - a;
+    float2 v2 = p - a;
+    
+    float dot00 = dot(v0, v0);
+    float dot01 = dot(v0, v1);
+    float dot02 = dot(v0, v2);
+    float dot11 = dot(v1, v1);
+    float dot12 = dot(v1, v2);
+    
+    float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
+    float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+    float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+    
+    return (u >= 0) && (v >= 0) && (u + v <= 1);
+}
+
+[numthreads(64, 1, 1)]
+void RasterizeTriangles(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _TriangleCount)
+        return;
+    
+    // 获取三角形的三个UV坐标
+    float2 uv0 = _TriangleUVs[id.x * 3 + 0].xy;
+    float2 uv1 = _TriangleUVs[id.x * 3 + 1].xy;
+    float2 uv2 = _TriangleUVs[id.x * 3 + 2].xy;
+    
+    // 计算包围盒
+    float2 minUV = min(min(uv0, uv1), uv2);
+    float2 maxUV = max(max(uv0, uv1), uv2);
+    
+    // 转换为像素范围
+    int2 minPx = int2(minUV * _Resolution);
+    int2 maxPx = int2(maxUV * _Resolution) + 1;
+    
+    minPx = max(minPx, 0);
+    maxPx = min(maxPx, _Resolution);
+    
+    // 遍历包围盒内的像素
+    for (int y = minPx.y; y < maxPx.y; y++)
+    {
+        for (int x = minPx.x; x < maxPx.x; x++)
+        {
+            float2 pixelUV = float2(x + 0.5, y + 0.5) / _Resolution;
+            
+            if (PointInTriangle(pixelUV, uv0, uv1, uv2))
+            {
+                // 标记为已覆盖（B通道设为1表示内部）
+                float4 current = _Result[int2(x, y)];
+                _Result[int2(x, y)] = float4(current.rg, 1, current.a);
+            }
+        }
+    }
+}
+
+// ============================================
+// Kernel: WriteEdgeAdjacency
+// 写入边缘邻接信息
+// ============================================
+float DistanceToSegment(float2 p, float2 a, float2 b)
+{
+    float2 ab = b - a;
+    float2 ap = p - a;
+    float t = clamp(dot(ap, ab) / dot(ab, ab), 0, 1);
+    return distance(p, a + t * ab);
+}
+
+float GetParameterOnEdge(float2 p, float2 a, float2 b)
+{
+    float2 ab = b - a;
+    return clamp(dot(p - a, ab) / dot(ab, ab), 0, 1);
+}
+
+[numthreads(64, 1, 1)]
+void WriteEdgeAdjacency(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _SeamCount)
+        return;
+    
+    SeamData seam = _SeamData[id.x];
+    
+    float2 uvA1 = seam.uvA1;
+    float2 uvA2 = seam.uvA2;
+    float2 uvB1 = seam.uvB1;
+    float2 uvB2 = seam.uvB2;
+    
+    // 计算边的包围盒并扩展
+    float paddingUV = float(_EdgePadding) / _Resolution;
+    
+    float2 minUV = min(uvA1, uvA2) - paddingUV;
+    float2 maxUV = max(uvA1, uvA2) + paddingUV;
+    
+    // 转换为像素范围
+    int2 minPx = int2(minUV * _Resolution);
+    int2 maxPx = int2(maxUV * _Resolution) + 1;
+    
+    minPx = max(minPx, 0);
+    maxPx = min(maxPx, _Resolution);
+    
+    // 遍历像素
+    for (int y = minPx.y; y < maxPx.y; y++)
+    {
+        for (int x = minPx.x; x < maxPx.x; x++)
+        {
+            float2 pixelUV = float2(x + 0.5, y + 0.5) / _Resolution;
+            
+            // 计算到边的距离
+            float dist = DistanceToSegment(pixelUV, uvA1, uvA2);
+            
+            if (dist <= paddingUV)
+            {
+                // 计算在边A上的参数t
+                float t = GetParameterOnEdge(pixelUV, uvA1, uvA2);
+                
+                // 映射到边B
+                float2 adjacentUV;
+                if (seam.reversedMapping > 0.5)
+                {
+                    adjacentUV = lerp(uvB2, uvB1, t);
+                }
+                else
+                {
+                    adjacentUV = lerp(uvB1, uvB2, t);
+                }
+                
+                // 计算混合权重（边缘处权重高）
+                float blendWeight = clamp(dist / paddingUV, 0, 1);
+                
+                // 写入像素
+                // R: 邻接UV.x
+                // G: 邻接UV.y
+                // B: 到边缘的距离权重
+                // A: 邻接岛ID（暂时用seam索引+1）
+                _Result[int2(x, y)] = float4(adjacentUV.x, adjacentUV.y, blendWeight, id.x + 1);
+            }
+        }
+    }
+}
+
+// ============================================
+// Kernel: DilateEdges
+// 扩展边缘像素
+// ============================================
+[numthreads(8, 8, 1)]
+void DilateEdges(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Resolution || id.y >= _Resolution)
+        return;
+    
+    float4 current = _Result[id.xy];
+    
+    // 如果已经有邻接信息，跳过
+    if (current.a > 0)
+        return;
+    
+    // 如果不是UV覆盖区域，跳过
+    if (current.b >= 1)
+        return;
+    
+    // 搜索周围像素
+    float4 bestNeighbor = float4(0, 0, 1, 0);
+    float minDist = 1;
+    
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            if (dx == 0 && dy == 0)
+                continue;
+            
+            int2 neighborPos = int2(id.x + dx, id.y + dy);
+            
+            if (neighborPos.x < 0 || neighborPos.x >= _Resolution ||
+                neighborPos.y < 0 || neighborPos.y >= _Resolution)
+                continue;
+            
+            float4 neighbor = _Result[neighborPos];
+            
+            // 如果邻居有邻接信息
+            if (neighbor.a > 0 && neighbor.b < minDist)
+            {
+                bestNeighbor = neighbor;
+                minDist = neighbor.b;
+            }
+        }
+    }
+    
+    // 如果找到了有效的邻居，使用它的信息
+    if (bestNeighbor.a > 0)
+    {
+        _Result[id.xy] = float4(bestNeighbor.rgb, bestNeighbor.a);
+    }
+}
