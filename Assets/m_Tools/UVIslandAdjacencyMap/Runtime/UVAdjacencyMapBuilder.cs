@@ -259,45 +259,18 @@ namespace UVAdjacencyMap
 
         /// <summary>
         /// 建立全局顶点对应关系，确保共享顶点的边使用一致的映射方向
+        /// 关键：使用3D位置来建立映射，因为同一个3D位置在UV空间可能被分裂成多个UV坐标
         /// </summary>
         private static void BuildGlobalVertexMapping(List<SeamAdjacency> seams, int precision)
         {
-            // 使用Union-Find来建立顶点对应关系
-            // 每个顶点位置有一个唯一的"代表"
-            // 我们需要建立edgeA侧顶点和edgeB侧顶点之间的对应关系
+            // 关键洞察：UV接缝处的顶点在3D空间是同一个位置，但在UV空间是分离的
+            // 我们需要建立的是：edgeA侧的3D位置 -> edgeB侧的3D位置 的映射
+            // 使用3D位置作为key
             
-            // 步骤1: 收集所有接缝边的顶点位置
-            // 使用位置hash作为顶点的唯一标识
-            Dictionary<long, List<int>> positionToSeamIndices = new Dictionary<long, List<int>>();
+            // 使用3D位置作为key
+            Dictionary<long, long> positionMapping = new Dictionary<long, long>();
             
-            // 对于每条接缝，记录edgeA的两个顶点位置
-            for (int seamIdx = 0; seamIdx < seams.Count; seamIdx++)
-            {
-                var seam = seams[seamIdx];
-                
-                // edgeA的两个顶点
-                long posA1 = GetPositionHashSingle(seam.edgeA.posA, precision);
-                long posA2 = GetPositionHashSingle(seam.edgeA.posB, precision);
-                
-                // edgeB的两个顶点
-                long posB1 = GetPositionHashSingle(seam.edgeB.posA, precision);
-                long posB2 = GetPositionHashSingle(seam.edgeB.posB, precision);
-                
-                // 记录位置到接缝索引的映射
-                if (!positionToSeamIndices.ContainsKey(posA1))
-                    positionToSeamIndices[posA1] = new List<int>();
-                if (!positionToSeamIndices.ContainsKey(posA2))
-                    positionToSeamIndices[posA2] = new List<int>();
-                
-                positionToSeamIndices[posA1].Add(seamIdx);
-                positionToSeamIndices[posA2].Add(seamIdx);
-            }
-            
-            // 步骤2: 建立顶点对应关系
-            // 使用字典记录：edgeA侧的位置 -> edgeB侧的对应位置
-            Dictionary<long, long> vertexMapping = new Dictionary<long, long>();
-            
-            // 步骤3: 使用BFS传播顶点对应关系
+            // 步骤1: 使用BFS传播映射关系
             HashSet<int> processedSeams = new HashSet<int>();
             Queue<int> seamQueue = new Queue<int>();
             
@@ -336,14 +309,16 @@ namespace UVAdjacencyMap
                     continue;
                 
                 var seam = seams[seamIdx];
-                long posA1 = GetPositionHashSingle(seam.edgeA.posA, precision);
-                long posA2 = GetPositionHashSingle(seam.edgeA.posB, precision);
-                long posB1 = GetPositionHashSingle(seam.edgeB.posA, precision);
-                long posB2 = GetPositionHashSingle(seam.edgeB.posB, precision);
                 
-                // 检查是否已有部分顶点映射
-                bool hasMapping1 = vertexMapping.TryGetValue(posA1, out long mappedB1);
-                bool hasMapping2 = vertexMapping.TryGetValue(posA2, out long mappedB2);
+                // 使用3D位置的hash作为key
+                long posKeyA1 = GetPositionHashSingle(seam.edgeA.posA, precision);
+                long posKeyA2 = GetPositionHashSingle(seam.edgeA.posB, precision);
+                long posKeyB1 = GetPositionHashSingle(seam.edgeB.posA, precision);
+                long posKeyB2 = GetPositionHashSingle(seam.edgeB.posB, precision);
+                
+                // 检查是否已有部分映射
+                bool hasMapping1 = positionMapping.TryGetValue(posKeyA1, out long mappedPos1);
+                bool hasMapping2 = positionMapping.TryGetValue(posKeyA2, out long mappedPos2);
                 
                 bool reversed;
                 
@@ -355,41 +330,39 @@ namespace UVAdjacencyMap
                     // 建立新的映射
                     if (reversed)
                     {
-                        vertexMapping[posA1] = posB2;
-                        vertexMapping[posA2] = posB1;
+                        positionMapping[posKeyA1] = posKeyB2;
+                        positionMapping[posKeyA2] = posKeyB1;
                     }
                     else
                     {
-                        vertexMapping[posA1] = posB1;
-                        vertexMapping[posA2] = posB2;
+                        positionMapping[posKeyA1] = posKeyB1;
+                        positionMapping[posKeyA2] = posKeyB2;
                     }
                 }
                 else if (hasMapping1 && !hasMapping2)
                 {
-                    // posA1已有映射，根据它确定方向
-                    reversed = (mappedB1 == posB2);
-                    vertexMapping[posA2] = reversed ? posB1 : posB2;
+                    // posKeyA1已有映射，根据它确定方向
+                    reversed = (mappedPos1 == posKeyB2);
+                    positionMapping[posKeyA2] = reversed ? posKeyB1 : posKeyB2;
                 }
                 else if (!hasMapping1 && hasMapping2)
                 {
-                    // posA2已有映射，根据它确定方向
-                    reversed = (mappedB2 == posB1);
-                    vertexMapping[posA1] = reversed ? posB2 : posB1;
+                    // posKeyA2已有映射，根据它确定方向
+                    reversed = (mappedPos2 == posKeyB1);
+                    positionMapping[posKeyA1] = reversed ? posKeyB2 : posKeyB1;
                 }
                 else
                 {
                     // 两个顶点都已有映射，检查一致性
-                    reversed = (mappedB1 == posB2 && mappedB2 == posB1);
+                    reversed = (mappedPos1 == posKeyB2 && mappedPos2 == posKeyB1);
                     
                     // 如果映射不一致，输出警告
-                    bool consistent = (reversed && mappedB1 == posB2 && mappedB2 == posB1) ||
-                                     (!reversed && mappedB1 == posB1 && mappedB2 == posB2);
+                    bool consistent = (reversed && mappedPos1 == posKeyB2 && mappedPos2 == posKeyB1) ||
+                                     (!reversed && mappedPos1 == posKeyB1 && mappedPos2 == posKeyB2);
                     
                     if (!consistent)
                     {
-                        Debug.LogWarning($"[UV邻接图] 接缝 #{seamIdx} 的顶点映射与已有映射冲突！\n" +
-                            $"  posA1映射: {mappedB1}, 期望: {(reversed ? posB2 : posB1)}\n" +
-                            $"  posA2映射: {mappedB2}, 期望: {(reversed ? posB1 : posB2)}");
+                        Debug.LogWarning($"[UV邻接图] 接缝 #{seamIdx} 的位置映射与已有映射冲突！");
                     }
                 }
                 
@@ -400,30 +373,48 @@ namespace UVAdjacencyMap
                 
                 processedSeams.Add(seamIdx);
                 
-                // 将共享顶点的其他接缝加入队列
-                if (positionToSeamIndices.TryGetValue(posA1, out var connectedSeams1))
+                // 将共享3D位置的其他接缝加入队列
+                for (int otherIdx = 0; otherIdx < seams.Count; otherIdx++)
                 {
-                    foreach (int connectedIdx in connectedSeams1)
+                    if (processedSeams.Contains(otherIdx))
+                        continue;
+                    
+                    var otherSeam = seams[otherIdx];
+                    long otherPosKeyA1 = GetPositionHashSingle(otherSeam.edgeA.posA, precision);
+                    long otherPosKeyA2 = GetPositionHashSingle(otherSeam.edgeA.posB, precision);
+                    
+                    // 如果其他接缝的edgeA 3D位置与当前接缝的edgeA 3D位置有重叠
+                    if (otherPosKeyA1 == posKeyA1 || otherPosKeyA1 == posKeyA2 ||
+                        otherPosKeyA2 == posKeyA1 || otherPosKeyA2 == posKeyA2)
                     {
-                        if (!processedSeams.Contains(connectedIdx))
-                            seamQueue.Enqueue(connectedIdx);
-                    }
-                }
-                if (positionToSeamIndices.TryGetValue(posA2, out var connectedSeams2))
-                {
-                    foreach (int connectedIdx in connectedSeams2)
-                    {
-                        if (!processedSeams.Contains(connectedIdx))
-                            seamQueue.Enqueue(connectedIdx);
+                        seamQueue.Enqueue(otherIdx);
                     }
                 }
             }
             
-            Debug.Log($"[UV邻接图] 建立了 {vertexMapping.Count} 个顶点对应关系");
+            Debug.Log($"[UV邻接图] 建立了 {positionMapping.Count} 个位置对应关系");
         }
 
         /// <summary>
-        /// 获取单个位置的hash值
+        /// 获取UV坐标的hash值
+        /// </summary>
+        private static long GetUVHash(Vector2 uv)
+        {
+            // 使用足够高的精度来区分不同的UV坐标
+            int x = Mathf.RoundToInt(uv.x * 1000000);
+            int y = Mathf.RoundToInt(uv.y * 1000000);
+            
+            unchecked
+            {
+                long hash = 17;
+                hash = hash * 31 + x;
+                hash = hash * 31 + y;
+                return hash;
+            }
+        }
+
+        /// <summary>
+        /// 获取单个3D位置的hash值
         /// </summary>
         private static long GetPositionHashSingle(Vector3 pos, int precision)
         {
@@ -517,76 +508,93 @@ namespace UVAdjacencyMap
 
         /// <summary>
         /// 检查相邻边的映射一致性（用于调试边与边之间的不连续问题）
-        /// 使用3D位置而不是顶点索引来检查共享顶点
+        /// 使用3D位置来检查：同一个3D位置应该映射到同一个目标3D位置
         /// </summary>
         public static void CheckAdjacentSeamsConsistency(List<SeamAdjacency> seams)
         {
             Debug.Log($"[UV邻接图] 检查相邻边的映射一致性，共 {seams.Count} 条接缝...");
 
+            int precision = 100000;
+
             // 使用3D位置来分组顶点
             // 对于每条接缝的每个顶点，记录其3D位置和映射目标
-            Dictionary<long, List<(int seamIdx, bool isVertexA, Vector2 targetUV)>> positionToMappings 
-                = new Dictionary<long, List<(int, bool, Vector2)>>();
-
-            int precision = 100000;
+            Dictionary<long, List<(int seamIdx, Vector2 sourceUV, Vector2 targetUV, Vector3 targetPos, bool reversed)>> posToMappings 
+                = new Dictionary<long, List<(int, Vector2, Vector2, Vector3, bool)>>();
 
             for (int seamIdx = 0; seamIdx < seams.Count; seamIdx++)
             {
                 var seam = seams[seamIdx];
                 
-                // edgeA的两个顶点
-                long posA1 = GetPositionHashSingle(seam.edgeA.posA, precision);
-                long posA2 = GetPositionHashSingle(seam.edgeA.posB, precision);
+                // edgeA的两个顶点的3D位置
+                long posKeyA1 = GetPositionHashSingle(seam.edgeA.posA, precision);
+                long posKeyA2 = GetPositionHashSingle(seam.edgeA.posB, precision);
                 
-                // 计算映射目标
-                Vector2 targetUV1 = seam.reversedMapping ? seam.edgeB.uvB : seam.edgeB.uvA;
-                Vector2 targetUV2 = seam.reversedMapping ? seam.edgeB.uvA : seam.edgeB.uvB;
+                // 计算映射目标和对应的3D位置
+                Vector2 sourceUV1 = seam.edgeA.uvA;
+                Vector2 sourceUV2 = seam.edgeA.uvB;
+                Vector2 targetUV1, targetUV2;
+                Vector3 targetPos1, targetPos2;
                 
-                if (!positionToMappings.ContainsKey(posA1))
-                    positionToMappings[posA1] = new List<(int, bool, Vector2)>();
-                if (!positionToMappings.ContainsKey(posA2))
-                    positionToMappings[posA2] = new List<(int, bool, Vector2)>();
+                if (seam.reversedMapping)
+                {
+                    targetUV1 = seam.edgeB.uvB;
+                    targetUV2 = seam.edgeB.uvA;
+                    targetPos1 = seam.edgeB.posB;
+                    targetPos2 = seam.edgeB.posA;
+                }
+                else
+                {
+                    targetUV1 = seam.edgeB.uvA;
+                    targetUV2 = seam.edgeB.uvB;
+                    targetPos1 = seam.edgeB.posA;
+                    targetPos2 = seam.edgeB.posB;
+                }
                 
-                positionToMappings[posA1].Add((seamIdx, true, targetUV1));
-                positionToMappings[posA2].Add((seamIdx, false, targetUV2));
+                if (!posToMappings.ContainsKey(posKeyA1))
+                    posToMappings[posKeyA1] = new List<(int, Vector2, Vector2, Vector3, bool)>();
+                if (!posToMappings.ContainsKey(posKeyA2))
+                    posToMappings[posKeyA2] = new List<(int, Vector2, Vector2, Vector3, bool)>();
+                
+                posToMappings[posKeyA1].Add((seamIdx, sourceUV1, targetUV1, targetPos1, seam.reversedMapping));
+                posToMappings[posKeyA2].Add((seamIdx, sourceUV2, targetUV2, targetPos2, seam.reversedMapping));
             }
 
-            // 检查每个位置的所有映射是否一致
+            // 检查每个3D位置的所有映射是否一致
             int inconsistentCount = 0;
-            foreach (var kvp in positionToMappings)
+            foreach (var kvp in posToMappings)
             {
                 var mappings = kvp.Value;
                 
                 if (mappings.Count > 1)
                 {
                     // 同一个3D位置被多条边引用，检查映射是否一致
-                    Vector2 firstTarget = mappings[0].targetUV;
+                    var first = mappings[0];
                     
                     for (int i = 1; i < mappings.Count; i++)
                     {
-                        float uvDiff = Vector2.Distance(firstTarget, mappings[i].targetUV);
-                        if (uvDiff > 0.001f)
+                        var current = mappings[i];
+                        
+                        // 检查目标3D位置是否一致
+                        float posDiff = Vector3.Distance(first.targetPos, current.targetPos);
+                        
+                        // 如果3D位置差异大，说明是真正的冲突
+                        if (posDiff > 0.001f)
                         {
                             inconsistentCount++;
-                            var seam1 = seams[mappings[0].seamIdx];
-                            var seam2 = seams[mappings[i].seamIdx];
-                            
-                            // 找出共享的3D位置
-                            Vector3 sharedPos = seam1.edgeA.posA;
-                            if (GetPositionHashSingle(seam1.edgeA.posB, precision) == kvp.Key)
-                                sharedPos = seam1.edgeA.posB;
+                            var seam1 = seams[first.seamIdx];
+                            var seam2 = seams[current.seamIdx];
                             
                             Debug.LogWarning($"[映射不一致 #{inconsistentCount}]\n" +
-                                $"  共享3D位置: ({sharedPos.x:F4}, {sharedPos.y:F4}, {sharedPos.z:F4})\n" +
-                                $"  Seam #{mappings[0].seamIdx}:\n" +
-                                $"    edgeA: UV({seam1.edgeA.uvA.x:F4},{seam1.edgeA.uvA.y:F4})->({seam1.edgeA.uvB.x:F4},{seam1.edgeA.uvB.y:F4})\n" +
-                                $"    edgeB: UV({seam1.edgeB.uvA.x:F4},{seam1.edgeB.uvA.y:F4})->({seam1.edgeB.uvB.x:F4},{seam1.edgeB.uvB.y:F4})\n" +
-                                $"    reversed={seam1.reversedMapping}, 映射到: ({firstTarget.x:F6}, {firstTarget.y:F6})\n" +
-                                $"  Seam #{mappings[i].seamIdx}:\n" +
-                                $"    edgeA: UV({seam2.edgeA.uvA.x:F4},{seam2.edgeA.uvA.y:F4})->({seam2.edgeA.uvB.x:F4},{seam2.edgeA.uvB.y:F4})\n" +
-                                $"    edgeB: UV({seam2.edgeB.uvA.x:F4},{seam2.edgeB.uvA.y:F4})->({seam2.edgeB.uvB.x:F4},{seam2.edgeB.uvB.y:F4})\n" +
-                                $"    reversed={seam2.reversedMapping}, 映射到: ({mappings[i].targetUV.x:F6}, {mappings[i].targetUV.y:F6})\n" +
-                                $"  差异: {uvDiff:F6}");
+                                $"  3D位置: ({first.targetPos.x:F4}, {first.targetPos.y:F4}, {first.targetPos.z:F4}) vs ({current.targetPos.x:F4}, {current.targetPos.y:F4}, {current.targetPos.z:F4})\n" +
+                                $"  Seam #{first.seamIdx}:\n" +
+                                $"    edgeA UV: ({first.sourceUV.x:F4},{first.sourceUV.y:F4}) -> ({seam1.edgeA.uvB.x:F4},{seam1.edgeA.uvB.y:F4})\n" +
+                                $"    edgeB UV: ({seam1.edgeB.uvA.x:F4},{seam1.edgeB.uvA.y:F4}) -> ({seam1.edgeB.uvB.x:F4},{seam1.edgeB.uvB.y:F4})\n" +
+                                $"    reversed={first.reversed}, 映射到UV: ({first.targetUV.x:F6}, {first.targetUV.y:F6})\n" +
+                                $"  Seam #{current.seamIdx}:\n" +
+                                $"    edgeA UV: ({current.sourceUV.x:F4},{current.sourceUV.y:F4}) -> ({seam2.edgeA.uvB.x:F4},{seam2.edgeA.uvB.y:F4})\n" +
+                                $"    edgeB UV: ({seam2.edgeB.uvA.x:F4},{seam2.edgeB.uvA.y:F4}) -> ({seam2.edgeB.uvB.x:F4},{seam2.edgeB.uvB.y:F4})\n" +
+                                $"    reversed={current.reversed}, 映射到UV: ({current.targetUV.x:F6}, {current.targetUV.y:F6})\n" +
+                                $"  3D位置差异: {posDiff:F6}");
                         }
                     }
                 }

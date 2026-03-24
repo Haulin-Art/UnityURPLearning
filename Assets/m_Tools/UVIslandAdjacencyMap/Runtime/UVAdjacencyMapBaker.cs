@@ -5,7 +5,7 @@ namespace UVAdjacencyMap
 {
     /// <summary>
     /// UV邻接图烘焙器
-    /// 输出格式：R=邻接UV.x, G=邻接UV.y, B=0, A=1
+    /// 输出格式：R=邻接UV.x, G=邻接UV.y, B=UV岛遮罩, A=1
     /// 支持EXR格式以获得更高精度
     /// </summary>
     public class UVAdjacencyMapBaker
@@ -18,8 +18,8 @@ namespace UVAdjacencyMap
             public int edgePadding;
             public float uvEpsilon;
             public int uvChannel;
-            public bool useEXRFormat;  // 使用EXR格式
-            public bool enableDebugLog;  // 启用调试日志
+            public bool useEXRFormat;
+            public bool enableDebugLog;
 
             public static BakeSettings Default => new BakeSettings
             {
@@ -41,13 +41,14 @@ namespace UVAdjacencyMap
         }
 
         /// <summary>
-        /// 像素数据结构（用于存储最近的边信息）
+        /// 像素数据结构
         /// </summary>
         private struct PixelData
         {
             public Vector2 adjacentUV;
             public float distance;
             public bool hasData;
+            public bool isInUVIsland;
         }
 
         #endregion
@@ -76,19 +77,16 @@ namespace UVAdjacencyMap
                 return result;
             }
 
-            // 构建邻接关系
             UVAdjacencyMapBuilder.BuildResult buildResult = UVAdjacencyMapBuilder.Build(
                 mesh, settings.uvChannel, settings.uvEpsilon);
             result.buildResult = buildResult;
 
-            // 检查是否有接缝
             if (buildResult.seams == null || buildResult.seams.Count == 0)
             {
                 result.errorMessage = "没有找到UV接缝";
                 return result;
             }
 
-            // 验证接缝映射（调试模式）
             if (settings.enableDebugLog)
             {
                 int validateCount = Mathf.Min(5, buildResult.seams.Count);
@@ -98,11 +96,10 @@ namespace UVAdjacencyMap
                     UVAdjacencyMapBuilder.ValidateSeamMapping(buildResult.seams[i], i);
                 }
                 
-                // 检查相邻边的映射一致性
                 UVAdjacencyMapBuilder.CheckAdjacentSeamsConsistency(buildResult.seams);
             }
 
-            Texture2D adjacencyMap = BakeWithCPU(buildResult, settings);
+            Texture2D adjacencyMap = BakeWithCPU(mesh, buildResult, settings);
 
             if (adjacencyMap != null)
             {
@@ -144,42 +141,127 @@ namespace UVAdjacencyMap
 
         #region CPU烘焙
 
-        private static Texture2D BakeWithCPU(
-            UVAdjacencyMapBuilder.BuildResult buildResult,
-            BakeSettings settings)
+        private static Texture2D BakeWithCPU(Mesh mesh, UVAdjacencyMapBuilder.BuildResult buildResult, BakeSettings settings)
         {
             int resolution = settings.resolution;
             
-            // 使用PixelData数组来存储每个像素的信息
             PixelData[] pixelData = new PixelData[resolution * resolution];
             for (int i = 0; i < pixelData.Length; i++)
             {
-                pixelData[i] = new PixelData { hasData = false, distance = float.MaxValue };
+                pixelData[i] = new PixelData { hasData = false, distance = float.MaxValue, isInUVIsland = false };
             }
 
-            // 写入边缘邻接信息（使用距离判断，保留最近的边）
+            // Step 1: 烘焙UV岛遮罩（B通道）
+            BakeUVIslandMask(pixelData, mesh, settings.uvChannel, resolution);
+            
+            // Step 2: 写入边缘邻接信息
             WriteEdgeAdjacencyCPU(pixelData, buildResult.seams, resolution, settings.edgePadding, settings.enableDebugLog);
-
+            
             // 转换为颜色数组
             Color[] pixels = new Color[resolution * resolution];
             for (int i = 0; i < pixels.Length; i++)
             {
                 if (pixelData[i].hasData)
                 {
-                    pixels[i] = new Color(pixelData[i].adjacentUV.x, pixelData[i].adjacentUV.y, 0, 1);
+                    // R=邻接UV.x, G=邻接UV.y, B=1(邻接边缘), A=0(邻接边缘不属于UV岛内部)
+                    pixels[i] = new Color(pixelData[i].adjacentUV.x, pixelData[i].adjacentUV.y, 1, 0);
+                }
+                else if (pixelData[i].isInUVIsland)
+                {
+                    // UV岛内但没有邻接数据， B=0, A=1
+                    pixels[i] = new Color(0, 0, 0, 1);
                 }
                 else
                 {
-                    pixels[i] = new Color(0, 0, 0, 1);
+                    // UV岛外， B=0, A=0
+                    pixels[i] = new Color(0, 0, 0, 0);
                 }
             }
-
-            // 使用RGBAFloat格式以获得更高精度
+            
             Texture2D texture = new Texture2D(resolution, resolution, TextureFormat.RGBAFloat, false);
             texture.SetPixels(pixels);
             texture.Apply();
-
+            
             return texture;
+        }
+        
+        /// <summary>
+        /// 烘焙UV岛遮罩
+        /// </summary>
+        private static void BakeUVIslandMask(PixelData[] pixelData, Mesh mesh, int uvChannel, int resolution)
+        {
+            int[] triangles = mesh.triangles;
+            Vector2[] uvs = uvChannel == 0 ? mesh.uv : mesh.uv2;
+            
+            if (uvs == null || uvs.Length == 0)
+                return;
+            
+            int triangleCount = triangles.Length / 3;
+            
+            for (int triIndex = 0; triIndex < triangleCount; triIndex++)
+            {
+                int i0 = triangles[triIndex * 3 + 0];
+                int i1 = triangles[triIndex * 3 + 1];
+                int i2 = triangles[triIndex * 3 + 2];
+                
+                Vector2 uv0 = uvs[i0];
+                Vector2 uv1 = uvs[i1];
+                Vector2 uv2 = uvs[i2];
+                
+                RasterizeTriangle(pixelData, uv0, uv1, uv2, resolution);
+            }
+        }
+        
+        /// <summary>
+        /// 光栅化三角形
+        /// </summary>
+        private static void RasterizeTriangle(PixelData[] pixelData, Vector2 uv0, Vector2 uv1, Vector2 uv2, int resolution)
+        {
+            int minX = Mathf.FloorToInt(Mathf.Min(uv0.x, uv1.x, uv2.x) * resolution);
+            int maxX = Mathf.CeilToInt(Mathf.Max(uv0.x, uv1.x, uv2.x) * resolution);
+            int minY = Mathf.FloorToInt(Mathf.Min(uv0.y, uv1.y, uv2.y) * resolution);
+            int maxY = Mathf.CeilToInt(Mathf.Max(uv0.y, uv1.y, uv2.y) * resolution);
+            
+            minX = Mathf.Max(0, minX - 1);
+            maxX = Mathf.Min(resolution - 1, maxX + 1);
+            minY = Mathf.Max(0, minY - 1);
+            maxY = Mathf.Min(resolution - 1, maxY + 1);
+            
+            for (int y = minY; y <= maxY; y++)
+            {
+                for (int x = minX; x <= maxX; x++)
+                {
+                    Vector2 pixelCenter = new Vector2((x + 0.5f) / resolution, (y + 0.5f) / resolution);
+                    
+                    if (IsPointInTriangle(pixelCenter, uv0, uv1, uv2))
+                    {
+                        int index = y * resolution + x;
+                        pixelData[index].isInUVIsland = true;
+                    }
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 检查点是否在三角形内（使用重心坐标法）
+        /// </summary>
+        private static bool IsPointInTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
+        {
+            Vector2 v0 = c - a;
+            Vector2 v1 = b - a;
+            Vector2 v2 = p - a;
+            
+            float dot00 = Vector2.Dot(v0, v0);
+            float dot01 = Vector2.Dot(v0, v1);
+            float dot02 = Vector2.Dot(v0, v2);
+            float dot11 = Vector2.Dot(v1, v1);
+            float dot12 = Vector2.Dot(v1, v2);
+            
+            float invDenom = 1f / (dot00 * dot11 - dot01 * dot01);
+            float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+            float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+            
+            return (u >= 0) && (v >= 0) && (u + v <= 1);
         }
 
         private static void WriteEdgeAdjacencyCPU(
@@ -193,23 +275,17 @@ namespace UVAdjacencyMap
             float paddingUV = pixelSize * edgePadding;
 
             int totalWritten = 0;
-            int debugCount = 0;  // 限制调试输出数量
+            int debugCount = 0;
 
             foreach (var seam in seams)
             {
-                // 写入edgeA区域
                 totalWritten += WriteEdgeRegion(pixelData, seam, true, resolution, paddingUV, enableDebugLog && debugCount < 5, ref debugCount);
-                
-                // 写入edgeB区域
                 totalWritten += WriteEdgeRegion(pixelData, seam, false, resolution, paddingUV, enableDebugLog && debugCount < 5, ref debugCount);
             }
 
             Debug.Log($"[UV邻接图] 写入了 {totalWritten} 个像素的邻接信息");
         }
 
-        /// <summary>
-        /// 写入单条边的区域（使用距离判断，只保留最近的边）
-        /// </summary>
         private static int WriteEdgeRegion(
             PixelData[] pixelData,
             UVAdjacencyMapBuilder.SeamAdjacency seam,
@@ -219,11 +295,6 @@ namespace UVAdjacencyMap
             bool enableDebugLog,
             ref int debugCount)
         {
-            // 确定源边和目标边
-            // reversedMapping表示edgeA的顶点对应关系：
-            // - true: edgeA.posA -> edgeB.posB, edgeA.posB -> edgeB.posA
-            // - false: edgeA.posA -> edgeB.posA, edgeA.posB -> edgeB.posB
-            // 无论处理哪条边，映射方向保持一致
             UVAdjacencyMapBuilder.EdgeInfo sourceEdge, targetEdge;
             bool reversed;
             
@@ -235,22 +306,16 @@ namespace UVAdjacencyMap
             }
             else
             {
-                // 当处理edgeB时，源边变成edgeB，目标边变成edgeA
-                // 映射关系是对称的，reversed保持不变：
-                // - 如果edgeA.posA -> edgeB.posB，那么edgeB.posB -> edgeA.posA（同样是反向）
-                // - 如果edgeA.posA -> edgeB.posA，那么edgeB.posA -> edgeA.posA（同样是正向）
                 sourceEdge = seam.edgeB;
                 targetEdge = seam.edgeA;
                 reversed = seam.reversedMapping;
             }
 
-            // 计算源边的包围盒并扩展
             float minX = Mathf.Min(sourceEdge.uvA.x, sourceEdge.uvB.x) - paddingUV;
             float maxX = Mathf.Max(sourceEdge.uvA.x, sourceEdge.uvB.x) + paddingUV;
             float minY = Mathf.Min(sourceEdge.uvA.y, sourceEdge.uvB.y) - paddingUV;
             float maxY = Mathf.Max(sourceEdge.uvA.y, sourceEdge.uvB.y) + paddingUV;
 
-            // 转换为像素范围
             int pxMin = Mathf.Clamp(Mathf.FloorToInt(minX * resolution), 0, resolution - 1);
             int pxMax = Mathf.Clamp(Mathf.CeilToInt(maxX * resolution), 0, resolution - 1);
             int pyMin = Mathf.Clamp(Mathf.FloorToInt(minY * resolution), 0, resolution - 1);
@@ -258,18 +323,15 @@ namespace UVAdjacencyMap
 
             int writtenPixels = 0;
 
-            // 预计算边的方向向量
             Vector2 sourceDir = sourceEdge.uvB - sourceEdge.uvA;
             float sourceLengthSq = sourceDir.sqrMagnitude;
             
             if (sourceLengthSq < 0.0000001f)
                 return 0;
             
-            // 归一化方向用于距离计算
             float sourceLength = Mathf.Sqrt(sourceLengthSq);
             Vector2 sourceDirNorm = sourceDir / sourceLength;
 
-            // 调试输出：验证边的映射关系
             if (enableDebugLog)
             {
                 Debug.Log($"[UV邻接图调试] 边映射:\n" +
@@ -285,35 +347,30 @@ namespace UVAdjacencyMap
                 {
                     Vector2 uv = new Vector2((px + 0.5f) / resolution, (py + 0.5f) / resolution);
 
-                    // 计算到源边的距离（精确计算）
                     float dist = DistanceToEdgePrecise(uv, sourceEdge.uvA, sourceEdge.uvB, sourceDirNorm);
 
                     if (dist <= paddingUV)
                     {
                         int index = py * resolution + px;
                         
-                        // 只在距离更近时更新（避免拐角处重叠）
                         if (dist < pixelData[index].distance)
                         {
-                            // 精确计算参数t
                             float t = GetParameterOnEdgePrecise(uv, sourceEdge.uvA, sourceEdge.uvB, sourceLengthSq);
 
-                            // 精确映射到目标边
                             Vector2 adjacentUV;
                             if (reversed)
                             {
-                                // 反向映射：sourceEdge.uvA -> targetEdge.uvB, sourceEdge.uvB -> targetEdge.uvA
                                 adjacentUV = targetEdge.uvB + (targetEdge.uvA - targetEdge.uvB) * t;
                             }
                             else
                             {
-                                // 正向映射：sourceEdge.uvA -> targetEdge.uvA, sourceEdge.uvB -> targetEdge.uvB
                                 adjacentUV = targetEdge.uvA + (targetEdge.uvB - targetEdge.uvA) * t;
                             }
 
                             pixelData[index].adjacentUV = adjacentUV;
                             pixelData[index].distance = dist;
                             pixelData[index].hasData = true;
+                            pixelData[index].isInUVIsland = true;
                             writtenPixels++;
                         }
                     }
@@ -323,11 +380,7 @@ namespace UVAdjacencyMap
             return writtenPixels;
         }
 
-        /// <summary>
-        /// 精确计算参数t（在边上的位置，0~1）
-        /// </summary>
-        private static float GetParameterOnEdgePrecise(Vector2 uv, Vector2 edgeUvA, Vector2 edgeUvB, 
-            float edgeLengthSq)
+        private static float GetParameterOnEdgePrecise(Vector2 uv, Vector2 edgeUvA, Vector2 edgeUvB, float edgeLengthSq)
         {
             if (edgeLengthSq < 0.0000001f)
                 return 0f;
@@ -335,16 +388,11 @@ namespace UVAdjacencyMap
             Vector2 edgeDir = edgeUvB - edgeUvA;
             Vector2 toPoint = uv - edgeUvA;
             
-            // 直接使用投影公式：t = dot(toPoint, edgeDir) / |edgeDir|^2
             float t = Vector2.Dot(toPoint, edgeDir) / edgeLengthSq;
             return Mathf.Clamp01(t);
         }
 
-        /// <summary>
-        /// 精确计算点到边的距离
-        /// </summary>
-        private static float DistanceToEdgePrecise(Vector2 point, Vector2 edgeStart, Vector2 edgeEnd, 
-            Vector2 edgeDirNorm)
+        private static float DistanceToEdgePrecise(Vector2 point, Vector2 edgeStart, Vector2 edgeEnd, Vector2 edgeDirNorm)
         {
             Vector2 toPoint = point - edgeStart;
             float edgeLength = Vector2.Distance(edgeStart, edgeEnd);
@@ -352,13 +400,9 @@ namespace UVAdjacencyMap
             if (edgeLength < 0.0000001f)
                 return Vector2.Distance(point, edgeStart);
 
-            // 计算投影长度
             float projLength = Vector2.Dot(toPoint, edgeDirNorm);
-            
-            // Clamp到边上
             projLength = Mathf.Clamp(projLength, 0, edgeLength);
             
-            // 计算投影点
             Vector2 projection = edgeStart + edgeDirNorm * projLength;
 
             return Vector2.Distance(point, projection);

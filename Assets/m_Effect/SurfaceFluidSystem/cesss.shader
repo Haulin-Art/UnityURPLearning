@@ -50,14 +50,16 @@ Shader "Unlit/cesss"
             {
                 // sample the texture
                 fixed4 col = tex2D(_MainTex, i.uv);
-                fixed2 jump = tex2D(_JumpTex,i.uv).xy;
+                fixed4 jump = tex2D(_JumpTex,i.uv);
 
                 fixed vail = dot(jump,i.uv) >= 0.05 ? 0.0 : 1.0 ; 
                 // apply fog
                 UNITY_APPLY_FOG(i.fogCoord, col);
 
+
+                //return fixed4(jump.a*fixed3(1,1,1),1);
                 //return fixed4(vail*fixed3(1,1,1),1);
-                return fixed4(col.xyz+0.2*jump,0,1);
+                return fixed4(col.xyz+0.2*jump.xy,0,1);
             }
             ENDCG
         }

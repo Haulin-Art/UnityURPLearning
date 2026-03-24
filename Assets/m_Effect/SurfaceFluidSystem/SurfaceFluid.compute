@@ -4,6 +4,8 @@
 #pragma kernel DyeKernel
 #pragma kernel DebugKernel
 
+#pragma kernel processingJumpTex
+
 #include "UnityCG.cginc"
 
 // 模拟参数
@@ -20,7 +22,7 @@ float forceScale;       // 力的大小缩放
 float radius;           // 画笔半径
 
 // UV跳跃贴图参数
-Texture2D<float2> UVJumpMap;  // UV跳跃贴图（RG通道存储跳跃目标UV）
+Texture2D<float4> UVJumpMap;  // UV跳跃贴图（RG通道存储跳跃目标UV）,z通道是跳跃边缘，a通道是uv范围，因此z*a是处于表面uv范围的跳跃边缘
 int useUVJump;                // 是否启用UV跳跃功能
 
 // 重力方向图参数
@@ -59,7 +61,7 @@ Texture2D<float3> DyeTex;
 /// </summary>
 /// <param name="backtracedUV">回溯后的UV坐标</param>
 /// <returns>跳跃后的UV坐标</returns>
-float2 ApplyUVJump(float2 backtracedUV)
+float2 ApplyUVJump(float2 backtracedUV,float2 uv)
 {
     // 如果未启用UV跳跃功能，直接返回原UV
     if (useUVJump == 0)
@@ -68,14 +70,16 @@ float2 ApplyUVJump(float2 backtracedUV)
     }
 
     // 采样UV跳跃图
-    float2 jumpUV = UVJumpMap.SampleLevel(samplerLinearClamp, backtracedUV, 0).xy;
+    float4 jumpUV = UVJumpMap.SampleLevel(samplerLinearClamp,backtracedUV, 0);
 
     // 判断是否需要跳跃（RG通道值不为0表示需要跳跃）
     // 跳跃图在边界区域存储跳跃目标UV，非边界区域存储(0,0)
-    float jumpMask = step(0.001, length(jumpUV));
+    float jumpMask = step(0.001, jumpUV.z*jumpUV.z);
+
+    float2 newUV = lerp(backtracedUV,jumpUV.xy,jumpMask);
 
     // 如果跳跃UV有效，则使用跳跃UV，否则使用原UV
-    return lerp(backtracedUV, jumpUV, jumpMask);
+    return newUV;
 }
 /// <summary>
 /// 获取重力方向（从重力图采样并映射到-1~1）
@@ -111,13 +115,19 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     
     float2 old_velocity = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
 
+    // 处理uv跳转图1
+    float4 jump_factor = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 jump_mix_uv = lerp(uv,jump_factor.xy,jump_factor.b);
+    float2 jump_vel = VelocityTex.SampleLevel(samplerLinearClamp, jump_factor.xy, 0).xy;
+    float jump_mask = jump_factor.z*jump_factor.a;
+
     // 半拉格朗日法：回溯UV
     float2 backtracedUV = uv - advectSpeed * old_velocity * dt;
     //backtracedUV = jump_uvMap - advectSpeed * old_velocity * dt;
     backtracedUV = clamp(backtracedUV, 0.0, 1.0);
 
     // 应用UV跳跃
-    float2 adUV = ApplyUVJump(backtracedUV);
+    float2 adUV = ApplyUVJump(backtracedUV,uv);
     //adUV = backtracedUV;
 
     // 采样周围像素进行扩散
@@ -132,14 +142,15 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     float2 velocity = adData.xy;
     float2 diffusion = (adData + adr + adl + adu + add) * 0.2;
     velocity = 0.9 * adData.xy + 0.1 * diffusion.xy;
-    
+
+
     // 外力项：从射线检测位置添加力
     float2 toSource = sourceUV - uv;
     float distToSource = length(toSource);
     float sourceMask = step(distToSource, radius) * isHit;
     
     // 重力项：从重力图获取方向，始终作用于流体
-    float2 gravityDir = GetGravityDirection(uv);
+    float2 gravityDir = GetGravityDirection(jump_mix_uv);
     velocity += gravityDir * gravityStrength * dt * 0.1;
 
 
@@ -148,13 +159,9 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     float2 force = gravityDir * sourceMask;
     velocity += force * dt * forceScale * 0.1;
     
-    // 处理UV跳转图
-    float2 jump_uvMap = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0).xy;
-    float2 jump_vel = VelocityTex.SampleLevel(samplerLinearClamp, jump_uvMap, 0).xy;
-    velocity += 0.1*jump_vel * dt * step(0.0005,length(jump_uvMap));
-
     // 速度限制
     velocity = clamp(velocity, -5.0, 5.0);
+    //velocity *= step(0.0002,jump_factor.z+jump_factor.a);
     
     // 速度衰减
     velocity = lerp(velocity, 0.0, attenuation.x);
@@ -253,35 +260,36 @@ void DyeKernel(uint3 id : SV_DispatchThreadID)
     uint2 pixel_pos = id.xy;
     float2 uv = ((float2)id.xy + 0.5) / texSize;
     
+    // 处理uv跳转图1
+    float4 jump_factor = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 jump_mix_uv = lerp(uv,jump_factor.xy,jump_factor.b);
+    float3 jump_dye = DyeTex.SampleLevel(samplerLinearClamp, jump_factor.xy, 0);
+
     // 读取速度
     float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
-    
+
     // 半拉格朗日法：回溯UV
     float2 backtracedUV = uv - advectSpeed * old_vel * dt;
     backtracedUV = clamp(backtracedUV, 0.0, 1.0);
     
     // 应用UV跳跃
-    float2 adUV = ApplyUVJump(backtracedUV);
+    float2 adUV = ApplyUVJump(backtracedUV,uv);
     
     // 通过新UV采样之前的染料场
     float3 newCol = DyeTex.SampleLevel(samplerLinearClamp, adUV, 0);
-    
+
     // 靠近边界消除
-    float boundary = smoothstep(0.5, 0.3, abs(uv.x - 0.5)) * smoothstep(0.5, 0.3, abs(uv.y - 0.5));
-    newCol = lerp(newCol, newCol * boundary, 0.1);
+    //float boundary = smoothstep(0.5, 0.3, abs(uv.x - 0.5)) * smoothstep(0.5, 0.3, abs(uv.y - 0.5));
+    //newCol = lerp(newCol, newCol * boundary, 0.1);
     
     // 从射线检测位置添加新的染料
     float2 toSource = sourceUV - uv;
     float distToSource = length(toSource);
     float sourceMask = step(distToSource, radius) * isHit;
-    
-    // 处理UV跳转图
-    float2 jump_uvMap = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0).xy;
-    float jump_dye = DyeTex.SampleLevel(samplerLinearClamp, jump_uvMap, 0).x;
-    newCol += jump_dye * dt * 0.1 ;
 
     // 染料颜色（红色）
     float3 addCol = float3(1, 0, 0) * sourceMask;
+    //addCol *= step(0.0002,jump_factor.z+jump_factor.a);
 
     // 写入新的染料场
     DyeWrite[pixel_pos] = newCol * (1.0 - attenuation.y) + addCol;
@@ -326,7 +334,7 @@ void DebugKernel(uint3 id : SV_DispatchThreadID)
         float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
         float2 backtracedUV = uv - advectSpeed * old_vel * dt;
         backtracedUV = clamp(backtracedUV, 0.0, 1.0);
-        float2 jumpedUV = ApplyUVJump(backtracedUV);
+        float2 jumpedUV = ApplyUVJump(backtracedUV,uv);
         debugColor = float4(jumpedUV, 0, 1);
     }
     else if (debugMode == 4)  // ShowVelocityField
@@ -366,4 +374,38 @@ void DebugKernel(uint3 id : SV_DispatchThreadID)
     }
 
     DebugOutput[pixel_pos] = debugColor;
+}
+
+[numthreads(8,8,1)]
+void processingJumpTex(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    // hlsl的SampleLevel函数默认uv坐标对应的是像素中心
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+    
+    // 重力梯度，边缘处需要把方向重新映射回重力梯度，因为不同uv岛可能方向不一样
+    float2 gravityDir = GetGravityDirection(uv);
+
+    // 旧速度
+    float2 old_velocity = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+
+    // 处理uv跳转图1
+    float4 jump_factor = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0);
+    //float2 jump_mix_uv = lerp(uv,jump_factor.xy,jump_factor.b);
+    float2 jump_vel = VelocityTex.SampleLevel(samplerLinearClamp, jump_factor.xy, 0).xy;
+    jump_vel = length(jump_vel)*gravityDir;
+
+    float jump_mask = jump_factor.z*jump_factor.a;
+
+    float2 new_vel = lerp(old_velocity,jump_vel,jump_mask);
+
+    VelocityWrite[pixel_pos] = new_vel;
+
+    // 旧燃料
+    float3 oldCol = DyeTex.SampleLevel(samplerLinearClamp, uv, 0);
+    float3 newCol = DyeTex.SampleLevel(samplerLinearClamp, jump_factor.xy, 0);
+    newCol =  lerp(oldCol,newCol,jump_mask);
+
+    DyeWrite[pixel_pos] = newCol;
+
 }

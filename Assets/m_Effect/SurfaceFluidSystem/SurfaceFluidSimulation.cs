@@ -218,6 +218,7 @@ public class SurfaceFluidSimulation : MonoBehaviour
         }
     }
 
+    #region 模拟函数区域 
     /// <summary>
     /// 初始化核序号
     /// </summary>
@@ -409,4 +410,5 @@ public class SurfaceFluidSimulation : MonoBehaviour
         a = b;
         b = temp;
     }
+    #endregion
 }
