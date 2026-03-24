@@ -875,8 +875,8 @@ Shader "FluidFlux/water_ins_tess"
                 float depAlpha = lerp(saturate(rampMask*50.0), 1.0, fresnel * 0.5);
                 float sdfAlpha = lerp(1.0,step(sdf,-0.0105),infanwei); // 用于将没用使用的部分剔除
                 float sdfEdgeAlpha = lerp(1.0,smoothstep(0.0,0.05,-sdf),infanwei); // 用于使岸边变得透明，避免突兀的边界
-
-                //return float4(float3(1,1,1)*sdfEdgeAlpha,1);
+                //sdfEdgeAlpha = saturate(waterDepth);
+                //return float4(float3(1,1,1)*waterDepth,1);
 
                 // 用于修正浮沫在贴图边缘的白边问题
                 float3 foaml =  SAMPLE_TEXTURE2D(_FoamTex,sampler_FoamTex, worldUV * _FoamTex_ST.xy + _FoamTex_ST.zw);

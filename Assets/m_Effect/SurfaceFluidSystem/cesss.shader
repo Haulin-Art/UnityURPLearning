@@ -4,6 +4,7 @@ Shader "Unlit/cesss"
     {
         _MainTex ("Texture", 2D) = "white" {}
         _JumpTex ("JumpTex",2D) = "black"{}
+        _GravTex ("重力图",2D) = "black"{}
     }
     SubShader
     {
@@ -36,6 +37,7 @@ Shader "Unlit/cesss"
             sampler2D _MainTex;
             float4 _MainTex_ST;
             sampler2D _JumpTex;
+            sampler2D _GravTex;
 
             v2f vert (appdata v)
             {
@@ -55,8 +57,10 @@ Shader "Unlit/cesss"
                 fixed vail = dot(jump,i.uv) >= 0.05 ? 0.0 : 1.0 ; 
                 // apply fog
                 UNITY_APPLY_FOG(i.fogCoord, col);
+                fixed3 grav = tex2D(_GravTex,i.uv).xyz*2.0-1.0;
 
 
+                //return fixed4(grav*0.2 + col.xyz,1);
                 //return fixed4(jump.a*fixed3(1,1,1),1);
                 //return fixed4(vail*fixed3(1,1,1),1);
                 return fixed4(col.xyz+0.2*jump.xy,0,1);

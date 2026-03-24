@@ -74,7 +74,7 @@ float2 ApplyUVJump(float2 backtracedUV,float2 uv)
 
     // 判断是否需要跳跃（RG通道值不为0表示需要跳跃）
     // 跳跃图在边界区域存储跳跃目标UV，非边界区域存储(0,0)
-    float jumpMask = step(0.001, jumpUV.z*jumpUV.z);
+    float jumpMask = step(0.001, jumpUV.z*(1.0-jumpUV.a));
 
     float2 newUV = lerp(backtracedUV,jumpUV.xy,jumpMask);
 
@@ -112,7 +112,6 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     uint2 pixel_pos = id.xy;
     // hlsl的SampleLevel函数默认uv坐标对应的是像素中心
     float2 uv = ((float2)id.xy + 0.5) / texSize;
-    
     float2 old_velocity = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
 
     // 处理uv跳转图1
@@ -124,11 +123,18 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     // 半拉格朗日法：回溯UV
     float2 backtracedUV = uv - advectSpeed * old_velocity * dt;
     //backtracedUV = jump_uvMap - advectSpeed * old_velocity * dt;
+
     backtracedUV = clamp(backtracedUV, 0.0, 1.0);
 
+
+
+    // 采样UV跳跃图
+    float4 jumpUV = UVJumpMap.SampleLevel(samplerLinearClamp,backtracedUV, 0);
+    float jumpMask = step(0.001, jumpUV.z*(1.0-jumpUV.a));
+    float2 newUV = lerp(backtracedUV,jumpUV.xy,jumpMask);
     // 应用UV跳跃
     float2 adUV = ApplyUVJump(backtracedUV,uv);
-    //adUV = backtracedUV;
+    adUV = newUV;
 
     // 采样周围像素进行扩散
     float2 w = float2(1.0 / texSize, 0.0);
@@ -144,15 +150,21 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     velocity = 0.9 * adData.xy + 0.1 * diffusion.xy;
 
 
+    // 重力项：从重力图获取方向，始终作用于流体
+    float2 gravityDir = GetGravityDirection(jump_mix_uv);
+    gravityDir = GetGravityDirection(newUV);
+
+    float2 grav_vel = length(velocity)*gravityDir;
+    //velocity = lerp(velocity,grav_vel,jump_factor.z);
+    velocity = lerp(velocity,grav_vel,jumpMask);
+
+    velocity += gravityDir * gravityStrength * dt * 0.1;
+
+
     // 外力项：从射线检测位置添加力
     float2 toSource = sourceUV - uv;
     float distToSource = length(toSource);
     float sourceMask = step(distToSource, radius) * isHit;
-    
-    // 重力项：从重力图获取方向，始终作用于流体
-    float2 gravityDir = GetGravityDirection(jump_mix_uv);
-    velocity += gravityDir * gravityStrength * dt * 0.1;
-
 
     // 根据UV变化量计算力的方向
     //float2 force = sourceDelta * sourceMask;
@@ -168,6 +180,9 @@ void AdvectionKernel(uint3 id : SV_DispatchThreadID)
     
     // 写入新缓冲
     VelocityWrite[pixel_pos] = velocity;
+
+    float2 gravityDir_ori = GetGravityDirection(uv);
+    VelocityWrite[pixel_pos] = gravityDir_ori* dt *0.1;
 }
 
 /// <summary>
@@ -268,15 +283,26 @@ void DyeKernel(uint3 id : SV_DispatchThreadID)
     // 读取速度
     float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
 
+    // 重力项：从重力图获取方向，始终作用于流体
+    float2 gravityDir = GetGravityDirection(uv);
+
     // 半拉格朗日法：回溯UV
-    float2 backtracedUV = uv - advectSpeed * old_vel * dt;
+    //float2 backtracedUV = uv - advectSpeed * old_vel * dt;
+    float2 backtracedUV = uv - advectSpeed * gravityDir * dt * gravityStrength;
     backtracedUV = clamp(backtracedUV, 0.0, 1.0);
-    
+
+
     // 应用UV跳跃
-    float2 adUV = ApplyUVJump(backtracedUV,uv);
-    
+    //float2 adUV = ApplyUVJump(backtracedUV,uv);
+    //adUV = backtracedUV;
+
     // 通过新UV采样之前的染料场
-    float3 newCol = DyeTex.SampleLevel(samplerLinearClamp, adUV, 0);
+    float3 newCol = DyeTex.SampleLevel(samplerLinearClamp, backtracedUV, 0);
+    newCol = lerp(newCol,max(jump_dye,newCol),jump_factor.z*(1.0-jump_factor.a));
+    //newCol = lerp(newCol,jump_dye,jump_factor.z*(1.0-jump_factor.a));
+    // 衰减
+    newCol *=  jump_factor.z >=0.95 ? (1.0 - attenuation.y*4.0):(1.0 - attenuation.y*1.0);
+    
 
     // 靠近边界消除
     //float boundary = smoothstep(0.5, 0.3, abs(uv.x - 0.5)) * smoothstep(0.5, 0.3, abs(uv.y - 0.5));
@@ -292,7 +318,7 @@ void DyeKernel(uint3 id : SV_DispatchThreadID)
     //addCol *= step(0.0002,jump_factor.z+jump_factor.a);
 
     // 写入新的染料场
-    DyeWrite[pixel_pos] = newCol * (1.0 - attenuation.y) + addCol;
+    DyeWrite[pixel_pos] = (newCol + addCol) * step(0.0001,length(gravityDir)) ;
 }
 
 /// <summary>

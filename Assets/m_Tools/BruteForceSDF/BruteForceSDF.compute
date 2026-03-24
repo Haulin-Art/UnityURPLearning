@@ -15,6 +15,29 @@ uint MaxBoundaryPoints;
 uint2 TextureSize;
 float BlurRadius;
 
+// 通道选择: 0=R, 1=G, 2=B, 3=A
+int SourceChannel;
+// 是否反转颜色
+int InvertColors;
+
+// 根据通道选择获取像素值
+float GetChannelValue(float4 color)
+{
+    float value = 0.0;
+    if (SourceChannel == 0) value = color.r;
+    else if (SourceChannel == 1) value = color.g;
+    else if (SourceChannel == 2) value = color.b;
+    else value = color.a;
+    
+    // 应用反转
+    if (InvertColors)
+    {
+        value = 1.0 - value;
+    }
+    
+    return value;
+}
+
 float2 GetSubpixelBoundaryPos(uint2 pixelPos, int2 dir, float currentVal, float neighborVal)
 {
     float2 pos = float2(pixelPos.x + 0.5, pixelPos.y + 0.5);
@@ -38,7 +61,7 @@ void CollectBoundaryPoints(uint3 id : SV_DispatchThreadID)
     if (id.x >= TextureSize.x || id.y >= TextureSize.y)
         return;
 
-    float currentVal = SourceTexture[id.xy].r;
+    float currentVal = GetChannelValue(SourceTexture[id.xy]);
     
     int2 offsets[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
     
@@ -53,7 +76,7 @@ void CollectBoundaryPoints(uint3 id : SV_DispatchThreadID)
             continue;
         }
         
-        float neighborVal = SourceTexture[neighborPos].r;
+        float neighborVal = GetChannelValue(SourceTexture[neighborPos]);
         
         if ((currentVal < 0.5 && neighborVal >= 0.5) || (currentVal >= 0.5 && neighborVal < 0.5))
         {
@@ -94,7 +117,7 @@ void ComputeSDF(uint3 id : SV_DispatchThreadID)
         }
     }
     
-    float currentVal = SourceTexture[id.xy].r;
+    float currentVal = GetChannelValue(SourceTexture[id.xy]);
     bool isInside = currentVal > 0.5;
     
     float signedDist = bestDist;

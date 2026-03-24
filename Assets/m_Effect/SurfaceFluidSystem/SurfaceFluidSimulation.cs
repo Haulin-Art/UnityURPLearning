@@ -222,6 +222,8 @@ public class SurfaceFluidSimulation : MonoBehaviour
     /// <summary>
     /// 初始化核序号
     /// </summary>
+    #endregion
+    #region 初始化参数
     private void InitializeKernels()
     {
         advectionKernel = computeShader.FindKernel("AdvectionKernel");
@@ -288,6 +290,7 @@ public class SurfaceFluidSimulation : MonoBehaviour
             name: "DebugOutput"
         );
     }
+    #endregion
 
     /// <summary>
     /// 释放RTHandles
@@ -303,6 +306,7 @@ public class SurfaceFluidSimulation : MonoBehaviour
         debugBuffer?.Release();
     }
 
+    #region 最终模拟函数
     /// <summary>
     /// 主模拟函数
     /// </summary>
@@ -338,6 +342,7 @@ public class SurfaceFluidSimulation : MonoBehaviour
         computeShader.SetFloat("gravityStrength", gravityStrength);
         if (useGravityMap && gravityMap != null)
         {
+            computeShader.SetTexture(dyeKernel, "GravityMap", gravityMap);
             computeShader.SetTexture(advectionKernel, "GravityMap", gravityMap);
             computeShader.SetTexture(debugKernel, "GravityMap", gravityMap);
         }
@@ -374,10 +379,11 @@ public class SurfaceFluidSimulation : MonoBehaviour
         computeShader.SetTexture(dyeKernel, "DyeWrite", dBuffer2);
         computeShader.SetTexture(dyeKernel, "VelocityTex", vBuffer1);
         computeShader.SetTexture(dyeKernel, "DyeTex", dBuffer1);
+
         computeShader.Dispatch(dyeKernel, threadGroups, threadGroups, 1);
         Swap(ref dBuffer1, ref dBuffer2);
     }
-
+    #endregion
     /// <summary>
     /// 执行调试输出
     /// </summary>
@@ -410,5 +416,5 @@ public class SurfaceFluidSimulation : MonoBehaviour
         a = b;
         b = temp;
     }
-    #endregion
+    
 }

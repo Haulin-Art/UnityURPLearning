@@ -1,6 +1,15 @@
 using UnityEngine;
 using UnityEditor;
 
+// 通道选择枚举
+public enum ChannelSelector
+{
+    R = 0,
+    G = 1,
+    B = 2,
+    A = 3
+}
+
 public class BruteForceSDFBaker : MonoBehaviour
 {
     [Header("Compute Shader")]
@@ -9,6 +18,13 @@ public class BruteForceSDFBaker : MonoBehaviour
     [Header("Input Texture (Binary - White is inside/land)")]
     [Tooltip("白色区域表示陆地/内部，黑色区域表示水域/外部")]
     public Texture2D binaryTexture;
+
+    [Header("Channel Settings")]
+    [Tooltip("选择用于提取黑白二值图的通道")]
+    public ChannelSelector sourceChannel = ChannelSelector.R;
+
+    [Tooltip("是否反转黑白值（白变黑，黑变白）")]
+    public bool invertColors = false;
 
     [Header("Output Settings")]
     [Tooltip("是否保存为资产文件")]
@@ -128,6 +144,10 @@ public class BruteForceSDFBaker : MonoBehaviour
 
     private void CollectBoundaryPoints()
     {
+        // 设置通道选择和反转参数
+        computeShader.SetInt("SourceChannel", (int)sourceChannel);
+        computeShader.SetInt("InvertColors", invertColors ? 1 : 0);
+        
         computeShader.SetTexture(kernelCollectBoundary, "SourceTexture", inputRT);
         computeShader.SetBuffer(kernelCollectBoundary, "BoundaryCount", boundaryCountBuffer);
         computeShader.SetBuffer(kernelCollectBoundary, "BoundaryPoints", boundaryPointsBuffer);
@@ -142,7 +162,7 @@ public class BruteForceSDFBaker : MonoBehaviour
         boundaryCountBuffer.GetData(countData);
         uint boundaryCount = countData[0];
         
-        Debug.Log($"检测到边界点数量: {boundaryCount}");
+        Debug.Log($"检测到边界点数量: {boundaryCount}，使用通道: {sourceChannel}，反转: {invertColors}");
 
         if (boundaryCount > boundaryPointsBuffer.count)
         {
@@ -152,6 +172,10 @@ public class BruteForceSDFBaker : MonoBehaviour
 
     private void ComputeSDFBruteForce()
     {
+        // 设置通道选择和反转参数
+        computeShader.SetInt("SourceChannel", (int)sourceChannel);
+        computeShader.SetInt("InvertColors", invertColors ? 1 : 0);
+        
         computeShader.SetTexture(kernelComputeSDF, "SourceTexture", inputRT);
         computeShader.SetTexture(kernelComputeSDF, "Result", sdfOutput);
         computeShader.SetBuffer(kernelComputeSDF, "BoundaryCount", boundaryCountBuffer);

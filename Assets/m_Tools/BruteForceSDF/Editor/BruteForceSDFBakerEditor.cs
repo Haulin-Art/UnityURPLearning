@@ -19,10 +19,12 @@ public class BruteForceSDFBakerEditor : Editor
             "- 方向向量完全准确，无放射状伪影\n" +
             "- 适合预烘焙，不适合实时计算\n\n" +
             "使用方法:\n" +
-            "1. 准备一张二值纹理（白色=陆地/内部，黑色=水域/外部）\n" +
-            "2. 确保纹理开启了Read/Write Enable\n" +
-            "3. 点击下方按钮开始烘焙\n" +
-            "4. 结果将保存到指定文件夹",
+            "1. 准备一张纹理（可以是RGBA四通道）\n" +
+            "2. 选择要使用的通道（R/G/B/A）作为黑白二值图\n" +
+            "3. 如需反转黑白，勾选Invert Colors选项\n" +
+            "4. 确保纹理开启了Read/Write Enable\n" +
+            "5. 点击下方按钮开始烘焙\n" +
+            "6. 结果将保存到指定文件夹",
             MessageType.Info
         );
 
