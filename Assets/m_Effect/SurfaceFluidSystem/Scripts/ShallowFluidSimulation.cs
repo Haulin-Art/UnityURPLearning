@@ -12,7 +12,8 @@ public enum ShallowFluidDebugMode
     ShowGravityMap,     // 显示重力图
     ShowUVJumpMap,      // 显示UV跳跃图
     ShowBedHeight,      // 显示床底高度
-    ShowSurfaceHeight   // 显示水面高度（水深+床底）
+    ShowSurfaceHeight,  // 显示水面高度（水深+床底）
+    ShowNormalMap       // 显示法线图
 }
 
 /// <summary>
@@ -21,6 +22,13 @@ public enum ShallowFluidDebugMode
 /// 支持UV岛跳跃功能，实现跨UV岛的流体传输
 /// 支持重力方向图，实现基于贴图的重力效果
 /// 支持床底高度图，实现水流成股效果
+/// 
+/// 纹理格式：RG=速度(xy), B=高度
+/// 优化：合并速度和高度纹理，采样次数从12次减少到6次
+/// 
+/// 输出：
+/// - 流体纹理：RG=速度, B=高度
+/// - 法线图：RG=法线xy, B=法线z（根据水高梯度计算）
 /// </summary>
 public class ShallowFluidSimulation : MonoBehaviour
 {
@@ -67,8 +75,25 @@ public class ShallowFluidSimulation : MonoBehaviour
     public bool useBedHeight = false;
     
     [Tooltip("床底高度缩放系数")]
-    [Range(0.0f, 1.0f)]
+    [Range(0.0f, 5.0f)]
     public float bedHeightScale = 0.1f;
+    
+    [Tooltip("床底高度图平铺次数")]
+    [Range(1.0f, 32.0f)]
+    public float bedTiling = 8.0f;
+    
+    [Tooltip("床底衰减系数（用于形成小股水流）")]
+    [Range(0.0f, 20.0f)]
+    public float bedAttenFactor = 5.0f;
+    
+    [Tooltip("接缝处衰减增强系数")]
+    [Range(1.0f, 20.0f)]
+    public float gapAttenuationEnhancement = 10.0f;
+
+    [Space(10)]
+    [Header("法线图输出")]
+    [Tooltip("法线图输出贴图（RG=法线xy, B=法线z）")]
+    public RenderTexture normalOutputTexture;
 
     [Space(10)]
     [Header("调试设置")]
@@ -103,12 +128,11 @@ public class ShallowFluidSimulation : MonoBehaviour
     [Range(0.0f, 0.2f)]
     public float heightAttenuation = 0.005f;
 
-    // Compute Buffer - 浅水方程只需要速度场和高度场
-    private RTHandle vBuffer1;  // 速度缓存1，用于读取
-    private RTHandle vBuffer2;  // 速度缓存2，用于写入
-    private RTHandle hBuffer1;  // 高度缓存1，用于读取
-    private RTHandle hBuffer2;  // 高度缓存2，用于写入
-    private RTHandle debugBuffer;  // 调试输出缓存
+    // Compute Buffer - 合并速度(RG)和高度(B)为一个三通道纹理
+    private RTHandle fluidBuffer1;  // 流体缓存1，用于读取
+    private RTHandle fluidBuffer2;  // 流体缓存2，用于写入
+    private RTHandle normalBuffer;  // 法线图缓存
+    private RTHandle debugBuffer;   // 调试输出缓存
 
     // Kernel
     private int shallowWaterKernel;
@@ -173,13 +197,20 @@ public class ShallowFluidSimulation : MonoBehaviour
         // 更新输出贴图
         if (outputTexture != null)
         {
-            Graphics.Blit(hBuffer1, outputTexture);
+            Graphics.Blit(fluidBuffer1, outputTexture);
+        }
+
+        // 更新法线图输出贴图
+        if (normalOutputTexture != null)
+        {
+            Graphics.Blit(normalBuffer, normalOutputTexture);
         }
 
         // 更新展示材质
         if (displayMaterial != null)
         {
-            displayMaterial.SetTexture("_MainTex", hBuffer1);
+            displayMaterial.SetTexture("_MainTex", fluidBuffer1);
+            displayMaterial.SetTexture("_NormalMap", normalBuffer);
         }
 
         // 检测调试模式变化并输出Log
@@ -231,32 +262,26 @@ public class ShallowFluidSimulation : MonoBehaviour
     {
         ReleaseRTHandles();
 
-        // 速度场：RG两个通道 (x, y)
-        vBuffer1 = RTHandles.Alloc(
+        // 流体场：RGB三通道 (RG=速度, B=高度)
+        fluidBuffer1 = RTHandles.Alloc(
             size, size,
-            colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16_SFloat,
+            colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat,
             enableRandomWrite: true,
-            name: "Velocity1"
+            name: "Fluid1"
         );
-        vBuffer2 = RTHandles.Alloc(
+        fluidBuffer2 = RTHandles.Alloc(
             size, size,
-            colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16_SFloat,
+            colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat,
             enableRandomWrite: true,
-            name: "Velocity2"
+            name: "Fluid2"
         );
 
-        // 高度场：单通道
-        hBuffer1 = RTHandles.Alloc(
+        // 法线图缓存：RGB三通道 (RG=法线xy, B=法线z)
+        normalBuffer = RTHandles.Alloc(
             size, size,
-            colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R16_SFloat,
+            colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat,
             enableRandomWrite: true,
-            name: "Height1"
-        );
-        hBuffer2 = RTHandles.Alloc(
-            size, size,
-            colorFormat: UnityEngine.Experimental.Rendering.GraphicsFormat.R16_SFloat,
-            enableRandomWrite: true,
-            name: "Height2"
+            name: "NormalOutput"
         );
 
         // 调试输出缓存
@@ -273,10 +298,9 @@ public class ShallowFluidSimulation : MonoBehaviour
     /// </summary>
     private void ReleaseRTHandles()
     {
-        vBuffer1?.Release();
-        vBuffer2?.Release();
-        hBuffer1?.Release();
-        hBuffer2?.Release();
+        fluidBuffer1?.Release();
+        fluidBuffer2?.Release();
+        normalBuffer?.Release();
         debugBuffer?.Release();
     }
 
@@ -317,6 +341,9 @@ public class ShallowFluidSimulation : MonoBehaviour
         // 设置床底高度图参数
         computeShader.SetInt("useBedHeight", useBedHeight ? 1 : 0);
         computeShader.SetFloat("bedHeightScale", bedHeightScale);
+        computeShader.SetFloat("bedTiling", bedTiling);
+        computeShader.SetFloat("bedAttenFactor", bedAttenFactor);
+        computeShader.SetFloat("gapAttenuationEnhancement", gapAttenuationEnhancement);
         if (useBedHeight && bedHeightMap != null)
         {
             computeShader.SetTexture(shallowWaterKernel, "BedHeightMap", bedHeightMap);
@@ -326,20 +353,20 @@ public class ShallowFluidSimulation : MonoBehaviour
         computeShader.SetInt("debugMode", (int)debugMode);
 
         // ======================== 浅水方程核 ==============================
-        // 设置读取纹理
-        computeShader.SetTexture(shallowWaterKernel, "VelocityTex", vBuffer1);
-        computeShader.SetTexture(shallowWaterKernel, "HeightTex", hBuffer1);
+        // 设置读取纹理（合并的速度+高度）
+        computeShader.SetTexture(shallowWaterKernel, "FluidTex", fluidBuffer1);
         
         // 设置写入纹理
-        computeShader.SetTexture(shallowWaterKernel, "VelocityWrite", vBuffer2);
-        computeShader.SetTexture(shallowWaterKernel, "HeightWrite", hBuffer2);
+        computeShader.SetTexture(shallowWaterKernel, "FluidWrite", fluidBuffer2);
+        
+        // 设置法线图输出纹理
+        computeShader.SetTexture(shallowWaterKernel, "NormalOutput", normalBuffer);
 
         // 执行计算
         computeShader.Dispatch(shallowWaterKernel, threadGroups, threadGroups, 1);
 
         // 交换缓冲区
-        Swap(ref vBuffer1, ref vBuffer2);
-        Swap(ref hBuffer1, ref hBuffer2);
+        Swap(ref fluidBuffer1, ref fluidBuffer2);
     }
 
     /// <summary>
@@ -371,18 +398,20 @@ public class ShallowFluidSimulation : MonoBehaviour
     }
 
     /// <summary>
-    /// 获取当前高度场纹理（供外部使用）
+    /// 获取当前流体纹理（供外部使用）
+    /// RG=速度, B=高度
     /// </summary>
-    public RenderTexture GetHeightTexture()
+    public RenderTexture GetFluidTexture()
     {
-        return hBuffer1?.rt;
+        return fluidBuffer1?.rt;
     }
 
     /// <summary>
-    /// 获取当前速度场纹理（供外部使用）
+    /// 获取当前法线图纹理（供外部使用）
+    /// RG=法线xy, B=法线z
     /// </summary>
-    public RenderTexture GetVelocityTexture()
+    public RenderTexture GetNormalTexture()
     {
-        return vBuffer1?.rt;
+        return normalBuffer?.rt;
     }
 }

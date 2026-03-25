@@ -1296,7 +1296,11 @@ MonoBehaviour:
   gravityStrength: 0.25
   bedHeightMap: {fileID: 2800000, guid: 0fcf900a5a8948f4e832a10dc4bed183, type: 3}
   useBedHeight: 1
-  bedHeightScale: 1
+  bedHeightScale: 0.496
+  bedTiling: 8
+  bedAttenFactor: 3.2
+  gapAttenuationEnhancement: 5
+  normalOutputTexture: {fileID: 8400000, guid: b1a327ac5384556458472ee158a70d20, type: 2}
   debugMode: 0
   debugOutputTexture: {fileID: 8400000, guid: a62f48b636fddd8458afc6498257335a, type: 2}
   size: 512

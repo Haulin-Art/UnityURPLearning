@@ -26,6 +26,11 @@ float gravityStrength;        // 重力强度
 Texture2D<float> BedHeightMap;  // 床底高度图（噪波地形）
 int useBedHeight;               // 是否启用床底高度图
 float bedHeightScale;           // 床底高度缩放系数
+float bedTiling;                // 床底高度图平铺次数
+
+// 衰减参数
+float bedAttenFactor;           // 床底衰减系数（用于形成小股水流）
+float gapAttenuationEnhancement; // 接缝处衰减增强系数
 
 // 调试模式参数
 // 0: None, 1: ShowHeightField, 2: ShowVelocityField, 3: ShowGravityMap, 4: ShowUVJumpMap, 5: ShowBedHeight, 6: ShowSurfaceHeight
@@ -44,13 +49,15 @@ SamplerState samplerLinearRepeat
     AddressU = Repeat;
     AddressV = Repeat;
 };
-// 读写纹理
-RWTexture2D<float2> VelocityWrite;
-RWTexture2D<float> HeightWrite;
 
-// 只读纹理（用于采样器采样）
-Texture2D<float2> VelocityTex;
-Texture2D<float> HeightTex;
+// 读写纹理 - 合并速度(RG)和高度(B)为一个三通道纹理
+RWTexture2D<float3> FluidWrite;
+
+// 法线图输出纹理（RG:法线xy, B:法线z）
+RWTexture2D<float3> NormalOutput;
+
+// 只读纹理（用于采样器采样）- RG:速度, B:高度
+Texture2D<float3> FluidTex;
 
 /// <summary>
 /// 获取重力方向（从重力图采样并映射到-1~1）
@@ -76,8 +83,7 @@ float GetBedHeight(float2 uv)
     {
         return 0.0;
     }
-    float bed_tiling = 8.0;
-    float bedHeight = BedHeightMap.SampleLevel(samplerLinearRepeat, uv * bed_tiling, 0).x;
+    float bedHeight = BedHeightMap.SampleLevel(samplerLinearRepeat, uv * bedTiling, 0).x;
     return bedHeight * bedHeightScale;
 }
 
@@ -86,18 +92,25 @@ float GetBedHeight(float2 uv)
 /// 连续性方程：∂h/∂t + ∇·(hv) = 0  即  新高度 = 旧高度 - 散度(速度 * 高度) * dt
 /// 动量方程：∂v/∂t + (v·∇)v = -g∇η - friction*v  即  新速度 = 平流后的速度 - g * 水面梯度 * dt - 摩擦力项 * dt
 /// 其中 η = h + b（水面高度 = 水深 + 床底高度）
+/// 
+/// 纹理格式：RG=速度(xy), B=高度
+/// 优化：合并速度和高度纹理，采样次数从12次减少到6次
+/// 
+/// 输出：
+/// - FluidWrite: RG=速度, B=高度
+/// - NormalOutput: RG=法线xy, B=法线z（根据水高梯度计算）
 /// </summary>
 [numthreads(8, 8, 1)]
 void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
 {
     uint2 pixel_pos = id.xy;
     float2 uv = ((float2)id.xy + 0.5) / texSize;
-    float2 w = float2(1.0 / texSize, 0.0);
-    w = float2(1.0 / 256.0, 0.0);
+    float2 w = float2(1.0 / 256.0, 0.0); // 魔法常数，只能是256，不然uv岛跳跃图无法正常工作
 
-    // 读取上一帧数据
-    float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
-    float old_height = HeightTex.SampleLevel(samplerLinearClamp, uv, 0).x;
+    // 读取上一帧数据（一次采样获取速度和高度）
+    float3 old_data = FluidTex.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 old_vel = old_data.xy;
+    float old_height = old_data.z;
 
     // 获取重力方向
     float2 gravityDir = GetGravityDirection(uv);
@@ -107,13 +120,10 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     float2 backtracedUV = uv - advectSpeed * old_vel * dt;
     backtracedUV = clamp(backtracedUV, 0.0, 1.0);
 
-    float2 adUV = backtracedUV;
-
-    // 采样平流后的速度
-    float2 ad_vel = VelocityTex.SampleLevel(samplerLinearClamp, adUV, 0).xy;
-
-    // 采样平流后的高度
-    float ad_height = HeightTex.SampleLevel(samplerLinearClamp, adUV, 0).x;
+    // 采样平流后的数据（一次采样获取速度和高度）
+    float3 ad_data = FluidTex.SampleLevel(samplerLinearClamp, backtracedUV, 0);
+    float2 ad_vel = ad_data.xy;
+    float ad_height = ad_data.z;
 
     // ========== 计算床底高度 ==========
     float b_center = GetBedHeight(uv);
@@ -123,13 +133,26 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     float b_down = GetBedHeight(uv + w.yx);
 
     // ========== 计算水面高度和梯度（用于动量方程） ==========
-    // 水面高度 η = h + b（水深 + 床底高度）
-    adUV = uv;
-    float h_center = ad_height;
-    float h_right = HeightTex.SampleLevel(samplerLinearClamp, adUV + w.xy, 0).x;
-    float h_left = HeightTex.SampleLevel(samplerLinearClamp, adUV - w.xy, 0).x;
-    float h_up = HeightTex.SampleLevel(samplerLinearClamp, adUV - w.yx, 0).x;
-    float h_down = HeightTex.SampleLevel(samplerLinearClamp, adUV + w.yx, 0).x;
+    // 采样周围数据（一次采样获取速度和高度）
+    float3 data_center = FluidTex.SampleLevel(samplerLinearClamp, uv, 0);
+    float3 data_right = FluidTex.SampleLevel(samplerLinearClamp, uv + w.xy, 0);
+    float3 data_left = FluidTex.SampleLevel(samplerLinearClamp, uv - w.xy, 0);
+    float3 data_up = FluidTex.SampleLevel(samplerLinearClamp, uv - w.yx, 0);
+    float3 data_down = FluidTex.SampleLevel(samplerLinearClamp, uv + w.yx, 0);
+
+    // 提取高度
+    float h_center = data_center.z;
+    float h_right = data_right.z;
+    float h_left = data_left.z;
+    float h_up = data_up.z;
+    float h_down = data_down.z;
+
+    // 提取速度
+    float2 vel_center = data_center.xy;
+    float2 vel_right = data_right.xy;
+    float2 vel_left = data_left.xy;
+    float2 vel_up = data_up.xy;
+    float2 vel_down = data_down.xy;
 
     // 水面高度 = 水深 + 床底高度
     float eta_center = h_center + b_center;
@@ -145,15 +168,11 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
 
     // ========== 计算通量散度（用于连续性方程） ==========
     // 通量 = 水深 * 速度
-    float2 flux_center = h_center * ad_vel;
-    float2 flux_right = h_right 
-                       * VelocityTex.SampleLevel(samplerLinearClamp, adUV + w.xy, 0).xy;
-    float2 flux_left = h_left
-                      * VelocityTex.SampleLevel(samplerLinearClamp, adUV - w.xy, 0).xy;
-    float2 flux_up = h_up
-                    * VelocityTex.SampleLevel(samplerLinearClamp, adUV - w.yx, 0).xy;
-    float2 flux_down = h_down
-                      * VelocityTex.SampleLevel(samplerLinearClamp, adUV + w.yx, 0).xy;
+    float2 flux_center = h_center * vel_center;
+    float2 flux_right = h_right * vel_right;
+    float2 flux_left = h_left * vel_left;
+    float2 flux_up = h_up * vel_up;
+    float2 flux_down = h_down * vel_down;
 
     // 通量散度 = ∂(hv)/∂x + ∂(hv)/∂y
     float flux_divergence = (flux_right.x - flux_left.x) * 0.5 + (flux_down.y - flux_up.y) * 0.5;
@@ -188,24 +207,24 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     // ========== UV跳跃处理 ==========
     float4 jump_factor = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0);
     float jump_mask = jump_factor.z * (1.0 - jump_factor.a);
+    jump_mask = jump_factor.z ;
     
-    // 获取跳跃目标的高度
-    float jump_height = HeightTex.SampleLevel(samplerLinearClamp, jump_factor.xy, 0).x;
+    // 获取跳跃目标的数据（一次采样获取速度和高度）
+    float3 jump_data = FluidTex.SampleLevel(samplerLinearClamp, jump_factor.xy, 0);
+    float jump_height = jump_data.z;
+    float2 jump_vel = jump_data.xy;
     
     // 在边缘处混合高度
-    //new_height = lerp(new_height, 0.0, jump_factor.z);
     new_height = lerp(new_height, max(jump_height, new_height), jump_mask);
     
     // 在边缘处将速度方向重映射为重力方向
-    float2 jump_vel = VelocityTex.SampleLevel(samplerLinearClamp, jump_factor.xy, 0).xy;
     float2 redirected_vel = length(jump_vel) * gravityDir;
-    new_vel = lerp(new_vel, redirected_vel,jump_mask);
+    new_vel = lerp(new_vel, redirected_vel, jump_mask);
 
     // ========== 衰减 ==========
-    // 这里是为了避免在接缝处的高度长期存在，使它快速衰减
-    float bed_atten_factor = 5.0 ;
-    float bed_attenuation = b_center * bed_atten_factor + 1.0;
-    new_height *= jump_mask >= 0.95 ? (1.0 - attenuation.y * 5.0) : (1.0 - attenuation.y * bed_attenuation) ;
+    // 使用暴露的参数控制衰减，形成自然的水流效果
+    float bed_attenuation = b_center * bedAttenFactor + 1.0;
+    new_height *= jump_mask >= 0.95 ? (1.0 - 0.005 * gapAttenuationEnhancement) : (1.0 - attenuation.y * bed_attenuation);
     new_vel = lerp(new_vel, 0.0, attenuation.x * bed_attenuation);
 
     // ========== 限制 ==========
@@ -221,8 +240,22 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     // ========== 写入结果 ==========
     // 只在有重力方向的地方更新
     float validMask = step(0.0001, length(gravityDir));
-    //validMask = 1;
-    HeightWrite[pixel_pos] = new_height * validMask;
-    //HeightWrite[pixel_pos] = gravityDir.x;
-    VelocityWrite[pixel_pos] = new_vel * validMask;
+    FluidWrite[pixel_pos] = float3(new_vel, new_height) * validMask;
+
+    // ========== 计算并输出法线 ==========
+    // 根据水高梯度计算法线
+    // 法线 = normalize(float3(-dh/dx, -dh/dy, 1))
+    float dhdx = (h_right - h_left) * 0.5;
+    float dhdy = (h_down - h_up) * 0.5;
+    
+    // 法线强度缩放（让法线变化更明显）
+    float normalStrength = 2.0;
+    float3 normal = normalize(float3(-dhdx * normalStrength, -dhdy * normalStrength, 1.0));
+    
+    // 将法线从[-1,1]映射到[0,1]存储
+    float3 normalEncoded = normal * 0.5 + 0.5;
+    normalEncoded = lerp(normalEncoded, float3(0.5,0.5,1.0), jump_mask);
+    
+    // 写入法线图
+    NormalOutput[pixel_pos] = normalEncoded * validMask ;
 }
