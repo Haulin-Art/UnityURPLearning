@@ -52,7 +52,7 @@ Shader "Unlit/cesss"
             {
                 // sample the texture
                 fixed4 col = tex2D(_MainTex, i.uv);
-                fixed4 jump = tex2D(_JumpTex,i.uv);
+                fixed4 jump = tex2D(_JumpTex,i.uv*8);
 
                 fixed vail = dot(jump,i.uv) >= 0.05 ? 0.0 : 1.0 ; 
                 // apply fog

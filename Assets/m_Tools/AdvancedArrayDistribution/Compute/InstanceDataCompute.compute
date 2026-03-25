@@ -1,0 +1,178 @@
+#pragma kernel GenerateInstances
+#pragma kernel CullingAndCount
+#pragma kernel UpdateArgsBuffer
+
+// ============================================
+// 实例数据结构定义
+// 仅存储位置，缩放和旋转作为uniform参数传入shader
+// ============================================
+struct InstanceData
+{
+    float3 position;
+    float padding;
+};
+
+// ============================================
+// 输入参数 - 阵列生成
+// ============================================
+int3 _ArraySize;            // 阵列在XYZ方向的实例数量
+float3 _Spacing;            // 实例之间的间距
+float3 _StartPoint;         // 阵列起始点（本地坐标）
+float3 _GlobalOffset;       // 整体偏移量
+float4x4 _LocalToWorld;     // 本地到世界的变换矩阵
+
+// ============================================
+// 输入参数 - 剔除（后续阶段使用）
+// ============================================
+float4x4 _VPMatrix;         // 视图投影矩阵
+float4x4 _VMatrix;          // 视图矩阵
+float3 _CameraPosition;     // 相机位置
+float _OcclusionBias;       // 遮挡剔除偏移
+
+// ============================================
+// HZB纹理（由HiZGenerationPass设置的全局变量）
+// ============================================
+Texture2D<float> _HiZDepthTexture;
+Texture2D<float> _HiZMip0Texture;
+Texture2D<float> _HiZMip1Texture;
+Texture2D<float> _HiZMip2Texture;
+Texture2D<float> _HiZMip3Texture;
+Texture2D<float> _HiZMip4Texture;
+Texture2D<float> _HiZMip5Texture;
+Texture2D<float> _HiZMip6Texture;
+Texture2D<float> _HiZMip7Texture;
+Texture2D<float> _HiZMip8Texture;
+Texture2D<float> _HiZMip9Texture;
+
+// ============================================
+// 内联采样器（Linear + Clamp模式）
+// 使用内联采样器避免采样器匹配问题
+// ============================================
+SamplerState _LinearClampSampler;
+
+// ============================================
+// Buffer定义
+// ============================================
+RWStructuredBuffer<InstanceData> _InstanceDataBuffer;   // 所有实例数据
+RWStructuredBuffer<InstanceData> _VisibleBuffer;        // 剔除后的可见实例
+RWStructuredBuffer<uint> _VisibleCounter;               // 可见实例计数器
+RWStructuredBuffer<uint> _ArgsBuffer;                   // 间接绘制参数
+
+// ============================================
+// Kernel: GenerateInstances
+// 功能：生成所有实例的位置数据
+// ============================================
+[numthreads(64,1,1)]
+void GenerateInstances(uint3 id : SV_DispatchThreadID)
+{
+    // 计算总实例数
+    uint totalInstances = _ArraySize.x * _ArraySize.y * _ArraySize.z;
+    
+    // 边界检查
+    if (id.x >= totalInstances)
+        return;
+    
+    // 将线性索引转换为3D索引
+    uint x = id.x % _ArraySize.x;
+    uint y = (id.x / _ArraySize.x) % _ArraySize.y;
+    uint z = id.x / (_ArraySize.x * _ArraySize.y);
+    
+    // 计算本地坐标位置
+    float3 localPos = _StartPoint + float3(x * _Spacing.x, y * _Spacing.y, z * _Spacing.z) + _GlobalOffset;
+    
+    // 转换到世界坐标
+    float3 worldPos = mul(_LocalToWorld, float4(localPos, 1.0)).xyz;
+    
+    // 写入Buffer
+    _InstanceDataBuffer[id.x].position = worldPos;
+    _InstanceDataBuffer[id.x].padding = 0.0;
+}
+
+// ============================================
+// 辅助函数：视锥剔除
+// ============================================
+bool FrustumCulling(float3 positionWS, float3 margin)
+{
+    float4 clipPos = mul(_VPMatrix, float4(positionWS, 1.0));
+    float4 absPos = abs(clipPos);
+    
+    return clipPos.z >= 0.0 &&
+           absPos.x <= absPos.w * margin.x &&
+           absPos.y <= absPos.w * margin.y &&
+           clipPos.z <= clipPos.w * margin.z;
+}
+
+// ============================================
+// 辅助函数：HZB遮挡剔除
+// ============================================
+bool OcclusionCullingHZB(float3 positionWS)
+{
+    // 转换到裁剪空间
+    float4 clipPos = mul(_VPMatrix, float4(positionWS, 1.0));
+    
+    // 计算屏幕空间UV
+    float2 screenUV = clipPos.xy / clipPos.w * 0.5 + 0.5;
+    
+    #if UNITY_UV_STARTS_AT_TOP
+        screenUV.y = 1.0 - screenUV.y;
+    #endif
+    
+    // 边界检查
+    if (any(screenUV < 0.0) || any(screenUV > 1.0))
+        return true;
+    
+    // 计算视图空间深度（负值，取绝对值）
+    float viewDepth = -mul(_VMatrix, float4(positionWS, 1.0)).z;
+    
+    // 采样HZB（使用Mip0，后续可优化为根据屏幕空间大小选择）
+    float hzbDepth = _HiZMip0Texture.SampleLevel(_LinearClampSampler, screenUV, 0);
+    
+    // 深度比较
+    return viewDepth <= hzbDepth + _OcclusionBias;
+}
+
+// ============================================
+// Kernel: CullingAndCount
+// 功能：合并的视锥剔除和遮挡剔除
+// ============================================
+[numthreads(64,1,1)]
+void CullingAndCount(uint3 id : SV_DispatchThreadID)
+{
+    // 获取实例位置
+    float3 positionWS = _InstanceDataBuffer[id.x].position;
+    
+    // 视锥剔除
+    float3 margin = float3(1.2, 1.5, 1.2);
+    bool frustumVisible = FrustumCulling(positionWS, margin);
+    
+    // 遮挡剔除（仅对通过视锥剔除的实例执行）
+    bool occlusionVisible = true;
+    if (frustumVisible)
+    {
+        occlusionVisible = OcclusionCullingHZB(positionWS);
+    }
+    
+    // 写入可见实例
+    if (frustumVisible && occlusionVisible)
+    {
+        uint visibleIndex;
+        InterlockedAdd(_VisibleCounter[0], 1, visibleIndex);
+        _VisibleBuffer[visibleIndex] = _InstanceDataBuffer[id.x];
+    }
+}
+
+// ============================================
+// Kernel: UpdateArgsBuffer
+// 功能：更新间接绘制参数
+// ============================================
+[numthreads(1,1,1)]
+void UpdateArgsBuffer(uint3 id : SV_DispatchThreadID)
+{
+    // ArgsBuffer布局：
+    // [0] - 索引数（由C#设置）
+    // [1] - 实例数量（由Compute Shader更新）
+    // [2] - 起始索引位置（由C#设置）
+    // [3] - 起始顶点位置（由C#设置）
+    // [4] - 起始实例位置（通常为0）
+    _ArgsBuffer[1] = _VisibleCounter[0];
+}

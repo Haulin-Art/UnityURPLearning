@@ -3,12 +3,13 @@ using UnityEngine;
 /// <summary>
 /// 射线检测目标物体并获取UV坐标的脚本
 /// 通过射线检测获取目标物体表面的UV坐标，供其他系统使用
+/// 支持多物体检测
 /// </summary>
 public class RaycastTargetDetector : MonoBehaviour
 {
     [Header("目标设置")]
-    [Tooltip("需要进行射线检测的目标物体")]
-    public Transform targetObject;
+    [Tooltip("需要进行射线检测的目标物体数组")]
+    public Transform[] targetObjects;
 
     [Header("射线设置")]
     [Tooltip("射线检测的层级")]
@@ -20,7 +21,7 @@ public class RaycastTargetDetector : MonoBehaviour
     [Tooltip("自定义射线起点（当useScreenCenter为false时使用）")]
     public Vector2 customScreenPoint = Vector2.zero;
 
-
+    [Tooltip("是否输出调试信息")]
     public bool debugInfo;
 
     // 射线检测结果
@@ -28,6 +29,7 @@ public class RaycastTargetDetector : MonoBehaviour
     private Vector2 hitUV = Vector2.zero;
     private Vector2 previousHitUV = Vector2.zero;
     private bool previousIsHit = false;
+    private Transform hitTarget = null;  // 当前命中的目标物体
 
     private Camera mainCamera;
 
@@ -56,6 +58,11 @@ public class RaycastTargetDetector : MonoBehaviour
     /// </summary>
     public Vector2 UVDelta => isHit && previousIsHit ? (hitUV - previousHitUV) : Vector2.zero;
 
+    /// <summary>
+    /// 当前命中的目标物体
+    /// </summary>
+    public Transform HitTarget => hitTarget;
+
     private void Start()
     {
         mainCamera = Camera.main;
@@ -77,9 +84,8 @@ public class RaycastTargetDetector : MonoBehaviour
 
         if (debugInfo)
         {
-            Debug.Log("是否击中:"+IsHit+" && 击中UV位置："+HitUV);
+            Debug.Log("是否击中:" + IsHit + " && 击中UV位置:" + HitUV + (hitTarget != null ? " && 命中物体:" + hitTarget.name : ""));
         }
-
     }
 
     /// <summary>
@@ -92,26 +98,40 @@ public class RaycastTargetDetector : MonoBehaviour
         // 确定射线起点
         Vector2 screenPoint = useScreenCenter 
             ? new Vector2(Screen.width * 0.5f, Screen.height * 0.5f) 
-            : customScreenPoint;
+            //: customScreenPoint;
+            : new Vector2(Screen.width * customScreenPoint.x, Screen.height * customScreenPoint.y) ;
 
         Ray ray = mainCamera.ScreenPointToRay(screenPoint);
 
         if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, raycastLayer))
         {
-            // 检查是否命中了目标物体
-            if (targetObject != null && hit.transform == targetObject)
+            // 检查是否命中了目标物体数组中的任意一个
+            bool foundTarget = false;
+            if (targetObjects != null && targetObjects.Length > 0)
             {
-                isHit = true;
-                hitUV = hit.textureCoord;
+                foreach (Transform target in targetObjects)
+                {
+                    if (target != null && hit.transform == target)
+                    {
+                        isHit = true;
+                        hitUV = hit.textureCoord;
+                        hitTarget = target;
+                        foundTarget = true;
+                        break;
+                    }
+                }
             }
-            else
+
+            if (!foundTarget)
             {
                 isHit = false;
+                hitTarget = null;
             }
         }
         else
         {
             isHit = false;
+            hitTarget = null;
         }
     }
 
@@ -126,6 +146,21 @@ public class RaycastTargetDetector : MonoBehaviour
         hit = isHit;
         uv = hitUV;
         delta = UVDelta;
+    }
+
+    /// <summary>
+    /// 获取射线检测数据（包含命中目标）
+    /// </summary>
+    /// <param name="hit">是否命中</param>
+    /// <param name="uv">命中的UV坐标</param>
+    /// <param name="delta">UV变化量</param>
+    /// <param name="target">命中的目标物体</param>
+    public void GetRaycastData(out bool hit, out Vector2 uv, out Vector2 delta, out Transform target)
+    {
+        hit = isHit;
+        uv = hitUV;
+        delta = UVDelta;
+        target = hitTarget;
     }
 
     /// <summary>
