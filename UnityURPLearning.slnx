@@ -2,5 +2,7 @@
   <Project Path="Assembly-CSharp.csproj" />
   <Project Path="UVAdjacencyMap.Editor.csproj" />
   <Project Path="UVAdjacencyMap.csproj" />
+  <Project Path="TangentSpaceGravityMap.Editor.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="TangentSpaceGravityMap.Runtime.csproj" />
 </Solution>

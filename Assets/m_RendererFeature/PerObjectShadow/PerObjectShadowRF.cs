@@ -279,6 +279,20 @@ public class PerObjectShadowRF : ScriptableRendererFeature
                 //cmd.Blit(renderingData.cameraData.renderer.cameraColorTargetHandle,VSPCFNoise);
             }  
             cmd.SetGlobalTexture("_POSpcf",VSPCFNoise);
+
+            // 不知道为什么"_CameraDepthTexture"不起作用了，这里我自己渲染一张
+            cmd.SetRenderTarget(dep);
+            cmd.ClearRenderTarget(true,true,new Color(0,0,0,0));
+            using (new ProfilingScope(cmd, new ProfilingSampler("re depth pass")))
+            {
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();  
+                    
+                var drawSetting = CreateDrawingSettings(shaderTagIds, ref renderingData, renderingData.cameraData.defaultOpaqueSortFlags);
+                var filterSetting = new FilteringSettings(RenderQueueRange.all);
+                context.DrawRenderers(renderingData.cullResults, ref drawSetting, ref filterSetting);
+            }  
+            
             cmd.SetGlobalTexture("_CameraDepthTexture",dep);
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();

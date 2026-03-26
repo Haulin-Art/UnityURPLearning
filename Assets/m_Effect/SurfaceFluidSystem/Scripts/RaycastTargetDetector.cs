@@ -79,8 +79,13 @@ public class RaycastTargetDetector : MonoBehaviour
         previousIsHit = isHit;
         previousHitUV = hitUV;
 
-        // 持续检测射线命中
-        PerformRaycast();
+        if (Input.GetMouseButton(0))
+        {
+            PerformRaycast();
+        }else{
+            isHit = false;
+            hitTarget = null;
+        }
 
         if (debugInfo)
         {

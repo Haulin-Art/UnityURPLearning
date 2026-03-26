@@ -14,6 +14,12 @@ Shader "Unlit/S_Actor_Body"
         _RMAOTex ("粗糙度金属度AO贴图", 2D) = "write" {}
         _MatCapTex ("MatCap贴图", 2D) = "black" {}
         _UseDrop ("使用流水", Float) = 1.0
+        [Space(15)]
+        _EnableExtraFluid ("启用额外流水", Float) = 1.0
+        _ExtraFluidColor ("额外流水颜色", Color) = (1,0,0,1)
+        _ExtraFluidTrans ("额外流水透射率", Range(0.0,5.0)) = 2.0
+        _ExtraFluidTex ("额外流水贴图", 2D) = "black" {}
+        _ExtraFluidNor ("额外流水法线贴图", 2D) = "blue" {}
     }
     SubShader
     {
@@ -56,6 +62,13 @@ Shader "Unlit/S_Actor_Body"
             float3 _FresOut;
             //SAMPLER(sampler_POSMap_LinearClamp); 
 
+
+            float _EnableExtraFluid;
+            float3 _ExtraFluidColor;
+            float _ExtraFluidTrans;
+            TEXTURE2D(_ExtraFluidTex);SAMPLER(sampler_ExtraFluidTex);
+            TEXTURE2D(_ExtraFluidNor);SAMPLER(sampler_ExtraFluidNor);
+            
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -160,6 +173,7 @@ Shader "Unlit/S_Actor_Body"
                 float3 lightColor = ld.color;
                 // 获取视线方向
                 float3 viewDirWS = GetWorldSpaceNormalizeViewDir(i.posWS);
+                float3 h = normalize(lightDir + viewDirWS);
                 // Unity基础环境光
                 float3 ambient = SampleSH(ntWS) * albedo * ao;
                 float lambert = dot(lightDir,ntWS);
@@ -255,8 +269,27 @@ Shader "Unlit/S_Actor_Body"
                 // =================环境色 ===========================
                 float3 ambient2 = SampleSH(ntWS_Drop) * albedo * ao;
 
+
+
+                // ======================== 额外流水 ==============================
+                float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv.xy).xyz;
+                float extraFluidHeight = extraFluidData.z;
+                float3 extraFluidColor = lerp(finalCol,_ExtraFluidColor,1.0-exp(-extraFluidHeight*_ExtraFluidTrans));
+                float3 extraFluidNor = SAMPLE_TEXTURE2D(_ExtraFluidNor,sampler_ExtraFluidNor,i.uv.xy).xyz;
+                extraFluidNor = extraFluidNor * 2.0 - 1.0;
+                float3 ef_Nor_WS = mul(extraFluidNor,TBN);
+                float ef_specular = pow(saturate(dot(h,ef_Nor_WS)),32.0);
+                extraFluidColor += ef_specular;
+                //float3 extraFluidColor = lerp(0.0,extraFluid,_EnableExtraFluid);
+                //float3 extraFluidNor = lerp(0.0,extraFluidNor,_EnableExtraFluid);
+
+                //float3 finalExtraFluid = extraFluidColor * extraFluidNor;
+
+                //finalDrop += extraExtraFluid;
+
                 //return float4(i.uv.xy,0.0,1.0);
-                return float4(((finalCol+ambient2)*dropAB+lerp(0.0,finalDrop,_UseDrop))*float3(1,1,1),1);
+                float3 finalEfext = ((finalCol+ambient2)*dropAB+lerp(0.0,finalDrop,_UseDrop));
+                return float4(lerp(finalEfext,extraFluidColor,smoothstep(0.01,0.1,extraFluidHeight)),1);
             }
             ENDHLSL
         }

@@ -32,6 +32,11 @@ float bedTiling;                // 床底高度图平铺次数
 float bedAttenFactor;           // 床底衰减系数（用于形成小股水流）
 float gapAttenuationEnhancement; // 接缝处衰减增强系数
 
+// 物理参数
+float surfaceTension;           // 表面张力系数
+float extraGravityStrength;     // 额外重力系数
+float friction;                 // 摩擦力系数
+
 // 调试模式参数
 // 0: None, 1: ShowHeightField, 2: ShowVelocityField, 3: ShowGravityMap, 4: ShowUVJumpMap, 5: ShowBedHeight, 6: ShowSurfaceHeight
 int debugMode;
@@ -105,7 +110,9 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
 {
     uint2 pixel_pos = id.xy;
     float2 uv = ((float2)id.xy + 0.5) / texSize;
-    float2 w = float2(1.0 / 256.0, 0.0); // 魔法常数，只能是256，不然uv岛跳跃图无法正常工作
+
+    float2 w = float2(1.0 / 256, 0.0); // 魔法常数，只能是256，不然uv岛跳跃图无法正常工作
+    w = float2(1.0 / texSize, 0.0);
 
     // 读取上一帧数据（一次采样获取速度和高度）
     float3 old_data = FluidTex.SampleLevel(samplerLinearClamp, uv, 0);
@@ -119,12 +126,22 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     // 回溯UV（结合速度和重力方向）
     float2 backtracedUV = uv - advectSpeed * old_vel * dt;
     backtracedUV = clamp(backtracedUV, 0.0, 1.0);
+    //float4 ad_jump = UVJumpMap.SampleLevel(samplerLinearClamp, backtracedUV, 0);
+    //backtracedUV = lerp(backtracedUV,ad_jump.xy,step(0.1,(1.0-ad_jump.a)*ad_jump.z));
 
     // 采样平流后的数据（一次采样获取速度和高度）
     float3 ad_data = FluidTex.SampleLevel(samplerLinearClamp, backtracedUV, 0);
     float2 ad_vel = ad_data.xy;
     float ad_height = ad_data.z;
 
+    // 提取UV岛跳跃图，获取a分量UV岛范围，用这个的边界处理
+    float4 jump_factor = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 jump_uv = lerp(uv,jump_factor.xy,step(0.1,jump_factor.z));
+    //float4 jf_right = UVJumpMap.SampleLevel(samplerLinearClamp, uv+ w.xy, 0);
+    //float4 jf_left = UVJumpMap.SampleLevel(samplerLinearClamp, uv- w.xy, 0);
+    //float4 jf_up = UVJumpMap.SampleLevel(samplerLinearClamp, uv- w.yx, 0);
+    //float4 jf_down = UVJumpMap.SampleLevel(samplerLinearClamp, uv+ w.yx, 0);
+    uv = jump_uv;
     // ========== 计算床底高度 ==========
     float b_center = GetBedHeight(uv);
     float b_right = GetBedHeight(uv + w.xy);
@@ -132,6 +149,8 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     float b_up = GetBedHeight(uv - w.yx);
     float b_down = GetBedHeight(uv + w.yx);
 
+    w = float2(1.0 / 256, 0.0);
+    //w = float2(1.0 / texSize, 0.0);
     // ========== 计算水面高度和梯度（用于动量方程） ==========
     // 采样周围数据（一次采样获取速度和高度）
     float3 data_center = FluidTex.SampleLevel(samplerLinearClamp, uv, 0);
@@ -164,6 +183,10 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     // 水面梯度（这是驱动水流的关键）
     float detadx = (eta_right - eta_left) * 0.5;
     float detady = (eta_down - eta_up) * 0.5;
+    // 带有边界处理的梯度计算
+    //float detadx = (lerp(eta_center,eta_right,step(0.01,jf_right.a+jf_right.z)) - lerp(eta_center,eta_left,step(0.01,jf_left.a+jf_left.z))) * 0.5;
+    //float detady = (lerp(eta_center,eta_down,step(0.01,jf_down.a+jf_down.z)) - lerp(eta_center,eta_up,step(0.01,jf_up.a+jf_up.z))) * 0.5;
+
     float2 surface_gradient = float2(detadx, detady);
 
     // ========== 计算通量散度（用于连续性方程） ==========
@@ -176,20 +199,17 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
 
     // 通量散度 = ∂(hv)/∂x + ∂(hv)/∂y
     float flux_divergence = (flux_right.x - flux_left.x) * 0.5 + (flux_down.y - flux_up.y) * 0.5;
-
+    
     // 表面张力项
     // 计算高度的拉普拉斯（曲率）
     float laplacian_h = (h_right + h_left + h_up + h_down - 4.0 * h_center);
-    // 表面张力系数
-    float surfaceTension = 0.01;
-
+    
     // ========== 动量方程 ==========
     // ∂v/∂t = -g∇η - friction*v + gravity_force
-    float friction = 0.002;
     float2 new_vel = ad_vel 
                     - surface_gradient * gravityStrength * dt    // 重力驱动（水面梯度，包含床底影响）
                     - friction * ad_vel * dt                     // 摩擦力
-                    + gravityDir * gravityStrength * dt * 0.2    // 外加重力方向力
+                    + gravityDir * gravityStrength * dt * extraGravityStrength    // 外加重力方向力
                     + surfaceTension * laplacian_h * dt;         // 表面张力项
 
     // ========== 连续性方程 ==========
@@ -205,7 +225,6 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     }
 
     // ========== UV跳跃处理 ==========
-    float4 jump_factor = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0);
     float jump_mask = jump_factor.z * (1.0 - jump_factor.a);
     jump_mask = jump_factor.z ;
     
@@ -215,7 +234,7 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     float2 jump_vel = jump_data.xy;
     
     // 在边缘处混合高度
-    new_height = lerp(new_height, max(jump_height, new_height), jump_mask);
+    new_height = lerp(new_height, max(jump_height* (1.0 - attenuation.y), new_height), jump_mask);
     
     // 在边缘处将速度方向重映射为重力方向
     float2 redirected_vel = length(jump_vel) * gravityDir;
@@ -228,7 +247,7 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     new_vel = lerp(new_vel, 0.0, attenuation.x * bed_attenuation);
 
     // ========== 限制 ==========
-    new_height = clamp(new_height, -5.0, 5.0);
+    new_height = clamp(new_height, 0.0, 5.0);
     new_vel = clamp(new_vel, -5.0, 5.0);
 
     // ========== 添加源（射线检测位置） ==========

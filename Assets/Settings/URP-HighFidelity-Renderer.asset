@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 96d2f03d9070910418ef733a49b43845, type: 3}
   m_Name: DistanceFog
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: 882febf2956997a43be5ef3f29aec3fd, type: 2}
 --- !u!114 &-7783706233956903524
@@ -110,7 +110,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 49deb0eb83ea70c409480f8ed856f332, type: 3}
   m_Name: OutLine
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   mat: {fileID: 2100000, guid: fc63600893fc2a748b50a0fe3c56555d, type: 2}
   m_Tag: CES
 --- !u!114 &11400000
@@ -216,7 +216,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 33e0f536fa7989647a905792cf9031fe, type: 3}
   m_Name: PerObjectShadowRF
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   layerMask:
     serializedVersion: 2
     m_Bits: 64
@@ -226,10 +226,10 @@ MonoBehaviour:
   ShadowFieldSize: 0.11
   ShadowMapSize: 4096
   UnsampleInt: 2
-  PoissonCount: 6
+  PoissonCount: 12
   _initPCSS: 0.000362
   _distancePCSS: 0.0145
-  blurSampleCount: 2
+  blurSampleCount: 3
   blurStepSize: 1
 --- !u!114 &5253342207327538554
 MonoBehaviour:
@@ -258,7 +258,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 835781b1e9b0341468aad37328082f39, type: 3}
   m_Name: FrequencyHighlightFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   settings:
     resolution: 512
     threshold: 0.995
@@ -268,7 +268,7 @@ MonoBehaviour:
     highlightShapeSource: {fileID: 2800000, guid: 9d38f2888107b6a42a046d54d0077d5d,
       type: 3}
     highlightShapeScale: {x: 3, y: 3}
-    aspectRatio: 1.6850575
+    aspectRatio: 1.6448276
     highlightKernelFrequencyRT: {fileID: 0}
     needUpdateHighlightKernel: 0
     intensity: 0.33

@@ -1,0 +1,18 @@
+{
+    "name": "TangentSpaceGravityMap.Editor",
+    "rootNamespace": "TangentSpaceGravityMap.Editor",
+    "references": [
+        "TangentSpaceGravityMap.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

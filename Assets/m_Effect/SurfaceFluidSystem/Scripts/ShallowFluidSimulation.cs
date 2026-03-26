@@ -91,6 +91,20 @@ public class ShallowFluidSimulation : MonoBehaviour
     public float gapAttenuationEnhancement = 10.0f;
 
     [Space(10)]
+    [Header("物理参数")]
+    [Tooltip("表面张力系数（控制水面的聚拢程度）")]
+    [Range(0.0f, 1.0f)]
+    public float surfaceTension = 0.01f;
+    
+    [Tooltip("额外重力系数（控制重力方向力的强度）")]
+    [Range(0.0f, 2.0f)]
+    public float extraGravityStrength = 0.3f;
+    
+    [Tooltip("摩擦力系数（控制水流减速）")]
+    [Range(0.0f, 0.1f)]
+    public float friction = 0.002f;
+
+    [Space(10)]
     [Header("法线图输出")]
     [Tooltip("法线图输出贴图（RG=法线xy, B=法线z）")]
     public RenderTexture normalOutputTexture;
@@ -348,6 +362,11 @@ public class ShallowFluidSimulation : MonoBehaviour
         {
             computeShader.SetTexture(shallowWaterKernel, "BedHeightMap", bedHeightMap);
         }
+
+        // 设置物理参数
+        computeShader.SetFloat("surfaceTension", surfaceTension);
+        computeShader.SetFloat("extraGravityStrength", extraGravityStrength);
+        computeShader.SetFloat("friction", friction);
 
         // 设置调试模式
         computeShader.SetInt("debugMode", (int)debugMode);

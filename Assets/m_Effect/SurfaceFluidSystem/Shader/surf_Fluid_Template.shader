@@ -11,6 +11,7 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
         _NormalStrength ("法线强度", Range(0.0, 2.0)) = 1.0
         _Smoothness ("基础光滑度", Range(0.0, 1.0)) = 0.5
         _WaterSmoothness ("水面光滑度", Range(0.0, 1.0)) = 0.9
+        _WaterTrans ("水体透射率", Range(0.0,5.0)) = 1.0
         _Metallic ("金属度", Range(0.0, 1.0)) = 0.0
         
         [Enum(None, 0, Lighting, 1, Height, 2, Velocity, 3, Normal, 4)] 
@@ -78,6 +79,7 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
                 float _NormalStrength;
                 float _Smoothness;
                 float _WaterSmoothness;
+                float _WaterTrans;
                 float _Metallic;
                 float _DebugMode;
             CBUFFER_END
@@ -163,7 +165,7 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
                 inputData.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(input.positionCS);
                 
                 // 构建SurfaceData
-                float3 water_albedo = lerp(baseColor.rgb,float3(1.0,0.0,0.0), smoothstep(0.1, 0.5, saturate(height)));
+                float3 water_albedo = lerp(baseColor.rgb,float3(1.0,0.0,0.0), 1.0-exp(-abs(height)*_WaterTrans));
                 SurfaceData surfaceData = (SurfaceData)0;
                 surfaceData.albedo = lerp(baseColor.rgb, water_albedo, hasWater);
                 surfaceData.alpha = baseColor.a;
