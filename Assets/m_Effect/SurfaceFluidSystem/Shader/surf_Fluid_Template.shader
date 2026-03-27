@@ -5,6 +5,7 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
         _BaseMap ("基础纹理", 2D) = "white" {}
         _BaseColor ("基础颜色", Color) = (1, 1, 1, 1)
         
+        _JumpMap ("跳跃纹理", 2D) = "black" {}
         _FluidTex ("流体数据 (RG=速度, B=高度)", 2D) = "black" {}
         _NormalTex ("法线图", 2D) = "blue" {}
         
@@ -73,6 +74,9 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
             TEXTURE2D(_NormalTex);
             SAMPLER(sampler_NormalTex);
 
+            TEXTURE2D(_JumpMap);
+            SAMPLER(sampler_JumpMap);   
+
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST;
                 float4 _BaseColor;
@@ -129,6 +133,11 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
                 half3 normalWS = TransformTangentToWorld(normalTS, tangentToWorld);
                 normalWS = normalize(normalWS);
                 
+                // ========== 跳跃处理 ==========
+                half4 jumpData = SAMPLE_TEXTURE2D(_JumpMap, sampler_JumpMap, input.uv);
+                
+
+
                 // ========== 调试模式 ==========
                 // None(0): 直接输出基础纹理
                 if (_DebugMode < 0.5)
@@ -139,7 +148,8 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
                 else if (_DebugMode > 1.5 && _DebugMode < 2.5)
                 {
                     half h = height * 0.5 + 0.5;
-                    return half4(h, h, h, 1.0);
+                    h = height;
+                    return half4(h, h, step(0.0001,jumpData.z), 1.0);
                 }
                 // Velocity(3): 显示速度数据
                 else if (_DebugMode > 2.5 && _DebugMode < 3.5)
@@ -180,7 +190,9 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
                 // 应用雾效
                 color.rgb = MixFog(color.rgb, inputData.fogCoord);
                 
+
                 return color;
+                //return float4(color.rgb*lerp(1.0,0.2,step(0.0001,jumpData.z*(1.0-jumpData.w))), color.a);
             }
             ENDHLSL
         }

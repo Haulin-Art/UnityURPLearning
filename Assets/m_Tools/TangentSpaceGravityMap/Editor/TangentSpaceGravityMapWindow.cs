@@ -32,9 +32,11 @@ namespace TangentSpaceGravityMap.Editor
         [SerializeField] private bool useEXRFormat = true;
         [SerializeField] private Vector3 customGravity = Vector3.down;
         
-        // 输出格式选项
+        // 输出选项
+        [SerializeField] private OutputMode outputMode = OutputMode.SurfaceFlowDirection;  // 输出模式
         [SerializeField] private bool normalizeTo01 = false;     // 是否映射到[0,1]
         [SerializeField] private bool compressToRG = false;      // 是否压缩到RG通道
+        [SerializeField] private int edgePadding = 0;            // 边缘扩展像素数
         
         // 调试选项
         [SerializeField] private DebugMode debugMode = DebugMode.None;
@@ -160,17 +162,32 @@ namespace TangentSpaceGravityMap.Editor
             
             EditorGUILayout.Space(5);
             
+            // 输出模式
+            EditorGUILayout.LabelField("输出模式", EditorStyles.boldLabel);
+            
+            outputMode = (OutputMode)EditorGUILayout.EnumPopup("模式", outputMode);
+            if (outputMode == OutputMode.SurfaceFlowDirection)
+            {
+                EditorGUILayout.HelpBox("表面流动方向（推荐）\n流体在表面上的下坡方向\n与UV展开方向无关，只取决于表面朝向", MessageType.Info);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("切线空间重力方向\n重力在切线/副切线方向的分量\n方向取决于UV展开方式", MessageType.Info);
+            }
+            
+            EditorGUILayout.Space(5);
+            
             // 输出格式选项
             EditorGUILayout.LabelField("输出格式", EditorStyles.boldLabel);
             
             compressToRG = EditorGUILayout.Toggle("压缩到RG通道", compressToRG);
             if (compressToRG)
             {
-                EditorGUILayout.HelpBox("只输出XY分量（切线和副切线方向）\n适用于2D流体模拟", MessageType.Info);
+                EditorGUILayout.HelpBox("只输出XY分量\n适用于2D流体模拟", MessageType.Info);
             }
             else
             {
-                EditorGUILayout.HelpBox("输出XYZ三分量（完整切线空间方向）\nRGB = 切线/副切线/法线方向分量", MessageType.Info);
+                EditorGUILayout.HelpBox("输出XYZ三分量\nZ分量：流动模式下为强度，重力模式下为法线分量", MessageType.Info);
             }
             
             normalizeTo01 = EditorGUILayout.Toggle("映射到[0,1]", normalizeTo01);
@@ -181,6 +198,21 @@ namespace TangentSpaceGravityMap.Editor
             else
             {
                 EditorGUILayout.HelpBox("保留原始值[-1,1]\n推荐使用EXR格式", MessageType.Info);
+            }
+            
+            EditorGUILayout.Space(5);
+            
+            // 边缘扩展选项
+            EditorGUILayout.LabelField("边缘扩展", EditorStyles.boldLabel);
+            
+            edgePadding = EditorGUILayout.IntSlider("扩展像素数", edgePadding, 0, 16);
+            if (edgePadding > 0)
+            {
+                EditorGUILayout.HelpBox($"将UV岛边缘向外扩展 {edgePadding} 像素\n扩展区域的A通道值为0.5", MessageType.Info);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("不扩展边缘，只输出UV岛内部区域", MessageType.Info);
             }
             
             EditorGUI.indentLevel--;
@@ -316,9 +348,19 @@ namespace TangentSpaceGravityMap.Editor
             EditorGUILayout.EndHorizontal();
             
             // 颜色说明
-            string formatDesc = compressToRG 
-                ? "R通道: 重力在切线方向(X)分量\nG通道: 重力在副切线方向(Y)分量"
-                : "R通道: 重力在切线方向(X)分量\nG通道: 重力在副切线方向(Y)分量\nB通道: 重力在法线方向(Z)分量";
+            string formatDesc;
+            if (outputMode == OutputMode.SurfaceFlowDirection)
+            {
+                formatDesc = compressToRG 
+                    ? "R通道: 流动方向X分量（归一化）\nG通道: 流动方向Y分量（归一化）"
+                    : "R通道: 流动方向X分量\nG通道: 流动方向Y分量\nB通道: 流动强度";
+            }
+            else
+            {
+                formatDesc = compressToRG 
+                    ? "R通道: 重力在切线方向分量\nG通道: 重力在副切线方向分量"
+                    : "R通道: 重力在切线方向分量\nG通道: 重力在副切线方向分量\nB通道: 重力在法线方向分量";
+            }
             formatDesc += "\nA通道: 有效区域遮罩";
             EditorGUILayout.HelpBox(formatDesc, MessageType.Info);
             
@@ -362,7 +404,9 @@ namespace TangentSpaceGravityMap.Editor
                 enableDebugLog = debugMode != DebugMode.None,
                 customGravity = customGravity.normalized,
                 normalizeTo01 = normalizeTo01,
-                compressToRG = compressToRG
+                compressToRG = compressToRG,
+                outputMode = outputMode,
+                edgePadding = edgePadding
             };
 
             // 显示进度
@@ -414,6 +458,7 @@ namespace TangentSpaceGravityMap.Editor
             // 随机采样几个点验证
             int sampleCount = 5;
             Debug.Log($"[切线空间重力图] 开始验证 {sampleCount} 个采样点...");
+            Debug.Log($"输出模式: {settings.outputMode}");
 
             for (int i = 0; i < sampleCount; i++)
             {
@@ -423,11 +468,11 @@ namespace TangentSpaceGravityMap.Editor
 
                 if (pixel.a > 0.5f)
                 {
-                    // 还原切线空间重力
-                    Vector3 tangentGravity;
+                    // 还原输出方向
+                    Vector3 outputDir;
                     if (settings.normalizeTo01)
                     {
-                        tangentGravity = new Vector3(
+                        outputDir = new Vector3(
                             pixel.r * 2f - 1f,
                             pixel.g * 2f - 1f,
                             settings.compressToRG ? 0 : pixel.b * 2f - 1f
@@ -435,17 +480,28 @@ namespace TangentSpaceGravityMap.Editor
                     }
                     else
                     {
-                        tangentGravity = new Vector3(
+                        outputDir = new Vector3(
                             pixel.r,
                             pixel.g,
                             settings.compressToRG ? 0 : pixel.b
                         );
                     }
-                    
-                    float magnitude = tangentGravity.magnitude;
 
-                    Debug.Log($"验证点 {i + 1}: UV=({(float)x / settings.resolution:F2}, {(float)y / settings.resolution:F2}), " +
-                              $"切线空间重力=({tangentGravity.x:F3}, {tangentGravity.y:F3}, {tangentGravity.z:F3}), 强度={magnitude:F3}");
+                    if (settings.outputMode == OutputMode.SurfaceFlowDirection)
+                    {
+                        // 表面流动模式：XY是归一化方向，Z是强度
+                        Vector2 flowDir = new Vector2(outputDir.x, outputDir.y);
+                        float intensity = outputDir.z;
+                        Debug.Log($"验证点 {i + 1}: UV=({(float)x / settings.resolution:F2}, {(float)y / settings.resolution:F2}), " +
+                                  $"流动方向=({flowDir.x:F3}, {flowDir.y:F3}), 强度={intensity:F3}");
+                    }
+                    else
+                    {
+                        // 切线空间重力模式
+                        float magnitude = outputDir.magnitude;
+                        Debug.Log($"验证点 {i + 1}: UV=({(float)x / settings.resolution:F2}, {(float)y / settings.resolution:F2}), " +
+                                  $"切线空间重力=({outputDir.x:F3}, {outputDir.y:F3}, {outputDir.z:F3}), 强度={magnitude:F3}");
+                    }
                 }
             }
         }

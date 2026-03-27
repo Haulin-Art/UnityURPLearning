@@ -141,7 +141,7 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     //float4 jf_left = UVJumpMap.SampleLevel(samplerLinearClamp, uv- w.xy, 0);
     //float4 jf_up = UVJumpMap.SampleLevel(samplerLinearClamp, uv- w.yx, 0);
     //float4 jf_down = UVJumpMap.SampleLevel(samplerLinearClamp, uv+ w.yx, 0);
-    uv = jump_uv;
+    //uv = jump_uv;
     // ========== 计算床底高度 ==========
     float b_center = GetBedHeight(uv);
     float b_right = GetBedHeight(uv + w.xy);
@@ -226,7 +226,8 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
 
     // ========== UV跳跃处理 ==========
     float jump_mask = jump_factor.z * (1.0 - jump_factor.a);
-    jump_mask = jump_factor.z ;
+    //jump_mask = jump_factor.z ;
+    //jump_mask = 0 ;
     
     // 获取跳跃目标的数据（一次采样获取速度和高度）
     float3 jump_data = FluidTex.SampleLevel(samplerLinearClamp, jump_factor.xy, 0);
@@ -258,9 +259,9 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
 
     // ========== 写入结果 ==========
     // 只在有重力方向的地方更新
-    float validMask = step(0.0001, length(gravityDir));
+    float validMask = step(0.01, jump_factor.z + jump_factor.w);
     FluidWrite[pixel_pos] = float3(new_vel, new_height) * validMask;
-
+    //FluidWrite[pixel_pos] = float3(1,1,1)*jump_factor.w;
     // ========== 计算并输出法线 ==========
     // 根据水高梯度计算法线
     // 法线 = normalize(float3(-dh/dx, -dh/dy, 1))

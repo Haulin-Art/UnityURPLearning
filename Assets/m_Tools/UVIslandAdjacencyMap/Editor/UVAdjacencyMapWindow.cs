@@ -1,12 +1,12 @@
 using UnityEngine;
 using UnityEditor;
-using System.IO;
 using System.Collections.Generic;
 
 namespace UVAdjacencyMap
 {
     /// <summary>
     /// UV邻接图生成工具编辑器窗口
+    /// 直接输出RenderTexture，不保存为文件
     /// </summary>
     public class UVAdjacencyMapWindow : EditorWindow
     {
@@ -29,20 +29,19 @@ namespace UVAdjacencyMap
         [SerializeField] private int uvChannel = 0;
 
         [Header("输出设置")]
-        [SerializeField] private string outputPath = "Assets/UVAdjacencyMap.exr";
-        [SerializeField] private bool autoSave = true;
-        [SerializeField] private bool useEXRFormat = true;  // 使用EXR格式获得更高精度
+        [SerializeField] private bool saveAsAsset = false;
+        [SerializeField] private string assetPath = "Assets/UVAdjacencyMap.asset";
 
         [Header("调试设置")]
         [SerializeField] private DebugMode debugMode = DebugMode.None;
         [SerializeField] private bool showPreview = true;
-        [SerializeField] private bool enableDebugLog = false;  // 启用详细调试日志
+        [SerializeField] private bool enableDebugLog = false;
 
         #endregion
 
         #region 私有字段
 
-        private Texture2D previewTexture;
+        private RenderTexture previewRT;
         private UVAdjacencyMapBuilder.BuildResult lastBuildResult;
         private UVAdjacencyMapBaker.BakeResult lastBakeResult;
         private Vector2 scrollPosition;
@@ -52,16 +51,13 @@ namespace UVAdjacencyMap
 
         #region 枚举
 
-        /// <summary>
-        /// 调试模式
-        /// </summary>
         public enum DebugMode
         {
-            None,               // 无调试输出
-            LogStatistics,      // 输出统计信息
-            LogSeamDetails,     // 输出接缝详情
-            SaveSeamData,       // 保存接缝数据
-            VisualizeInScene    // 在场景中可视化
+            None,
+            LogStatistics,
+            LogSeamDetails,
+            SaveSeamData,
+            VisualizeInScene
         }
 
         #endregion
@@ -91,7 +87,7 @@ namespace UVAdjacencyMap
             DrawDebugSettings();
             DrawActionButtons();
             
-            if (showPreview && previewTexture != null)
+            if (showPreview && previewRT != null)
             {
                 DrawPreview();
             }
@@ -116,7 +112,8 @@ namespace UVAdjacencyMap
             }
             
             EditorGUILayout.HelpBox(
-                "根据网格的UV拓扑生成邻接纹理，用于跨UV岛的无缝流动效果。",
+                "根据网格的UV拓扑生成邻接纹理，用于跨UV岛的无缝流动效果。\n" +
+                "输出为RenderTexture（ARGBFloat格式），精度高且Unity支持完善。",
                 MessageType.Info);
             
             EditorGUILayout.Space(10);
@@ -126,12 +123,10 @@ namespace UVAdjacencyMap
         {
             EditorGUILayout.LabelField("目标网格", EditorStyles.boldLabel);
             
-            EditorGUI.BeginChangeCheck();
             targetMesh = (Mesh)EditorGUILayout.ObjectField("网格", targetMesh, typeof(Mesh), false);
             
             if (targetMesh != null)
             {
-                // 显示网格信息
                 EditorGUILayout.LabelField($"  顶点数: {targetMesh.vertexCount}");
                 EditorGUILayout.LabelField($"  三角形数: {targetMesh.triangles.Length / 3}");
                 EditorGUILayout.LabelField($"  有UV: {(targetMesh.uv != null && targetMesh.uv.Length > 0 ? "是" : "否")}");
@@ -162,39 +157,31 @@ namespace UVAdjacencyMap
         {
             EditorGUILayout.LabelField("输出设置", EditorStyles.boldLabel);
             
-            // EXR格式选项
-            useEXRFormat = EditorGUILayout.Toggle("使用EXR格式", useEXRFormat);
             EditorGUILayout.HelpBox(
-                useEXRFormat ? "EXR格式：32位浮点精度，适合流体模拟" : "PNG格式：8位精度，文件较小",
+                "输出格式: RenderTexture (ARGBFloat)\n" +
+                "R=邻接UV.x, G=邻接UV.y, B=邻接边缘遮罩, A=UV岛范围遮罩",
                 MessageType.None);
             
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.PrefixLabel("输出路径");
+            saveAsAsset = EditorGUILayout.Toggle("保存为Asset", saveAsAsset);
             
-            // 根据格式自动调整扩展名
-            string currentExt = Path.GetExtension(outputPath);
-            string desiredExt = useEXRFormat ? ".exr" : ".png";
-            if (currentExt != desiredExt && !string.IsNullOrEmpty(currentExt))
+            if (saveAsAsset)
             {
-                outputPath = Path.ChangeExtension(outputPath, desiredExt);
-            }
-            
-            outputPath = EditorGUILayout.TextField(outputPath);
-            string fileExt = useEXRFormat ? "exr" : "png";
-            if (GUILayout.Button("...", GUILayout.Width(30)))
-            {
-                string path = EditorUtility.SaveFilePanel("保存邻接纹理", 
-                    Path.GetDirectoryName(outputPath), 
-                    Path.GetFileNameWithoutExtension(outputPath), 
-                    fileExt);
-                if (!string.IsNullOrEmpty(path))
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.PrefixLabel("Asset路径");
+                assetPath = EditorGUILayout.TextField(assetPath);
+                if (GUILayout.Button("...", GUILayout.Width(30)))
                 {
-                    outputPath = "Assets" + path.Substring(Application.dataPath.Length);
+                    string path = EditorUtility.SaveFilePanel("保存RenderTexture", 
+                        System.IO.Path.GetDirectoryName(assetPath), 
+                        System.IO.Path.GetFileNameWithoutExtension(assetPath), 
+                        "asset");
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        assetPath = "Assets" + path.Substring(Application.dataPath.Length);
+                    }
                 }
+                EditorGUILayout.EndHorizontal();
             }
-            EditorGUILayout.EndHorizontal();
-            
-            autoSave = EditorGUILayout.Toggle("自动保存", autoSave);
             
             EditorGUILayout.Space(10);
         }
@@ -206,11 +193,6 @@ namespace UVAdjacencyMap
             debugMode = (DebugMode)EditorGUILayout.EnumPopup("调试模式", debugMode);
             showPreview = EditorGUILayout.Toggle("显示预览", showPreview);
             enableDebugLog = EditorGUILayout.Toggle("详细日志", enableDebugLog);
-            
-            if (enableDebugLog)
-            {
-                EditorGUILayout.HelpBox("启用后将输出边映射的详细信息，用于调试精度问题。", MessageType.Info);
-            }
             
             EditorGUILayout.Space(10);
         }
@@ -237,24 +219,21 @@ namespace UVAdjacencyMap
 
         private void DrawPreview()
         {
-            EditorGUILayout.LabelField("预览", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("预览 (RenderTexture)", EditorStyles.boldLabel);
             
             Rect previewRect = GUILayoutUtility.GetRect(200, 200, GUILayout.ExpandWidth(true));
             
-            // 绘制背景
             EditorGUI.DrawRect(previewRect, new Color(0.2f, 0.2f, 0.2f, 1f));
             
-            // 绘制预览纹理
-            if (previewTexture != null)
+            if (previewRT != null)
             {
-                GUI.DrawTexture(previewRect, previewTexture, ScaleMode.ScaleToFit);
+                GUI.DrawTexture(previewRect, previewRT, ScaleMode.ScaleToFit);
             }
             
-            // 绘制说明
             EditorGUILayout.HelpBox(
                 "R/G通道: 邻接UV坐标\n" +
-                "B通道: 到边缘的距离权重\n" +
-                "A通道: 邻接岛ID",
+                "B通道: 邻接边缘遮罩\n" +
+                "A通道: UV岛范围遮罩",
                 MessageType.None);
             
             EditorGUILayout.Space(10);
@@ -289,6 +268,7 @@ namespace UVAdjacencyMap
             if (lastBakeResult.success)
             {
                 EditorGUILayout.LabelField($"纹理分辨率: {resolution}x{resolution}");
+                EditorGUILayout.LabelField($"输出格式: RenderTexture (ARGBFloat)");
             }
         }
 
@@ -343,14 +323,12 @@ namespace UVAdjacencyMap
             {
                 EditorUtility.DisplayProgressBar("UV邻接图", "正在生成...", 0.3f);
                 
-                // 烘焙纹理（内部会调用Builder）
                 UVAdjacencyMapBaker.BakeSettings settings = new UVAdjacencyMapBaker.BakeSettings
                 {
                     resolution = resolution,
                     edgePadding = edgePadding,
                     uvEpsilon = uvEpsilon,
                     uvChannel = uvChannel,
-                    useEXRFormat = useEXRFormat,
                     enableDebugLog = enableDebugLog
                 };
                 
@@ -359,15 +337,13 @@ namespace UVAdjacencyMap
                 
                 if (lastBakeResult.success)
                 {
-                    previewTexture = lastBakeResult.adjacencyMap;
+                    previewRT = lastBakeResult.adjacencyRT;
                     
-                    // 保存纹理
-                    if (autoSave)
+                    if (saveAsAsset)
                     {
-                        SaveTexture();
+                        SaveAsAsset();
                     }
                     
-                    // 输出调试信息
                     HandleDebugOutput();
                     
                     Debug.Log($"[UV邻接图] 生成成功！接缝数: {lastBuildResult.seamCount}, UV岛数: {lastBuildResult.islandCount}");
@@ -384,20 +360,24 @@ namespace UVAdjacencyMap
             }
         }
 
-        private void SaveTexture()
+        private void SaveAsAsset()
         {
-            if (lastBakeResult.adjacencyMap == null)
+            if (lastBakeResult.adjacencyRT == null)
                 return;
             
             // 确保目录存在
-            string directory = Path.GetDirectoryName(outputPath);
-            if (!Directory.Exists(directory))
+            string directory = System.IO.Path.GetDirectoryName(assetPath);
+            if (!System.IO.Directory.Exists(directory))
             {
-                Directory.CreateDirectory(directory);
+                System.IO.Directory.CreateDirectory(directory);
             }
             
-            UVAdjacencyMapBaker.SaveTexture(lastBakeResult.adjacencyMap, outputPath, useEXRFormat);
+            // 保存RenderTexture为Asset
+            AssetDatabase.CreateAsset(lastBakeResult.adjacencyRT, assetPath);
+            AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
+            
+            Debug.Log($"[UV邻接图] RenderTexture已保存到: {assetPath}");
         }
 
         private void HandleDebugOutput()
@@ -434,7 +414,7 @@ namespace UVAdjacencyMap
 
         private void SaveSeamDataToJSON()
         {
-            string jsonPath = Path.ChangeExtension(outputPath, ".json");
+            string jsonPath = System.IO.Path.ChangeExtension(assetPath, ".json");
             
             SeamDataList dataList = new SeamDataList();
             dataList.seams = new SeamDataEntry[lastBuildResult.seams.Count];
@@ -455,7 +435,7 @@ namespace UVAdjacencyMap
             }
             
             string json = JsonUtility.ToJson(dataList, true);
-            File.WriteAllText(jsonPath, json);
+            System.IO.File.WriteAllText(jsonPath, json);
             
             Debug.Log($"[UV邻接图] 接缝数据已保存到: {jsonPath}");
         }
@@ -479,8 +459,6 @@ namespace UVAdjacencyMap
             if (debugMode != DebugMode.VisualizeInScene || lastBuildResult.seams == null)
                 return;
             
-            // 需要一个关联的GameObject来获取世界坐标
-            // 这里简化处理，只在有选中对象时绘制
             GameObject selectedObj = Selection.activeGameObject;
             if (selectedObj == null)
                 return;
@@ -494,16 +472,13 @@ namespace UVAdjacencyMap
             
             Handles.matrix = transform.localToWorldMatrix;
             
-            // 绘制接缝
             foreach (var seam in lastBuildResult.seams)
             {
                 int[] triangles = targetMesh.triangles;
                 
-                // 获取边A的顶点位置
                 int vA1 = triangles[seam.edgeA.triangleIndex * 3 + seam.edgeA.localEdgeIndex];
                 int vA2 = triangles[seam.edgeA.triangleIndex * 3 + (seam.edgeA.localEdgeIndex + 1) % 3];
                 
-                // 获取边B的顶点位置
                 int vB1 = triangles[seam.edgeB.triangleIndex * 3 + seam.edgeB.localEdgeIndex];
                 int vB2 = triangles[seam.edgeB.triangleIndex * 3 + (seam.edgeB.localEdgeIndex + 1) % 3];
                 
@@ -512,19 +487,14 @@ namespace UVAdjacencyMap
                 Vector3 posB1 = vertices[vB1];
                 Vector3 posB2 = vertices[vB2];
                 
-                // 绘制边A（红色）
                 Handles.color = Color.red;
                 Handles.DrawLine(posA1, posA2, 2f);
-                
-                // 绘制边B（红色）
                 Handles.DrawLine(posB1, posB2, 2f);
                 
-                // 绘制连接线（蓝色）
                 Handles.color = Color.blue;
                 Handles.DrawLine((posA1 + posA2) * 0.5f, (posB1 + posB2) * 0.5f, 1f);
             }
             
-            // 绘制UV岛中心
             if (lastBuildResult.islands != null)
             {
                 Handles.color = Color.green;

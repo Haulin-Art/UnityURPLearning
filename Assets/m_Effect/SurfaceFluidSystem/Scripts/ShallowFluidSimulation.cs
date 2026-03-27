@@ -48,8 +48,8 @@ public class ShallowFluidSimulation : MonoBehaviour
 
     [Space(10)]
     [Header("UV跳跃设置")]
-    [Tooltip("UV跳跃贴图（RG:跳跃目标UV, Z:跳跃边缘, A:UV范围）")]
-    public Texture2D uvJumpMap;
+    [Tooltip("UV跳跃贴图（RG:跳跃目标UV, Z:跳跃边缘, A:UV范围），支持Texture2D和RenderTexture")]
+    public Texture uvJumpMap;
     
     [Tooltip("是否启用UV跳跃功能")]
     public bool useUVJump = false;

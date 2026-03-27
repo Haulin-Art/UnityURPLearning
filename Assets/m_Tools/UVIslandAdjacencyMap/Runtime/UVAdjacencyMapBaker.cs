@@ -5,8 +5,8 @@ namespace UVAdjacencyMap
 {
     /// <summary>
     /// UV邻接图烘焙器
-    /// 输出格式：R=邻接UV.x, G=邻接UV.y, B=UV岛遮罩, A=1
-    /// 支持EXR格式以获得更高精度
+    /// 输出格式：R=邻接UV.x, G=邻接UV.y, B=邻接边缘遮罩, A=UV岛范围遮罩
+    /// 直接输出RenderTexture（ARGBFloat格式）
     /// </summary>
     public class UVAdjacencyMapBaker
     {
@@ -18,7 +18,6 @@ namespace UVAdjacencyMap
             public int edgePadding;
             public float uvEpsilon;
             public int uvChannel;
-            public bool useEXRFormat;
             public bool enableDebugLog;
 
             public static BakeSettings Default => new BakeSettings
@@ -27,14 +26,14 @@ namespace UVAdjacencyMap
                 edgePadding = 4,
                 uvEpsilon = 0.001f,
                 uvChannel = 0,
-                useEXRFormat = true,
                 enableDebugLog = false
             };
         }
 
         public struct BakeResult
         {
-            public Texture2D adjacencyMap;
+            public Texture2D adjacencyMap;      // Texture2D版本（用于预览）
+            public RenderTexture adjacencyRT;   // RenderTexture版本（高精度，用于运行时）
             public UVAdjacencyMapBuilder.BuildResult buildResult;
             public bool success;
             public string errorMessage;
@@ -47,8 +46,8 @@ namespace UVAdjacencyMap
         {
             public Vector2 adjacentUV;
             public float distance;
-            public bool hasData;
-            public bool isInUVIsland;
+            public bool hasData;           // 是否有邻接数据
+            public bool isInUVIsland;      // 是否在UV岛内（用于A通道）
         }
 
         #endregion
@@ -61,6 +60,7 @@ namespace UVAdjacencyMap
             {
                 success = false,
                 adjacencyMap = null,
+                adjacencyRT = null,
                 buildResult = default,
                 errorMessage = ""
             };
@@ -99,42 +99,66 @@ namespace UVAdjacencyMap
                 UVAdjacencyMapBuilder.CheckAdjacentSeamsConsistency(buildResult.seams);
             }
 
+            // 烘焙纹理
             Texture2D adjacencyMap = BakeWithCPU(mesh, buildResult, settings);
 
             if (adjacencyMap != null)
             {
                 result.adjacencyMap = adjacencyMap;
+                // 创建RenderTexture版本
+                result.adjacencyRT = CreateRenderTexture(adjacencyMap);
                 result.success = true;
             }
 
             return result;
         }
 
-        public static bool SaveTexture(Texture2D texture, string path, bool useEXR = true)
+        /// <summary>
+        /// 从Texture2D创建RenderTexture（ARGBFloat格式，高精度）
+        /// </summary>
+        private static RenderTexture CreateRenderTexture(Texture2D texture)
         {
-            if (texture == null || string.IsNullOrEmpty(path))
-                return false;
+            if (texture == null)
+            {
+                Debug.LogError("[UV邻接图] texture为null！");
+                return null;
+            }
 
-            try
+            // 首先测试Texture2D是否正确生成
+            Color[] testPixels = texture.GetPixels(0, 0, 16, 16);
+            int nonBlackPixels = 0;
+            foreach (var p in testPixels)
             {
-                byte[] bytes;
-                if (useEXR && path.EndsWith(".exr", System.StringComparison.OrdinalIgnoreCase))
-                {
-                    bytes = texture.EncodeToEXR(Texture2D.EXRFlags.CompressZIP);
-                }
-                else
-                {
-                    bytes = texture.EncodeToPNG();
-                }
-                System.IO.File.WriteAllBytes(path, bytes);
-                Debug.Log($"[UV邻接图] 纹理已保存到: {path}");
-                return true;
+                if (p.r > 0 || p.g > 0 || p.b > 0 || p.a > 0)
+                    nonBlackPixels++;
             }
-            catch (System.Exception e)
+            Debug.Log($"[UV邻接图] Texture2D测试: {nonBlackPixels}/256 个非黑色像素");
+
+            RenderTexture rt = new RenderTexture(texture.width, texture.height, 0, RenderTextureFormat.ARGBFloat);
+            rt.wrapMode = TextureWrapMode.Clamp;
+            rt.filterMode = FilterMode.Bilinear;
+            rt.Create();
+
+            // 使用Blit将Texture2D数据复制到RenderTexture
+            Graphics.Blit(texture, rt);
+
+            // 验证RenderTexture
+            RenderTexture prevRT = RenderTexture.active;
+            RenderTexture.active = rt;
+            Texture2D testRead = new Texture2D(16, 16, TextureFormat.RGBAFloat, false);
+            testRead.ReadPixels(new Rect(0, 0, 16, 16), 0, 0);
+            testRead.Apply();
+            Color[] rtPixels = testRead.GetPixels();
+            int rtNonBlack = 0;
+            foreach (var p in rtPixels)
             {
-                Debug.LogError($"[UV邻接图] 保存纹理失败: {e.Message}");
-                return false;
+                if (p.r > 0 || p.g > 0 || p.b > 0 || p.a > 0)
+                    rtNonBlack++;
             }
+            Debug.Log($"[UV邻接图] RenderTexture测试: {rtNonBlack}/256 个非黑色像素");
+            RenderTexture.active = prevRT;
+
+            return rt;
         }
 
         #endregion
@@ -151,10 +175,10 @@ namespace UVAdjacencyMap
                 pixelData[i] = new PixelData { hasData = false, distance = float.MaxValue, isInUVIsland = false };
             }
 
-            // Step 1: 烘焙UV岛遮罩（B通道）
+            // Step 1: 烘焙UV岛遮罩（A通道）
             BakeUVIslandMask(pixelData, mesh, settings.uvChannel, resolution);
             
-            // Step 2: 写入边缘邻接信息
+            // Step 2: 写入边缘邻接信息（包含内描边和外描边）
             WriteEdgeAdjacencyCPU(pixelData, buildResult.seams, resolution, settings.edgePadding, settings.enableDebugLog);
             
             // 转换为颜色数组
@@ -163,8 +187,10 @@ namespace UVAdjacencyMap
             {
                 if (pixelData[i].hasData)
                 {
-                    // R=邻接UV.x, G=邻接UV.y, B=1(邻接边缘), A=0(邻接边缘不属于UV岛内部)
-                    pixels[i] = new Color(pixelData[i].adjacentUV.x, pixelData[i].adjacentUV.y, 1, 0);
+                    // R=邻接UV.x, G=邻接UV.y, B=1(邻接边缘)
+                    // A=UV岛范围（内描边A=1，外描边A=0）
+                    float aChannel = pixelData[i].isInUVIsland ? 1f : 0f;
+                    pixels[i] = new Color(pixelData[i].adjacentUV.x, pixelData[i].adjacentUV.y, 1, aChannel);
                 }
                 else if (pixelData[i].isInUVIsland)
                 {
@@ -213,7 +239,7 @@ namespace UVAdjacencyMap
         }
         
         /// <summary>
-        /// 光栅化三角形
+        /// 光栅化三角形（保守光栅化：检查像素四个角）
         /// </summary>
         private static void RasterizeTriangle(PixelData[] pixelData, Vector2 uv0, Vector2 uv1, Vector2 uv2, int resolution)
         {
@@ -222,18 +248,29 @@ namespace UVAdjacencyMap
             int minY = Mathf.FloorToInt(Mathf.Min(uv0.y, uv1.y, uv2.y) * resolution);
             int maxY = Mathf.CeilToInt(Mathf.Max(uv0.y, uv1.y, uv2.y) * resolution);
             
+            // 扩展边界以确保边缘像素被包含
             minX = Mathf.Max(0, minX - 1);
             maxX = Mathf.Min(resolution - 1, maxX + 1);
             minY = Mathf.Max(0, minY - 1);
             maxY = Mathf.Min(resolution - 1, maxY + 1);
             
+            float pixelSize = 1f / resolution;
+            
             for (int y = minY; y <= maxY; y++)
             {
                 for (int x = minX; x <= maxX; x++)
                 {
-                    Vector2 pixelCenter = new Vector2((x + 0.5f) / resolution, (y + 0.5f) / resolution);
+                    // 检查像素的四个角是否至少有一个在三角形内
+                    float px = (float)x / resolution;
+                    float py = (float)y / resolution;
                     
-                    if (IsPointInTriangle(pixelCenter, uv0, uv1, uv2))
+                    bool inTriangle = 
+                        IsPointInTriangle(new Vector2(px, py), uv0, uv1, uv2) ||
+                        IsPointInTriangle(new Vector2(px + pixelSize, py), uv0, uv1, uv2) ||
+                        IsPointInTriangle(new Vector2(px, py + pixelSize), uv0, uv1, uv2) ||
+                        IsPointInTriangle(new Vector2(px + pixelSize, py + pixelSize), uv0, uv1, uv2);
+                    
+                    if (inTriangle)
                     {
                         int index = y * resolution + x;
                         pixelData[index].isInUVIsland = true;
@@ -370,7 +407,8 @@ namespace UVAdjacencyMap
                             pixelData[index].adjacentUV = adjacentUV;
                             pixelData[index].distance = dist;
                             pixelData[index].hasData = true;
-                            pixelData[index].isInUVIsland = true;
+                            // isInUVIsland保持不变，用于区分内描边和外描边
+                            
                             writtenPixels++;
                         }
                     }

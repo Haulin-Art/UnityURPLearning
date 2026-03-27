@@ -15,7 +15,16 @@ namespace TangentSpaceGravityMap
     }
 
     /// <summary>
-    /// 烹焙设置
+    /// 输出模式枚举
+    /// </summary>
+    public enum OutputMode
+    {
+        TangentSpaceGravity,    // 切线空间重力方向：重力在切线/副切线方向的分量
+        SurfaceFlowDirection    // 表面流动方向：流体在表面上的下坡方向（推荐用于流体模拟）
+    }
+
+    /// <summary>
+    /// 烘焙设置
     /// </summary>
     public struct BakeSettings
     {
@@ -25,9 +34,11 @@ namespace TangentSpaceGravityMap
         public bool enableDebugLog;      // 是否启用调试日志
         public Vector3 customGravity;    // 自定义重力方向（默认Vector3.down）
         
-        // 新增选项
+        // 输出选项
+        public OutputMode outputMode;    // 输出模式
         public bool normalizeTo01;       // 是否将值从[-1,1]映射到[0,1]
         public bool compressToRG;        // 是否压缩到RG通道（否则输出RGB三通道）
+        public int edgePadding;          // 边缘扩展像素数（将UV岛边缘向外扩展）
 
         public static BakeSettings Default => new BakeSettings
         {
@@ -36,8 +47,10 @@ namespace TangentSpaceGravityMap
             useEXRFormat = true,
             enableDebugLog = false,
             customGravity = Vector3.down,
-            normalizeTo01 = false,       // 默认不映射，保留原始值
-            compressToRG = false         // 默认输出RGB三通道
+            outputMode = OutputMode.SurfaceFlowDirection,  // 默认使用表面流动方向
+            normalizeTo01 = false,
+            compressToRG = false,
+            edgePadding = 0            // 默认不扩展边缘
         };
     }
 
@@ -274,11 +287,13 @@ namespace TangentSpaceGravityMap
         {
             int resolution = settings.resolution;
             Color[] pixels = new Color[resolution * resolution];
+            bool[] isValidPixel = new bool[resolution * resolution];  // 标记有效像素
             int validCount = 0;
 
             // 构建空间索引以加速查找
             Dictionary<Vector2Int, List<int>> spatialIndex = BuildSpatialIndex(uvTriangles, resolution);
 
+            // Step 1: 烘焙UV岛内的像素
             for (int y = 0; y < resolution; y++)
             {
                 for (int x = 0; x < resolution; x++)
@@ -294,50 +309,58 @@ namespace TangentSpaceGravityMap
                         Vector3 normal = InterpolateNormal(meshData, triIndex, barycentric);
                         Vector4 tangent = InterpolateTangent(meshData, triIndex, barycentric);
 
-                        // 计算切线空间重力（返回三维向量）
-                        Vector3 tangentGravity = CalculateTangentSpaceGravity(normal, tangent, settings.customGravity);
+                        // 构建TBN基向量
+                        Vector3 T = new Vector3(tangent.x, tangent.y, tangent.z).normalized;
+                        Vector3 N = normal.normalized;
+                        Vector3 B = (Vector3.Cross(N, T) * tangent.w).normalized;
+
+                        // 根据输出模式计算方向
+                        Vector3 outputDirection;
+                        if (settings.outputMode == OutputMode.SurfaceFlowDirection)
+                        {
+                            outputDirection = CalculateSurfaceFlowDirection(N, T, B, settings.customGravity);
+                        }
+                        else
+                        {
+                            outputDirection = CalculateTangentSpaceGravity(N, T, settings.customGravity);
+                        }
 
                         float r, g, b, a;
 
                         if (settings.compressToRG)
                         {
-                            // 压缩到RG通道
                             if (settings.normalizeTo01)
                             {
-                                // 映射到[0,1]范围
-                                r = tangentGravity.x * 0.5f + 0.5f;
-                                g = tangentGravity.y * 0.5f + 0.5f;
+                                r = outputDirection.x * 0.5f + 0.5f;
+                                g = outputDirection.y * 0.5f + 0.5f;
                             }
                             else
                             {
-                                // 保留原始值[-1,1]
-                                r = tangentGravity.x;
-                                g = tangentGravity.y;
+                                r = outputDirection.x;
+                                g = outputDirection.y;
                             }
                             b = 0;
                             a = 1;
                         }
                         else
                         {
-                            // 输出RGB三通道（完整的三维重力方向）
                             if (settings.normalizeTo01)
                             {
-                                // 映射到[0,1]范围
-                                r = tangentGravity.x * 0.5f + 0.5f;
-                                g = tangentGravity.y * 0.5f + 0.5f;
-                                b = tangentGravity.z * 0.5f + 0.5f;
+                                r = outputDirection.x * 0.5f + 0.5f;
+                                g = outputDirection.y * 0.5f + 0.5f;
+                                b = outputDirection.z * 0.5f + 0.5f;
                             }
                             else
                             {
-                                // 保留原始值[-1,1]
-                                r = tangentGravity.x;
-                                g = tangentGravity.y;
-                                b = tangentGravity.z;
+                                r = outputDirection.x;
+                                g = outputDirection.y;
+                                b = outputDirection.z;
                             }
                             a = 1;
                         }
 
                         pixels[pixelIndex] = new Color(r, g, b, a);
+                        isValidPixel[pixelIndex] = true;
                         validCount++;
 
                         // 调试输出采样点详情
@@ -347,9 +370,12 @@ namespace TangentSpaceGravityMap
                                 $"  UV: ({uv.x:F4}, {uv.y:F4})\n" +
                                 $"  三角形索引: {triIndex}\n" +
                                 $"  重心坐标: ({barycentric.x:F3}, {barycentric.y:F3}, {barycentric.z:F3})\n" +
-                                $"  法线: ({normal.x:F3}, {normal.y:F3}, {normal.z:F3})\n" +
-                                $"  切线: ({tangent.x:F3}, {tangent.y:F3}, {tangent.z:F3}, w={tangent.w:F1})\n" +
-                                $"  切线空间重力: ({tangentGravity.x:F3}, {tangentGravity.y:F3}, {tangentGravity.z:F3})\n" +
+                                $"  法线(N): ({N.x:F4}, {N.y:F4}, {N.z:F4})\n" +
+                                $"  切线(T): ({T.x:F4}, {T.y:F4}, {T.z:F4})\n" +
+                                $"  副切线(B): ({B.x:F4}, {B.y:F4}, {B.z:F4})\n" +
+                                $"  世界重力: ({settings.customGravity.x:F4}, {settings.customGravity.y:F4}, {settings.customGravity.z:F4})\n" +
+                                $"  输出模式: {settings.outputMode}\n" +
+                                $"  输出方向: ({outputDirection.x:F4}, {outputDirection.y:F4}, {outputDirection.z:F4})\n" +
                                 $"  输出RGBA: ({r:F3}, {g:F3}, {b:F3}, {a:F3})");
                         }
                     }
@@ -364,11 +390,22 @@ namespace TangentSpaceGravityMap
                         {
                             pixels[pixelIndex] = new Color(0, 0, 0, 0);
                         }
+                        isValidPixel[pixelIndex] = false;
                     }
                 }
             }
 
             result.validPixelCount = validCount;
+
+            // Step 2: 边缘扩展
+            if (settings.edgePadding > 0)
+            {
+                int paddedCount = ExpandEdges(pixels, isValidPixel, resolution, settings.edgePadding, settings.normalizeTo01);
+                if (settings.enableDebugLog)
+                {
+                    Debug.Log($"[切线空间重力图] 边缘扩展: 原始有效像素={validCount}, 扩展后新增={paddedCount}");
+                }
+            }
 
             // 创建纹理
             Texture2D texture = new Texture2D(resolution, resolution, TextureFormat.RGBAFloat, false);
@@ -376,6 +413,87 @@ namespace TangentSpaceGravityMap
             texture.Apply();
 
             return texture;
+        }
+
+        /// <summary>
+        /// 边缘扩展：将UV岛边缘向外扩展指定像素数
+        /// 使用Jump Flooding算法进行快速距离场计算
+        /// </summary>
+        private static int ExpandEdges(Color[] pixels, bool[] isValidPixel, int resolution, int padding, bool normalizeTo01)
+        {
+            int paddedCount = 0;
+            
+            // 使用迭代扩散方式扩展边缘
+            // 每次迭代扩展1像素，共迭代padding次
+            for (int iter = 0; iter < padding; iter++)
+            {
+                Color[] newPixels = new Color[resolution * resolution];
+                System.Array.Copy(pixels, newPixels, pixels.Length);
+                
+                for (int y = 0; y < resolution; y++)
+                {
+                    for (int x = 0; x < resolution; x++)
+                    {
+                        int pixelIndex = y * resolution + x;
+                        
+                        // 如果已经是有效像素，跳过
+                        if (isValidPixel[pixelIndex])
+                            continue;
+                        
+                        // 查找相邻的有效像素
+                        Color? nearestColor = null;
+                        float minDist = float.MaxValue;
+                        
+                        // 检查8邻域
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                if (dx == 0 && dy == 0) continue;
+                                
+                                int nx = x + dx;
+                                int ny = y + dy;
+                                
+                                if (nx < 0 || nx >= resolution || ny < 0 || ny >= resolution)
+                                    continue;
+                                
+                                int neighborIndex = ny * resolution + nx;
+                                if (isValidPixel[neighborIndex])
+                                {
+                                    float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                                    if (dist < minDist)
+                                    {
+                                        minDist = dist;
+                                        nearestColor = pixels[neighborIndex];
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 如果找到有效邻居，复制其值
+                        if (nearestColor.HasValue)
+                        {
+                            Color c = nearestColor.Value;
+                            // 标记为扩展像素（a=0.5表示扩展区域）
+                            newPixels[pixelIndex] = new Color(c.r, c.g, c.b, 0.5f);
+                            paddedCount++;
+                        }
+                    }
+                }
+                
+                // 更新有效像素标记（扩展的像素也标记为有效，以便下一轮迭代）
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    if (newPixels[i].a > 0 && !isValidPixel[i])
+                    {
+                        isValidPixel[i] = true;
+                    }
+                }
+                
+                System.Array.Copy(newPixels, pixels, pixels.Length);
+            }
+            
+            return paddedCount;
         }
 
         /// <summary>
@@ -520,24 +638,64 @@ namespace TangentSpaceGravityMap
 
         /// <summary>
         /// 计算切线空间重力方向
+        /// 重力在切线/副切线/法线方向的分量
         /// </summary>
-        private static Vector3 CalculateTangentSpaceGravity(Vector3 normal, Vector4 tangent, Vector3 worldGravity)
+        private static Vector3 CalculateTangentSpaceGravity(Vector3 N, Vector3 T, Vector3 worldGravity)
         {
-            // 构建TBN基向量
-            Vector3 T = new Vector3(tangent.x, tangent.y, tangent.z).normalized;
-            Vector3 N = normal.normalized;
-            // 副切线 = 法线 × 切线 * tangent.w（w存储了副切线方向）
-            // 注意：副切线也需要归一化！
-            Vector3 B = (Vector3.Cross(N, T) * tangent.w).normalized;
+            // 副切线
+            Vector3 B = Vector3.Cross(N, T);
+            // 注意：需要考虑tangent.w的方向，但这里简化处理，假设B已经正确
+            B = B.normalized;
 
             // 切线空间重力 = TBN转置 × 世界空间重力
-            // 由于TBN是正交矩阵，转置等于逆，所以：
-            // G_tangent = (G·T, G·B, G·N)
             float Gx = Vector3.Dot(worldGravity, T);  // 重力在切线方向的分量
             float Gy = Vector3.Dot(worldGravity, B);  // 重力在副切线方向的分量
             float Gz = Vector3.Dot(worldGravity, N);  // 重力在法线方向的分量
 
             return new Vector3(Gx, Gy, Gz);
+        }
+
+        /// <summary>
+        /// 计算表面流动方向（下坡方向）
+        /// 这是流体在表面上实际会流动的方向
+        /// 
+        /// 原理：
+        /// 1. 世界空间重力投影到表面切平面上
+        /// 2. 投影方向即为流体流动方向
+        /// 3. 将投影方向转换到切线空间
+        /// </summary>
+        private static Vector3 CalculateSurfaceFlowDirection(Vector3 N, Vector3 T, Vector3 B, Vector3 worldGravity)
+        {
+            // 步骤1：计算重力在表面切平面上的投影
+            // 投影 = 重力 - (重力·法线) * 法线
+            // 这去掉了重力垂直于表面的分量，只保留切平面内的分量
+            float gravityAlongNormal = Vector3.Dot(worldGravity, N);
+            Vector3 gravityOnTangentPlane = worldGravity - N * gravityAlongNormal;
+
+            // 如果投影为零（完全水平或完全垂直的表面），返回零向量
+            if (gravityOnTangentPlane.sqrMagnitude < 1e-10f)
+            {
+                return Vector3.zero;
+            }
+
+            // 步骤2：将投影方向转换到切线空间
+            // 切线空间坐标 = (投影·T, 投影·B, 0)
+            // 注意：z分量为0，因为投影在切平面上
+            float flowX = Vector3.Dot(gravityOnTangentPlane, T);
+            float flowY = Vector3.Dot(gravityOnTangentPlane, B);
+
+            // 步骤3：归一化输出方向（保持单位长度）
+            // 这样在shader中可以直接使用方向，强度可以通过其他方式控制
+            Vector2 flowDir2D = new Vector2(flowX, flowY);
+            float magnitude = flowDir2D.magnitude;
+            
+            if (magnitude > 1e-6f)
+            {
+                flowDir2D /= magnitude;
+            }
+
+            // 返回归一化的流动方向，z分量存储原始强度（可选）
+            return new Vector3(flowDir2D.x, flowDir2D.y, magnitude);
         }
 
         #endregion

@@ -153,7 +153,7 @@ Material:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
-    - _ExtraFluidColor: {r: 0, g: 0.64778733, b: 1, a: 1}
+    - _ExtraFluidColor: {r: 0.003144443, g: 0.6761096, b: 1, a: 1}
     - _FresIn: {r: 1, g: 1, b: 1, a: 1}
     - _FresOut: {r: 0.8352941, g: 0.6053185, b: 0.54901963, a: 1}
     - _RoughnessScale: {r: 1, g: 0, b: 0, a: 0}
