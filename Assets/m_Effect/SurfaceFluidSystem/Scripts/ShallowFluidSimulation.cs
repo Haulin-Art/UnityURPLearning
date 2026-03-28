@@ -4,17 +4,6 @@ using UnityEngine.Rendering;
 /// <summary>
 /// 调试模式枚举
 /// </summary>
-public enum ShallowFluidDebugMode
-{
-    None,               // 正常模式
-    ShowHeightField,    // 显示水深场
-    ShowVelocityField,  // 显示速度场
-    ShowGravityMap,     // 显示重力图
-    ShowUVJumpMap,      // 显示UV跳跃图
-    ShowBedHeight,      // 显示床底高度
-    ShowSurfaceHeight,  // 显示水面高度（水深+床底）
-    ShowNormalMap       // 显示法线图
-}
 
 /// <summary>
 /// 浅水方程流体模拟脚本
@@ -110,12 +99,9 @@ public class ShallowFluidSimulation : MonoBehaviour
     public RenderTexture normalOutputTexture;
 
     [Space(10)]
-    [Header("调试设置")]
-    [Tooltip("调试模式")]
-    public ShallowFluidDebugMode debugMode = ShallowFluidDebugMode.None;
-    
-    [Tooltip("调试输出贴图（用于查看调试信息）")]
-    public RenderTexture debugOutputTexture;
+    [Header("流体数据输出")]
+    [Tooltip("流体数据输出贴图（RG=速度, B=高度）")]
+    public RenderTexture dataOuputTexture;
 
     [Space(10)]
     [Header("模拟参数设置")]
@@ -154,9 +140,6 @@ public class ShallowFluidSimulation : MonoBehaviour
     // 射线检测数据缓存
     private bool isHit = false;
     private Vector2 hitUV = Vector2.zero;
-
-    // 上一帧的调试模式（用于检测变化）
-    private ShallowFluidDebugMode previousDebugMode = ShallowFluidDebugMode.None;
 
     private void Start()
     {
@@ -227,12 +210,6 @@ public class ShallowFluidSimulation : MonoBehaviour
             displayMaterial.SetTexture("_NormalMap", normalBuffer);
         }
 
-        // 检测调试模式变化并输出Log
-        if (debugMode != previousDebugMode)
-        {
-            Debug.Log($"<color=cyan>ShallowFluidSimulation: 调试模式切换为 {debugMode}</color>");
-            previousDebugMode = debugMode;
-        }
     }
 
     private void OnDestroy()
@@ -254,11 +231,6 @@ public class ShallowFluidSimulation : MonoBehaviour
         Vector2 uvDelta;
         raycastDetector.GetRaycastData(out isHit, out hitUV, out uvDelta);
 
-        // 调试输出
-        if (isHit && debugMode == ShallowFluidDebugMode.ShowHeightField)
-        {
-            Debug.Log($"<color=green>ShallowFluidSimulation: 命中UV={hitUV}</color>");
-        }
     }
 
     /// <summary>
@@ -368,8 +340,6 @@ public class ShallowFluidSimulation : MonoBehaviour
         computeShader.SetFloat("extraGravityStrength", extraGravityStrength);
         computeShader.SetFloat("friction", friction);
 
-        // 设置调试模式
-        computeShader.SetInt("debugMode", (int)debugMode);
 
         // ======================== 浅水方程核 ==============================
         // 设置读取纹理（合并的速度+高度）
