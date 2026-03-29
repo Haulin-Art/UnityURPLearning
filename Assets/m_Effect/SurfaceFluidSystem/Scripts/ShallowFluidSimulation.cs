@@ -299,7 +299,7 @@ public class ShallowFluidSimulation : MonoBehaviour
         int threadGroups = Mathf.CeilToInt(size / 8.0f);
 
         // 设置通用参数
-        computeShader.SetFloat("dt", dt);
+        computeShader.SetFloat("dt", Time.deltaTime * 100.0f * dt);
         computeShader.SetFloat("advectSpeed", advectSpeed);
         computeShader.SetFloat("texSize", size);
         computeShader.SetVector("attenuation", new Vector2(velocityAttenuation, heightAttenuation));

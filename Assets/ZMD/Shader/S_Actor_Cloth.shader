@@ -15,6 +15,14 @@ Shader "Unlit/S_Actor_Cloth"
         _RMAOTex ("粗糙度金属度AO贴图", 2D) = "write" {}
         _UseWhite ("是否将白的地方更提白",Float) = 1.0
         _MatCapTex ("MatCap贴图", 2D) = "black" {}
+
+
+        [Space(15)]
+        _EnableExtraFluid ("启用额外流水", Float) = 1.0
+        _ExtraFluidColor ("额外流水颜色", Color) = (1,0,0,1)
+        _ExtraFluidTrans ("额外流水透射率", Range(0.0,5.0)) = 2.0
+        _ExtraFluidTex ("额外流水贴图", 2D) = "black" {}
+        _ExtraFluidNor ("额外流水法线贴图", 2D) = "blue" {}
     }
     SubShader
     {
@@ -54,6 +62,15 @@ Shader "Unlit/S_Actor_Cloth"
 
             TEXTURE2D(_CameraDepthTexture);SAMPLER(sampler_CameraDepthTexture); 
 
+
+
+            float _EnableExtraFluid;
+            float3 _ExtraFluidColor;
+            float _ExtraFluidTrans;
+            TEXTURE2D(_ExtraFluidTex);SAMPLER(sampler_ExtraFluidTex);
+            TEXTURE2D(_ExtraFluidNor);SAMPLER(sampler_ExtraFluidNor);
+
+
             float3 _FresIn;
             float3 _FresOut;
 
@@ -65,6 +82,7 @@ Shader "Unlit/S_Actor_Cloth"
                 float4 vertex : POSITION;
                 float2 uv : TEXCOORD0;
                 float2 uv1 : TEXCOORD1;
+                float2 uv2 : TEXCOORD2;
                 float3 normal : NORMAL;
                 float4 tangent : TANGENT;
             };
@@ -72,6 +90,7 @@ Shader "Unlit/S_Actor_Cloth"
             {
                 float2 uv : TEXCOORD0;
                 float2 uv1 : TEXCOORD1;
+                float2 uv2 : TEXCOORD6;
                 float4 vertex : SV_POSITION;
                 float3 posWS : TEXCOORD2;
                 float3 norWS : TEXCOORD3;
@@ -93,6 +112,7 @@ Shader "Unlit/S_Actor_Cloth"
                 v2f o;
                 o.uv = v.uv;
                 o.uv1 = v.uv1;
+                o.uv2 = v.uv2;
                 o.vertex = TransformObjectToHClip(v.vertex);
                 //o.vertex.z = 1.0 - o.vertex.z;
                 o.posWS = TransformObjectToWorld(v.vertex);
@@ -275,12 +295,28 @@ Shader "Unlit/S_Actor_Cloth"
                 float linearDepth = LinearEyeDepth(sdep,_ZBufferParams);
                 float rimm = step(0.2,(linearDepth - modelDepth)/2.0);
 
+
+                float3 finalCol = diff+ spec+ + ambi + ambient*0.4 + emis + oems + rimm*0.0 + dropMC + dropHighlight;
+
+                // ======================== 额外流水 ==============================
+                float3 h = normalize(lightDir + viewDirWS);
+                float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv1.xy).xyz;
+                float extraFluidHeight = extraFluidData.z;
+                float3 extraFluidColor = lerp(finalCol,_ExtraFluidColor,1.0-exp(-extraFluidHeight*_ExtraFluidTrans));
+                float3 extraFluidNor = SAMPLE_TEXTURE2D(_ExtraFluidNor,sampler_ExtraFluidNor,i.uv.xy).xyz;
+                extraFluidNor = extraFluidNor * 2.0 - 1.0;
+                float3 ef_Nor_WS = mul(extraFluidNor,TBN);
+                float ef_specular = pow(saturate(dot(h,ef_Nor_WS)),32.0);
+                extraFluidColor += ef_specular;
+                //return float4(extraFluidData.xy,0,1);
+
                 // dropHighlight
-                //return float4(ccgg*float3(1,1,1),1.0);     
-                return float4( diff+ spec+ + ambi + ambient*0.4 + emis + oems + rimm*0.0 + dropMC + dropHighlight ,1.0 );       
-                return float4( diff + spec + ambi + emis + oems + dropMC ,1.0 );
-                return float4(ramp*pbr.diffuse*shadow + pbr.specular + albedo*ao*lightColor*0.1  + emission*2.0 + otherEmis*_MColor*20.0 ,1.0);
-                return float4((pbr.radiance*2.0 + albedo*lightColor*0.05 + emission*2.0 + otherEmis*_MColor*20.0 )*float3(1,1,1),1);
+                //return float4(ccgg*float3(1,1,1),1.0);
+                return float4(lerp(finalCol,extraFluidColor,smoothstep(0.01,0.1,extraFluidHeight)) ,1.0);     
+                //return float4( finalCol ,1.0 );       
+                //return float4( diff + spec + ambi + emis + oems + dropMC ,1.0 );
+                //return float4(ramp*pbr.diffuse*shadow + pbr.specular + albedo*ao*lightColor*0.1  + emission*2.0 + otherEmis*_MColor*20.0 ,1.0);
+                //return float4((pbr.radiance*2.0 + albedo*lightColor*0.05 + emission*2.0 + otherEmis*_MColor*20.0 )*float3(1,1,1),1);
             }
             ENDHLSL
         }

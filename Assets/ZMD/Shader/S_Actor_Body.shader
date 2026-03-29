@@ -73,6 +73,7 @@ Shader "Unlit/S_Actor_Body"
             {
                 float4 vertex : POSITION;
                 float2 uv : TEXCOORD0;
+                float2 uv1 : TEXCOORD1;
                 float3 normal : NORMAL;
                 float4 tangent : TANGENT;
                 float3 vertexCol : COLOR0;
@@ -80,6 +81,7 @@ Shader "Unlit/S_Actor_Body"
             struct v2f
             {
                 float2 uv : TEXCOORD0;
+                float2 uv1 : TEXCOORD2;
                 float4 vertex : SV_POSITION;
                 float3 posWS : TEXCOORD1;
                 float3 norWS : TEXCOORD3;
@@ -104,6 +106,7 @@ Shader "Unlit/S_Actor_Body"
             {
                 v2f o;
                 o.uv = v.uv;
+                o.uv1 = v.uv1;
                 o.vertex = TransformObjectToHClip(v.vertex);
                 //o.vertex.z = 1.0 - o.vertex.z;
                 o.posWS = TransformObjectToWorld(v.vertex);
@@ -272,7 +275,7 @@ Shader "Unlit/S_Actor_Body"
 
 
                 // ======================== 额外流水 ==============================
-                float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv.xy).xyz;
+                float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv1.xy).xyz;
                 float extraFluidHeight = extraFluidData.z;
                 float3 extraFluidColor = lerp(finalCol,_ExtraFluidColor,1.0-exp(-extraFluidHeight*_ExtraFluidTrans));
                 float3 extraFluidNor = SAMPLE_TEXTURE2D(_ExtraFluidNor,sampler_ExtraFluidNor,i.uv.xy).xyz;
@@ -282,7 +285,7 @@ Shader "Unlit/S_Actor_Body"
                 extraFluidColor += ef_specular;
                 //float3 extraFluidColor = lerp(0.0,extraFluid,_EnableExtraFluid);
                 //float3 extraFluidNor = lerp(0.0,extraFluidNor,_EnableExtraFluid);
-
+                //return float4(extraFluidData.z*float3(1,1,1),1);
                 //float3 finalExtraFluid = extraFluidColor * extraFluidNor;
 
                 //finalDrop += extraExtraFluid;

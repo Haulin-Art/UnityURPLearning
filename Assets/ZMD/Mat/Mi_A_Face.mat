@@ -51,6 +51,14 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _ExtraFluidNor:
+        m_Texture: {fileID: 8400000, guid: b1a327ac5384556458472ee158a70d20, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ExtraFluidTex:
+        m_Texture: {fileID: 8400000, guid: a62f48b636fddd8458afc6498257335a, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _FaceCM:
         m_Texture: {fileID: 2800000, guid: 44855d9833790e0498bcd450cc8fd248, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -122,7 +130,9 @@ Material:
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
     - _DstBlendAlpha: 0
+    - _EnableExtraFluid: 1
     - _EnvironmentReflections: 1
+    - _ExtraFluidTrans: 2
     - _GlossMapScale: 0
     - _Glossiness: 0
     - _GlossyReflections: 0
@@ -148,6 +158,7 @@ Material:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
+    - _ExtraFluidColor: {r: 0, g: 0.6937125, b: 1, a: 1}
     - _RoughnessScale: {r: 1, g: 0, b: 0, a: 0}
     - _SDFShadowCol: {r: 0.5471698, g: 0.45019603, b: 0.36994183, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}

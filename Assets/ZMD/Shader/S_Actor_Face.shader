@@ -11,6 +11,13 @@ Shader "Unlit/S_Actor_Face"
         _SDFShadowCol ("SDF阴影颜色",Color) = (1,1,1,1)
         _FaceCM ("面部调整贴图", 2D) = "white" {}
 
+        [Space(15)]
+        _EnableExtraFluid ("启用额外流水", Float) = 1.0
+        _ExtraFluidColor ("额外流水颜色", Color) = (1,0,0,1)
+        _ExtraFluidTrans ("额外流水透射率", Range(0.0,5.0)) = 2.0
+        _ExtraFluidTex ("额外流水贴图", 2D) = "black" {}
+        _ExtraFluidNor ("额外流水法线贴图", 2D) = "blue" {}
+
     }
     SubShader
     {
@@ -95,16 +102,24 @@ Shader "Unlit/S_Actor_Face"
             TEXTURE2D(_CSShadow);SAMPLER(sampler_CSShadow);
             //SAMPLER(sampler_POSMap_LinearClamp); 
 
+            float _EnableExtraFluid;
+            float3 _ExtraFluidColor;
+            float _ExtraFluidTrans;
+            TEXTURE2D(_ExtraFluidTex);SAMPLER(sampler_ExtraFluidTex);
+            TEXTURE2D(_ExtraFluidNor);SAMPLER(sampler_ExtraFluidNor);
+
             struct appdata
             {
                 float4 vertex : POSITION;
                 float2 uv : TEXCOORD0;
+                float2 uv1 : TEXCOORD1;
                 float3 normal : NORMAL;
                 float4 tangent : TANGENT;
             };
             struct v2f
             {
                 float2 uv : TEXCOORD0;
+                float2 uv1 : TEXCOORD6;
                 float4 vertex : SV_POSITION;
                 float3 posWS : TEXCOORD1;
                 float3 norWS : TEXCOORD3;
@@ -125,6 +140,7 @@ Shader "Unlit/S_Actor_Face"
             {
                 v2f o;
                 o.uv = v.uv;
+                o.uv1 = v.uv1;
                 o.vertex = TransformObjectToHClip(v.vertex);
                 //o.vertex.z = 1.0 - o.vertex.z;
                 o.posWS = TransformObjectToWorld(v.vertex);
@@ -247,8 +263,22 @@ Shader "Unlit/S_Actor_Face"
                 // 根据贴图增加纯度
                 //float3 albedo_plus = lerp(float3(gray,gray,gray),albedo,1.9);
 
+                finalCol = (finalCol + lerp(_SDFShadowCol*albedo,float3(0,0,0),sdf*(1.0-xiaeShadow)))*float3(1.0,0.95,0.95)*1.5;
+
+                // ======================== 额外流水 ==============================
+                float3 h = normalize(lightDir + viewDirWS);
+                float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv1.xy).xyz;
+                float extraFluidHeight = extraFluidData.z;
+                float3 extraFluidColor = lerp(finalCol,_ExtraFluidColor,1.0-exp(-extraFluidHeight*_ExtraFluidTrans));
+                float3 extraFluidNor = SAMPLE_TEXTURE2D(_ExtraFluidNor,sampler_ExtraFluidNor,i.uv.xy).xyz;
+                extraFluidNor = extraFluidNor * 2.0 - 1.0;
+                float3 ef_Nor_WS = mul(extraFluidNor,TBN);
+                float ef_specular = pow(saturate(dot(h,ef_Nor_WS)),32.0);
+                extraFluidColor += ef_specular;
+                //return float4(extraFluidData.xy,0,1);
+
                 //return float4(albedo*float3(1,1,1),1.0);
-                return float4((finalCol + lerp(_SDFShadowCol*albedo,float3(0,0,0),sdf*(1.0-xiaeShadow)))*float3(1.0,0.95,0.95)*1.5,1.0);
+                return float4(lerp(finalCol,extraFluidColor,smoothstep(0.01,0.1,extraFluidHeight)) ,1.0);
             }
             ENDHLSL
         }

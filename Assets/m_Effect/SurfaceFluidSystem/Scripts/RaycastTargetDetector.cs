@@ -1,15 +1,30 @@
 using UnityEngine;
 
 /// <summary>
+/// 目标物体配置
+/// 用于配置每个目标物体使用的UV通道
+/// </summary>
+[System.Serializable]
+public class TargetObjectConfig
+{
+    [Tooltip("目标物体Transform")]
+    public Transform target;
+    
+    [Tooltip("使用的UV通道索引（0=UV0, 1=UV1, 2=UV2）")]
+    [Range(0, 2)]
+    public int uvChannel = 0;
+}
+
+/// <summary>
 /// 射线检测目标物体并获取UV坐标的脚本
 /// 通过射线检测获取目标物体表面的UV坐标，供其他系统使用
-/// 支持多物体检测
+/// 支持多物体检测，每个物体可单独配置UV通道
 /// </summary>
 public class RaycastTargetDetector : MonoBehaviour
 {
     [Header("目标设置")]
-    [Tooltip("需要进行射线检测的目标物体数组")]
-    public Transform[] targetObjects;
+    [Tooltip("需要进行射线检测的目标物体配置数组，每个物体可单独设置UV通道")]
+    public TargetObjectConfig[] targetConfigs;
 
     [Header("射线设置")]
     [Tooltip("射线检测的层级")]
@@ -29,7 +44,8 @@ public class RaycastTargetDetector : MonoBehaviour
     private Vector2 hitUV = Vector2.zero;
     private Vector2 previousHitUV = Vector2.zero;
     private bool previousIsHit = false;
-    private Transform hitTarget = null;  // 当前命中的目标物体
+    private Transform hitTarget = null;
+    private int hitUVChannel = 0;
 
     private Camera mainCamera;
 
@@ -63,6 +79,11 @@ public class RaycastTargetDetector : MonoBehaviour
     /// </summary>
     public Transform HitTarget => hitTarget;
 
+    /// <summary>
+    /// 当前命中使用的UV通道
+    /// </summary>
+    public int HitUVChannel => hitUVChannel;
+
     private void Start()
     {
         mainCamera = Camera.main;
@@ -75,21 +96,22 @@ public class RaycastTargetDetector : MonoBehaviour
 
     private void Update()
     {
-        // 保存上一帧的数据
         previousIsHit = isHit;
         previousHitUV = hitUV;
 
         if (Input.GetMouseButton(0))
         {
             PerformRaycast();
-        }else{
+        }
+        else
+        {
             isHit = false;
             hitTarget = null;
         }
 
         if (debugInfo)
         {
-            Debug.Log("是否击中:" + IsHit + " && 击中UV位置:" + HitUV + (hitTarget != null ? " && 命中物体:" + hitTarget.name : ""));
+            Debug.Log("是否击中:" + IsHit + " && 击中UV位置:" + HitUV + " && UV通道:" + hitUVChannel + (hitTarget != null ? " && 命中物体:" + hitTarget.name : ""));
         }
     }
 
@@ -100,27 +122,25 @@ public class RaycastTargetDetector : MonoBehaviour
     {
         if (mainCamera == null) return;
 
-        // 确定射线起点
         Vector2 screenPoint = useScreenCenter 
             ? new Vector2(Screen.width * 0.5f, Screen.height * 0.5f) 
-            //: customScreenPoint;
-            : new Vector2(Screen.width * customScreenPoint.x, Screen.height * customScreenPoint.y) ;
+            : new Vector2(Screen.width * customScreenPoint.x, Screen.height * customScreenPoint.y);
 
         Ray ray = mainCamera.ScreenPointToRay(screenPoint);
 
         if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, raycastLayer))
         {
-            // 检查是否命中了目标物体数组中的任意一个
             bool foundTarget = false;
-            if (targetObjects != null && targetObjects.Length > 0)
+            if (targetConfigs != null && targetConfigs.Length > 0)
             {
-                foreach (Transform target in targetObjects)
+                foreach (TargetObjectConfig config in targetConfigs)
                 {
-                    if (target != null && hit.transform == target)
+                    if (config.target != null && hit.transform == config.target)
                     {
                         isHit = true;
-                        hitUV = hit.textureCoord;
-                        hitTarget = target;
+                        hitTarget = config.target;
+                        hitUVChannel = config.uvChannel;
+                        hitUV = GetUVFromHit(hit, config.uvChannel);
                         foundTarget = true;
                         break;
                     }
@@ -141,6 +161,110 @@ public class RaycastTargetDetector : MonoBehaviour
     }
 
     /// <summary>
+    /// 根据UV通道索引从RaycastHit获取UV坐标
+    /// </summary>
+    /// <param name="hit">射线命中信息</param>
+    /// <param name="uvChannel">UV通道索引（0=UV0, 1=UV1, 2=UV2）</param>
+    /// <returns>UV坐标</returns>
+    private Vector2 GetUVFromHit(RaycastHit hit, int uvChannel)
+    {
+        switch (uvChannel)
+        {
+            case 0:
+                // UV0 - Unity内置支持
+                return hit.textureCoord;
+            
+            case 1:
+                // UV1 - 需要通过Mesh获取
+                return GetUVFromMesh(hit, 1);
+            
+            case 2:
+                // UV2 - Unity内置支持
+                return hit.textureCoord2;
+            
+            default:
+                return hit.textureCoord;
+        }
+    }
+
+    /// <summary>
+    /// 从Mesh获取指定UV通道的坐标
+    /// 用于获取UV1等非内置支持的UV通道
+    /// </summary>
+    /// <param name="hit">射线命中信息</param>
+    /// <param name="uvChannel">UV通道索引</param>
+    /// <returns>UV坐标</returns>
+    private Vector2 GetUVFromMesh(RaycastHit hit, int uvChannel)
+    {
+        MeshCollider meshCollider = hit.collider as MeshCollider;
+        if (meshCollider == null)
+        {
+            Debug.LogWarning("RaycastTargetDetector: 目标物体没有MeshCollider，无法获取UV" + uvChannel);
+            return hit.textureCoord;
+        }
+
+        Mesh mesh = meshCollider.sharedMesh;
+        if (mesh == null)
+        {
+            return hit.textureCoord;
+        }
+
+        // 获取三角形索引
+        int triangleIndex = hit.triangleIndex * 3;
+        
+        // 获取顶点索引
+        int[] triangles = mesh.triangles;
+        if (triangleIndex + 2 >= triangles.Length)
+        {
+            return hit.textureCoord;
+        }
+
+        int v0 = triangles[triangleIndex];
+        int v1 = triangles[triangleIndex + 1];
+        int v2 = triangles[triangleIndex + 2];
+
+        // 获取UV坐标
+        Vector2[] uvs = null;
+        switch (uvChannel)
+        {
+            case 0:
+                uvs = mesh.uv;
+                break;
+            case 1:
+                uvs = mesh.uv2;
+                break;
+            case 2:
+                uvs = mesh.uv3;
+                break;
+            case 3:
+                uvs = mesh.uv4;
+                break;
+            default:
+                uvs = mesh.uv;
+                break;
+        }
+
+        if (uvs == null || uvs.Length == 0)
+        {
+            Debug.LogWarning("RaycastTargetDetector: Mesh没有UV" + uvChannel + "数据");
+            return hit.textureCoord;
+        }
+
+        // 使用重心坐标插值获取精确的UV
+        Vector2 uv0 = uvs[v0];
+        Vector2 uv1 = uvs[v1];
+        Vector2 uv2 = uvs[v2];
+
+        // 计算重心坐标
+        Vector3 barycentric = hit.barycentricCoordinate;
+
+        // 插值计算UV
+        Vector2 interpolatedUV = uv0 * barycentric.x + uv1 * barycentric.y + uv2 * barycentric.z;
+        
+        return interpolatedUV;
+    }
+
+    /// <summary>
     /// 获取射线检测数据（供外部调用）
     /// </summary>
     /// <param name="hit">是否命中</param>
@@ -154,18 +278,20 @@ public class RaycastTargetDetector : MonoBehaviour
     }
 
     /// <summary>
-    /// 获取射线检测数据（包含命中目标）
+    /// 获取射线检测数据（包含命中目标和UV通道）
     /// </summary>
     /// <param name="hit">是否命中</param>
     /// <param name="uv">命中的UV坐标</param>
     /// <param name="delta">UV变化量</param>
     /// <param name="target">命中的目标物体</param>
-    public void GetRaycastData(out bool hit, out Vector2 uv, out Vector2 delta, out Transform target)
+    /// <param name="uvChannel">使用的UV通道</param>
+    public void GetRaycastData(out bool hit, out Vector2 uv, out Vector2 delta, out Transform target, out int uvChannel)
     {
         hit = isHit;
         uv = hitUV;
         delta = UVDelta;
         target = hitTarget;
+        uvChannel = hitUVChannel;
     }
 
     /// <summary>
