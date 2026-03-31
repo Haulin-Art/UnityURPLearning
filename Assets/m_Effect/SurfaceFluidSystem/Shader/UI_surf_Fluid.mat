@@ -36,7 +36,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _JumpMap:
-        m_Texture: {fileID: 2800000, guid: 8a27331ba51436b4cb5788d8be393f0f, type: 3}
+        m_Texture: {fileID: 2800000, guid: 3a8d4dcf5163f734c8df149eea26866f, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _JumpTex:

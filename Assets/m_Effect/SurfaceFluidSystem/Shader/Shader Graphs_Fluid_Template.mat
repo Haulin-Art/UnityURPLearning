@@ -63,9 +63,10 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _CES: 0
     - _FluidNorScale: 0.2
     - _FluidReflectionScale: -0.02
-    - _FluidThickness: 0.93
+    - _FluidThickness: 1
     - _QueueControl: 0
     - _QueueOffset: 0
     - _ThicknessBlur: 2

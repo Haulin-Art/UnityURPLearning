@@ -1,0 +1,86 @@
+#pragma kernel BakeOSPosMap
+
+// ============================================
+// 参数
+// ============================================
+uint _Resolution;
+uint _TriangleCount;
+
+// ============================================
+// 网格数据
+// ============================================
+StructuredBuffer<float3> _Vertices;
+StructuredBuffer<float2> _UVs;
+StructuredBuffer<uint> _Indices;
+
+// ============================================
+// 输出
+// ============================================
+RWTexture2D<float4> _OutputTexture;
+
+// ============================================
+// 辅助函数
+// ============================================
+bool PointInTriangle(float2 p, float2 a, float2 b, float2 c, out float3 barycentric)
+{
+    float2 v0 = c - a;
+    float2 v1 = b - a;
+    float2 v2 = p - a;
+
+    float dot00 = dot(v0, v0);
+    float dot01 = dot(v0, v1);
+    float dot02 = dot(v0, v2);
+    float dot11 = dot(v1, v1);
+    float dot12 = dot(v1, v2);
+
+    float denom = dot00 * dot11 - dot01 * dot01;
+    if (abs(denom) < 1e-10)
+    {
+        barycentric = float3(0, 0, 0);
+        return false;
+    }
+
+    float invDenom = 1.0 / denom;
+    float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+    float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+    barycentric = float3(1.0 - u - v, v, u);
+
+    return (u >= -0.0001) && (v >= -0.0001) && (u + v <= 1.0001);
+}
+
+// ============================================
+// 主内核
+// ============================================
+[numthreads(8, 8, 1)]
+void BakeOSPosMap(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Resolution || id.y >= _Resolution)
+        return;
+
+    float2 uv = float2((id.x + 0.5) / _Resolution, (id.y + 0.5) / _Resolution);
+
+    // 遍历所有三角形查找UV位置
+    for (uint triIndex = 0; triIndex < _TriangleCount; triIndex++)
+    {
+        uint i0 = _Indices[triIndex * 3 + 0];
+        uint i1 = _Indices[triIndex * 3 + 1];
+        uint i2 = _Indices[triIndex * 3 + 2];
+
+        float2 uv0 = _UVs[i0];
+        float2 uv1 = _UVs[i1];
+        float2 uv2 = _UVs[i2];
+
+        float3 barycentric;
+        if (PointInTriangle(uv, uv0, uv1, uv2, barycentric))
+        {
+            // 插值计算位置
+            float3 pos = _Vertices[i0] * barycentric.x + _Vertices[i1] * barycentric.y + _Vertices[i2] * barycentric.z;
+            _OutputTexture[id.xy] = float4(pos, 1.0);
+            return;
+        }
+    }
+
+    // 无效区域
+    _OutputTexture[id.xy] = float4(0, 0, 0, 0);
+}
