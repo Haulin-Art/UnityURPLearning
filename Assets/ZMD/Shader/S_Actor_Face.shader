@@ -266,6 +266,7 @@ Shader "Unlit/S_Actor_Face"
                 finalCol = (finalCol + lerp(_SDFShadowCol*albedo,float3(0,0,0),sdf*(1.0-xiaeShadow)))*float3(1.0,0.95,0.95)*1.5;
 
                 // ======================== 额外流水 ==============================
+                /*
                 float3 h = normalize(lightDir + viewDirWS);
                 float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv1.xy).xyz;
                 float extraFluidHeight = extraFluidData.z;
@@ -276,9 +277,10 @@ Shader "Unlit/S_Actor_Face"
                 float ef_specular = pow(saturate(dot(h,ef_Nor_WS)),32.0);
                 extraFluidColor += ef_specular;
                 //return float4(extraFluidData.xy,0,1);
-
+                */
                 //return float4(albedo*float3(1,1,1),1.0);
-                return float4(lerp(finalCol,extraFluidColor,smoothstep(0.01,0.1,extraFluidHeight)) ,1.0);
+                return float4(finalCol,1.0);
+                //return float4(lerp(finalCol,extraFluidColor,_EnableExtraFluid*smoothstep(0.01,0.1,extraFluidHeight)) ,1.0);
             }
             ENDHLSL
         }

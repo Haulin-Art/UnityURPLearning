@@ -111,8 +111,7 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     uint2 pixel_pos = id.xy;
     float2 uv = ((float2)id.xy + 0.5) / texSize;
 
-    float2 w = float2(1.0 / 256, 0.0); // 魔法常数，只能是256，不然uv岛跳跃图无法正常工作
-    w = float2(1.0 / texSize, 0.0);
+    float2 w = float2(1.0 / texSize, 0.0);
 
     // 读取上一帧数据（一次采样获取速度和高度）
     float3 old_data = FluidTex.SampleLevel(samplerLinearClamp, uv, 0);
@@ -136,12 +135,7 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
 
     // 提取UV岛跳跃图，获取a分量UV岛范围，用这个的边界处理
     float4 jump_factor = UVJumpMap.SampleLevel(samplerLinearClamp, uv, 0);
-    float2 jump_uv = lerp(uv,jump_factor.xy,step(0.1,jump_factor.z));
-    //float4 jf_right = UVJumpMap.SampleLevel(samplerLinearClamp, uv+ w.xy, 0);
-    //float4 jf_left = UVJumpMap.SampleLevel(samplerLinearClamp, uv- w.xy, 0);
-    //float4 jf_up = UVJumpMap.SampleLevel(samplerLinearClamp, uv- w.yx, 0);
-    //float4 jf_down = UVJumpMap.SampleLevel(samplerLinearClamp, uv+ w.yx, 0);
-    //uv = jump_uv;
+
     // ========== 计算床底高度 ==========
     float b_center = GetBedHeight(uv);
     float b_right = GetBedHeight(uv + w.xy);
@@ -149,8 +143,7 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     float b_up = GetBedHeight(uv - w.yx);
     float b_down = GetBedHeight(uv + w.yx);
 
-    w = float2(1.0 / 256, 0.0);
-    //w = float2(1.0 / texSize, 0.0);
+    w = float2(1.0 / (texSize/2.0), 0.0); // 
     // ========== 计算水面高度和梯度（用于动量方程） ==========
     // 采样周围数据（一次采样获取速度和高度）
     float3 data_center = FluidTex.SampleLevel(samplerLinearClamp, uv, 0);
@@ -217,7 +210,7 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     float new_height = ad_height - flux_divergence * dt;
 
     // ========== 最小水深阈值（浅水区域停止流动） ==========
-    float minDepth = 0.001;
+    float minDepth = 0.00001;
     if (h_center < minDepth)
     {
         // 浅水区域大幅减速，让水流在浅处停止

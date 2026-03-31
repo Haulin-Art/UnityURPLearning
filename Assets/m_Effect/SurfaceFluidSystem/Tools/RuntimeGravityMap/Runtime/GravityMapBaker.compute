@@ -1,0 +1,401 @@
+#pragma kernel BakeGravityMap
+#pragma kernel BakeGravityMapWithSpatialIndex
+
+// ============================================
+// 调试模式定义
+// ============================================
+#define DEBUG_NONE 0
+#define DEBUG_OUTPUT_UV 1
+#define DEBUG_OUTPUT_TRIANGLE_INDEX 2
+#define DEBUG_OUTPUT_NORMAL 3
+#define DEBUG_OUTPUT_TANGENT 4
+#define DEBUG_OUTPUT_RAW_GRAVITY 5
+#define DEBUG_OUTPUT_INTENSITY 6
+
+// ============================================
+// 网格数据缓冲区
+// ============================================
+StructuredBuffer<float3> _Vertices;
+StructuredBuffer<float3> _Normals;
+StructuredBuffer<float4> _Tangents;
+StructuredBuffer<float2> _UVs;
+StructuredBuffer<uint> _Indices;
+uint _TriangleCount;
+
+// ============================================
+// 空间索引数据（用于加速查找）
+// ============================================
+// 空间索引网格大小
+uint _SpatialGridSize;
+// 每个网格单元的三角形列表起始位置
+StructuredBuffer<uint> _SpatialIndexOffsets;
+// 每个网格单元的三角形数量
+StructuredBuffer<uint> _SpatialIndexCounts;
+// 三角形索引列表
+StructuredBuffer<uint> _TriangleList;
+
+// ============================================
+// 参数
+// ============================================
+uint _Resolution;
+float3 _WorldGravity;
+uint _DebugMode;
+float _EdgePadding;
+
+// ============================================
+// 输出纹理
+// ============================================
+RWTexture2D<float4> _OutputTexture;
+
+// ============================================
+// 辅助函数
+// ============================================
+
+// 检查点是否在三角形内，并计算重心坐标
+bool PointInTriangle(float2 p, float2 a, float2 b, float2 c, out float3 barycentric)
+{
+    float2 v0 = c - a;
+    float2 v1 = b - a;
+    float2 v2 = p - a;
+    
+    float dot00 = dot(v0, v0);
+    float dot01 = dot(v0, v1);
+    float dot02 = dot(v0, v2);
+    float dot11 = dot(v1, v1);
+    float dot12 = dot(v1, v2);
+    
+    float denom = dot00 * dot11 - dot01 * dot01;
+    if (abs(denom) < 1e-10)
+    {
+        barycentric = float3(0, 0, 0);
+        return false;
+    }
+    
+    float invDenom = 1.0 / denom;
+    float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+    float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+    
+    barycentric = float3(1.0 - u - v, v, u);
+    
+    return (u >= -0.0001) && (v >= -0.0001) && (u + v <= 1.0001);
+}
+
+// 获取三角形的三个顶点数据
+void GetTriangleData(uint triIndex, out float3 pos0, out float3 pos1, out float3 pos2,
+                     out float3 norm0, out float3 norm1, out float3 norm2,
+                     out float4 tang0, out float4 tang1, out float4 tang2,
+                     out float2 uv0, out float2 uv1, out float2 uv2)
+{
+    uint i0 = _Indices[triIndex * 3 + 0];
+    uint i1 = _Indices[triIndex * 3 + 1];
+    uint i2 = _Indices[triIndex * 3 + 2];
+    
+    pos0 = _Vertices[i0];
+    pos1 = _Vertices[i1];
+    pos2 = _Vertices[i2];
+    
+    norm0 = _Normals[i0];
+    norm1 = _Normals[i1];
+    norm2 = _Normals[i2];
+    
+    tang0 = _Tangents[i0];
+    tang1 = _Tangents[i1];
+    tang2 = _Tangents[i2];
+    
+    uv0 = _UVs[i0];
+    uv1 = _UVs[i1];
+    uv2 = _UVs[i2];
+}
+
+// 重心坐标插值
+float3 Interpolate3(float3 a, float3 b, float3 c, float3 barycentric)
+{
+    return a * barycentric.x + b * barycentric.y + c * barycentric.z;
+}
+
+float4 Interpolate4(float4 a, float4 b, float4 c, float3 barycentric)
+{
+    return a * barycentric.x + b * barycentric.y + c * barycentric.z;
+}
+
+float2 Interpolate2(float2 a, float2 b, float2 c, float3 barycentric)
+{
+    return a * barycentric.x + b * barycentric.y + c * barycentric.z;
+}
+
+// 计算表面流动方向（推荐模式）
+// 返回值：xy = 归一化流动方向，z = 强度
+float3 CalculateSurfaceFlowDirection(float3 N, float3 T, float3 B, float3 worldGravity)
+{
+    // 重力在表面切平面上的投影
+    float gravityAlongNormal = dot(worldGravity, N);
+    float3 gravityOnTangentPlane = worldGravity - N * gravityAlongNormal;
+    
+    // 如果投影为零（完全水平或完全垂直的表面）
+    float sqrMag = dot(gravityOnTangentPlane, gravityOnTangentPlane);
+    if (sqrMag < 1e-10)
+    {
+        return float3(0, 0, 0);
+    }
+    
+    // 将投影方向转换到切线空间
+    float flowX = dot(gravityOnTangentPlane, T);
+    float flowY = dot(gravityOnTangentPlane, B);
+    
+    // 归一化并保留强度
+    float magnitude = sqrt(flowX * flowX + flowY * flowY);
+    if (magnitude > 1e-6)
+    {
+        flowX /= magnitude;
+        flowY /= magnitude;
+    }
+    
+    return float3(flowX*0.5+0.5, flowY*0.5+0.5, magnitude);
+}
+
+// 计算切线空间重力方向
+float3 CalculateTangentSpaceGravity(float3 N, float3 T, float3 B, float3 worldGravity)
+{
+    float Gx = dot(worldGravity, T);
+    float Gy = dot(worldGravity, B);
+    float Gz = dot(worldGravity, N);
+    
+    return float3(Gx, Gy, Gz);
+}
+
+// ============================================
+// 主计算内核（暴力遍历版本）
+// ============================================
+[numthreads(8, 8, 1)]
+void BakeGravityMap(uint3 id : SV_DispatchThreadID)
+{
+    // 边界检查
+    if (id.x >= _Resolution || id.y >= _Resolution)
+        return;
+    
+    // 计算UV坐标
+    float2 uv = float2((id.x + 0.5) / _Resolution, (id.y + 0.5) / _Resolution);
+    
+    // 调试模式：输出UV
+    if (_DebugMode == DEBUG_OUTPUT_UV)
+    {
+        _OutputTexture[id.xy] = float4(uv, 0, 1);
+        return;
+    }
+    
+    // 查找UV对应的三角形
+    int foundTriIndex = -1;
+    float3 barycentric = float3(0, 0, 0);
+    
+    // 暴力遍历所有三角形
+    for (uint triIndex = 0; triIndex < _TriangleCount; triIndex++)
+    {
+        uint i0 = _Indices[triIndex * 3 + 0];
+        uint i1 = _Indices[triIndex * 3 + 1];
+        uint i2 = _Indices[triIndex * 3 + 2];
+        
+        float2 uv0 = _UVs[i0];
+        float2 uv1 = _UVs[i1];
+        float2 uv2 = _UVs[i2];
+        
+        if (PointInTriangle(uv, uv0, uv1, uv2, barycentric))
+        {
+            foundTriIndex = triIndex;
+            break;
+        }
+    }
+    
+    // 未找到有效三角形
+    if (foundTriIndex < 0)
+    {
+        _OutputTexture[id.xy] = float4(0, 0, 0, 0);
+        return;
+    }
+    
+    // 调试模式：输出三角形索引
+    if (_DebugMode == DEBUG_OUTPUT_TRIANGLE_INDEX)
+    {
+        float normalizedIndex = float(foundTriIndex) / float(_TriangleCount);
+        _OutputTexture[id.xy] = float4(normalizedIndex, normalizedIndex, normalizedIndex, 1);
+        return;
+    }
+    
+    // 获取三角形顶点数据
+    float3 pos0, pos1, pos2;
+    float3 norm0, norm1, norm2;
+    float4 tang0, tang1, tang2;
+    float2 uv0, uv1, uv2;
+    GetTriangleData(foundTriIndex, pos0, pos1, pos2, norm0, norm1, norm2, tang0, tang1, tang2, uv0, uv1, uv2);
+    
+    // 插值计算法线和切线
+    float3 normal = normalize(Interpolate3(norm0, norm1, norm2, barycentric));
+    float4 tangent4 = Interpolate4(tang0, tang1, tang2, barycentric);
+    float3 tangent = normalize(tangent4.xyz);
+    
+    // 构建TBN基向量
+    float3 N = normal;
+    float3 T = tangent;
+    float3 B = normalize(cross(N, T) * tangent4.w);
+    
+    // 调试模式：输出法线
+    if (_DebugMode == DEBUG_OUTPUT_NORMAL)
+    {
+        float3 color = N * 0.5 + 0.5;
+        _OutputTexture[id.xy] = float4(color, 1);
+        return;
+    }
+    
+    // 调试模式：输出切线
+    if (_DebugMode == DEBUG_OUTPUT_TANGENT)
+    {
+        float3 color = T * 0.5 + 0.5;
+        _OutputTexture[id.xy] = float4(color, 1);
+        return;
+    }
+    
+    // 计算表面流动方向
+    float3 flowData = CalculateSurfaceFlowDirection(N, T, B, _WorldGravity);
+    
+    // 调试模式：输出原始重力方向
+    if (_DebugMode == DEBUG_OUTPUT_RAW_GRAVITY)
+    {
+        float3 tangentGravity = CalculateTangentSpaceGravity(N, T, B, _WorldGravity);
+        float3 color = tangentGravity * 0.5 + 0.5;
+        _OutputTexture[id.xy] = float4(color, 1);
+        return;
+    }
+    
+    // 调试模式：输出强度
+    if (_DebugMode == DEBUG_OUTPUT_INTENSITY)
+    {
+        _OutputTexture[id.xy] = float4(flowData.z, flowData.z, flowData.z, 1);
+        return;
+    }
+    
+    // 正常输出：xy = 流动方向，z = 强度，w = 有效标记
+    _OutputTexture[id.xy] = float4(flowData.x, flowData.y, flowData.z, 1.0);
+}
+
+// ============================================
+// 空间索引加速版本
+// ============================================
+[numthreads(8, 8, 1)]
+void BakeGravityMapWithSpatialIndex(uint3 id : SV_DispatchThreadID)
+{
+    // 边界检查
+    if (id.x >= _Resolution || id.y >= _Resolution)
+        return;
+    
+    // 计算UV坐标
+    float2 uv = float2((id.x + 0.5) / _Resolution, (id.y + 0.5) / _Resolution);
+    
+    // 调试模式：输出UV
+    if (_DebugMode == DEBUG_OUTPUT_UV)
+    {
+        _OutputTexture[id.xy] = float4(uv, 0, 1);
+        return;
+    }
+    
+    // 计算空间索引网格坐标
+    uint gridX = (uint)(uv.x * _SpatialGridSize);
+    uint gridY = (uint)(uv.y * _SpatialGridSize);
+    gridX = min(gridX, _SpatialGridSize - 1);
+    gridY = min(gridY, _SpatialGridSize - 1);
+    uint cellIndex = gridY * _SpatialGridSize + gridX;
+    
+    // 查找UV对应的三角形（使用空间索引）
+    int foundTriIndex = -1;
+    float3 barycentric = float3(0, 0, 0);
+    
+    uint listOffset = _SpatialIndexOffsets[cellIndex];
+    uint listCount = _SpatialIndexCounts[cellIndex];
+    
+    for (uint i = 0; i < listCount; i++)
+    {
+        uint triIndex = _TriangleList[listOffset + i];
+        
+        uint i0 = _Indices[triIndex * 3 + 0];
+        uint i1 = _Indices[triIndex * 3 + 1];
+        uint i2 = _Indices[triIndex * 3 + 2];
+        
+        float2 uv0 = _UVs[i0];
+        float2 uv1 = _UVs[i1];
+        float2 uv2 = _UVs[i2];
+        
+        if (PointInTriangle(uv, uv0, uv1, uv2, barycentric))
+        {
+            foundTriIndex = triIndex;
+            break;
+        }
+    }
+    
+    // 未找到有效三角形
+    if (foundTriIndex < 0)
+    {
+        _OutputTexture[id.xy] = float4(0, 0, 0, 0);
+        return;
+    }
+    
+    // 调试模式：输出三角形索引
+    if (_DebugMode == DEBUG_OUTPUT_TRIANGLE_INDEX)
+    {
+        float normalizedIndex = float(foundTriIndex) / float(_TriangleCount);
+        _OutputTexture[id.xy] = float4(normalizedIndex, normalizedIndex, normalizedIndex, 1);
+        return;
+    }
+    
+    // 获取三角形顶点数据
+    float3 pos0, pos1, pos2;
+    float3 norm0, norm1, norm2;
+    float4 tang0, tang1, tang2;
+    float2 uv0, uv1, uv2;
+    GetTriangleData(foundTriIndex, pos0, pos1, pos2, norm0, norm1, norm2, tang0, tang1, tang2, uv0, uv1, uv2);
+    
+    // 插值计算法线和切线
+    float3 normal = normalize(Interpolate3(norm0, norm1, norm2, barycentric));
+    float4 tangent4 = Interpolate4(tang0, tang1, tang2, barycentric);
+    float3 tangent = normalize(tangent4.xyz);
+    
+    // 构建TBN基向量
+    float3 N = normal;
+    float3 T = tangent;
+    float3 B = normalize(cross(N, T) * tangent4.w);
+    
+    // 调试模式：输出法线
+    if (_DebugMode == DEBUG_OUTPUT_NORMAL)
+    {
+        float3 color = N * 0.5 + 0.5;
+        _OutputTexture[id.xy] = float4(color, 1);
+        return;
+    }
+    
+    // 调试模式：输出切线
+    if (_DebugMode == DEBUG_OUTPUT_TANGENT)
+    {
+        float3 color = T * 0.5 + 0.5;
+        _OutputTexture[id.xy] = float4(color, 1);
+        return;
+    }
+    
+    // 计算表面流动方向
+    float3 flowData = CalculateSurfaceFlowDirection(N, T, B, _WorldGravity);
+    
+    // 调试模式：输出原始重力方向
+    if (_DebugMode == DEBUG_OUTPUT_RAW_GRAVITY)
+    {
+        float3 tangentGravity = CalculateTangentSpaceGravity(N, T, B, _WorldGravity);
+        float3 color = tangentGravity * 0.5 + 0.5;
+        _OutputTexture[id.xy] = float4(color, 1);
+        return;
+    }
+    
+    // 调试模式：输出强度
+    if (_DebugMode == DEBUG_OUTPUT_INTENSITY)
+    {
+        _OutputTexture[id.xy] = float4(flowData.z, flowData.z, flowData.z, 1);
+        return;
+    }
+    
+    // 正常输出：xy = 流动方向，z = 强度，w = 有效标记
+    _OutputTexture[id.xy] = float4(flowData.x, flowData.y, flowData.z, 1.0);
+}

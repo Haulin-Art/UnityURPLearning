@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Unlit_cesss
+  m_Name: UI_surf_Fluid
   m_Shader: {fileID: 4800000, guid: 7da5369280156dd458c9175cea7844b7, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -36,7 +36,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _JumpMap:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 8a27331ba51436b4cb5788d8be393f0f, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _JumpTex:
@@ -68,7 +68,7 @@ Material:
     - _SpecularPower: 32
     - _WaterRoughness: 0
     - _WaterSmoothness: 0.9
-    - _WaterTrans: 2
+    - _WaterTrans: 4.14
     m_Colors:
     - _AmbientColor: {r: 0.19999996, g: 0.29999998, b: 0.39999998, a: 1}
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}

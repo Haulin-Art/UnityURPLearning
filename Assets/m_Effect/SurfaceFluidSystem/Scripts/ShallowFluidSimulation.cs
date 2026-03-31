@@ -36,6 +36,14 @@ public class ShallowFluidSimulation : MonoBehaviour
     public RaycastTargetDetector raycastDetector;
 
     [Space(10)]
+    [Header("流体着色设置")] // 这个用于展示，实际无所谓
+    public Material fluidMaterial;
+    public Color fluidColor = Color.blue;
+    [Range(0.0f, 10.0f)]
+    public float fluidTransScale = 1.0f;
+
+
+    [Space(10)]
     [Header("UV跳跃设置")]
     [Tooltip("UV跳跃贴图（RG:跳跃目标UV, Z:跳跃边缘, A:UV范围），支持Texture2D和RenderTexture")]
     public Texture uvJumpMap;
@@ -46,7 +54,7 @@ public class ShallowFluidSimulation : MonoBehaviour
     [Space(10)]
     [Header("重力方向设置")]
     [Tooltip("重力方向贴图（RG通道存储方向，范围0~1，会映射到-1~1）")]
-    public Texture2D gravityMap;
+    public Texture gravityMap;
     
     [Tooltip("是否启用重力图")]
     public bool useGravityMap = false;
@@ -113,7 +121,7 @@ public class ShallowFluidSimulation : MonoBehaviour
     public float dt = 0.15f;
     
     [Tooltip("画笔半径")]
-    [Range(0.0f, 0.5f)]
+    [Range(0.0f, 0.05f)]
     public float penRadius = 0.015f;
     
     [Tooltip("流体平流项速度")]
@@ -183,6 +191,9 @@ public class ShallowFluidSimulation : MonoBehaviour
 
     private void Update()
     {
+        SetFluidMat(); // 更新流体材质
+
+
         if (computeShader == null) return;
 
         // 从射线检测器获取数据
@@ -402,5 +413,15 @@ public class ShallowFluidSimulation : MonoBehaviour
     public RenderTexture GetNormalTexture()
     {
         return normalBuffer?.rt;
+    }
+
+
+    public void SetFluidMat()
+    {
+        if (fluidMaterial != null)
+        {
+            fluidMaterial.SetColor("_FluidColor", fluidColor);
+            fluidMaterial.SetFloat("_FluidThickness", fluidTransScale);
+        }
     }
 }

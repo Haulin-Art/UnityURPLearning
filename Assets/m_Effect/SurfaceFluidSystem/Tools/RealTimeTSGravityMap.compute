@@ -1,0 +1,78 @@
+#pragma kernel ComputeGravityMap  // 主计算核
+#pragma kernel ExtendOutline      // 扩展轮廓核,主要就是用UV岛最边缘的计算出的值扩展出一个轮廓
+
+float _texSize;          // 纹理大小
+float _outlineWidth;      // 轮廓宽度
+
+// 可以通过容纳网格的gameobject的transform.rotation来计算相对重力方向
+// Quaternion inverseRotation = Quaternion.Inverse(transform.rotation);
+// Vector3 relativeGravity = inverseRotation * _gravity.normalized;
+float3 _relativeGravityDirection;
+Texture2D<float4> OSPosMap;       // 记录的物体表面位置的贴图，直接烘焙的Blender的位置变量
+RWTexture2D<float2> GravityMap;
+
+Texture2D<float2> GravityMap_Read;
+Texture2D<float3> SDF_GradientMap;   // 根据UV岛范围计算的UV空间每个位置距离UV岛边界的SDF，以及每个点到边界的切向方向
+
+// 纹理采样器（线性插值）
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+[numthreads(8,8,1)]
+void ComputeGravityMap (uint3 id : SV_DispatchThreadID)
+{
+    float2 uv = (float2(id.xy)+0.5) / _texSize;
+    float4 OSPosData = OSPosMap.SampleLevel(samplerLinearClamp, uv,0); // 采样该UV位置的位置数据
+
+    if (OSPosData.w == 0.0) // 如果不在UV岛范围
+        return;
+
+    float2 gradient = float2(0,0);
+    float totalWeight = 0.0;
+
+    for (int dx = -1; dx <= 1; dx++)
+    {
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            float2 offset = float2(dx, dy) / _texSize;   // UV相对方向
+            float2 neighborUV = uv + offset;              // 采样邻居UV位置
+            // 采样邻居UV位置的位置数据
+            float3 neighborPos = OSPosMap.SampleLevel(samplerLinearClamp, neighborUV,0).xyz;
+            // 其实计算的就是切线空间的这个方向在世界空间跟重力方向的相似度
+            float similar = dot(neighborPos-OSPosData.xyz, _relativeGravityDirection);
+            float2 texDir = float2(dx,dy)/length(float2(dx,dy)); // 归一化的切线空间方向
+
+            gradient += similar * texDir; // 累加相似度加权的切线空间方向
+            totalWeight += abs(similar);
+        }
+    }
+    // 归于化方向
+    float2 texFlow = normalize(gradient); // 归一化的切线空间方向
+    
+    GravityMap[id.xy] = float2(texFlow.x, texFlow.y);
+}
+
+[numthreads(8,8,1)]
+void ExtendOutline (uint3 id : SV_DispatchThreadID)
+{
+    float2 uv = (float2(id.xy)+0.5) / _texSize;
+
+    float3 sdfGradient = SDF_GradientMap.SampleLevel(samplerLinearClamp, uv,0);
+    float sdf = sdfGradient.x;
+    float2 sdf_gradient = sdfGradient.yz;
+
+    float outlineArea = step(_outlineWidth, sdf);
+    if (outlineArea == 0.0) // 如果不在轮廓范围内
+    {
+        GravityMap[id.xy] = GravityMap_Read[id.xy];
+        return;
+    }
+
+    float2 edgeUV = clamp(uv + sdf * sdf_gradient, float2(0,0), float2(1,1));
+
+    float2 gravity = GravityMap_Read.SampleLevel(samplerLinearClamp, edgeUV,0);
+}   

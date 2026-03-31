@@ -111,6 +111,11 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
 
             half4 frag(Varyings input) : SV_Target
             {
+                // ========== 跳跃处理 ==========
+                half4 jumpData = SAMPLE_TEXTURE2D(_JumpMap, sampler_JumpMap, input.uv);
+
+                if (jumpData.a < 0.5) discard; // 没有跳跃数据的像素直接丢弃
+
                 // 采样流体数据
                 half4 fluidData = SAMPLE_TEXTURE2D(_FluidTex, sampler_FluidTex, input.uv);
                 half2 velocity = fluidData.rg;
@@ -133,8 +138,7 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
                 half3 normalWS = TransformTangentToWorld(normalTS, tangentToWorld);
                 normalWS = normalize(normalWS);
                 
-                // ========== 跳跃处理 ==========
-                half4 jumpData = SAMPLE_TEXTURE2D(_JumpMap, sampler_JumpMap, input.uv);
+
                 
 
 
@@ -149,7 +153,7 @@ Shader "SurfaceFluidSystem/SurfFluid_Template"
                 {
                     half h = height * 0.5 + 0.5;
                     h = height;
-                    return half4(h, h, step(0.0001,jumpData.z), 1.0);
+                    return half4(h, h, h, 1.0);
                 }
                 // Velocity(3): 显示速度数据
                 else if (_DebugMode > 2.5 && _DebugMode < 3.5)

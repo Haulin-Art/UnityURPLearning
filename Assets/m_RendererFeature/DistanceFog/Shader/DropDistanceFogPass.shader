@@ -120,11 +120,12 @@ Shader "Unlit/DropDistanceFogPass"
 
                 return float2(mainDrop, trail);
             }
-            float yvshui(float2 uv, float t)
+            float yvshui(float2 uv, float t,float depth)
             {
-                float2 drop = DropLayer2(uv,t*1.5,0.15);
-                float2 drop2 = DropLayer2(uv*1.5,t/1.5,0.055);
-                float2 drop3 = DropLayer2(uv*5,t/2.0,0.025);
+                uv.x *= 0.5;
+                float2 drop = DropLayer2(uv,t*1.5,0.15) * smoothstep(0.5,3.0,depth);
+                float2 drop2 = DropLayer2(uv*1.5,t/1.5,0.055) * smoothstep(1.5,4.0,depth);
+                float2 drop3 = DropLayer2(uv*5,t/2.0,0.025) * smoothstep(3.0,7.0,depth);
 
                 return saturate(drop.y + drop2.y + drop3.y);
             }
@@ -204,16 +205,16 @@ Shader "Unlit/DropDistanceFogPass"
                 float t = T*2;
 
                 float appDrop = smoothstep(0.5,3.0,linearWorldDepth); // 近处没有雨水效果
-                float d1 = yvshui(screenUV, t);
+                float d1 = yvshui(screenUV, t,linearWorldDepth);
                 float suaijian = lerp(1.0,0.85,d1); // 雨水使得颜色衰减
                 suaijian = lerp(1.0,suaijian,appDrop); // 近处没有雨水效果
                 float2 e = float2(0.001,0.0);
-                float dx = yvshui(screenUV+e.xy, t);
-                float dy = yvshui(screenUV+e.yx, t);
+                float dx = yvshui(screenUV+e.xy, t,linearWorldDepth);
+                float dy = yvshui(screenUV+e.yx, t,linearWorldDepth);
 
                 float2 uuvv = float2(dx - d1, dy - d1);
 
-                float3 newCol =  SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex, i.uv- uuvv*0.0025).rgb;
+                float3 newCol =  SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex, i.uv- uuvv*0.05).rgb;
                 float3 cc = lerp(col,newCol,appDrop); // 靠近了没有雨水效果
 
 

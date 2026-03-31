@@ -10,43 +10,188 @@ public class EditorStyleCameraController : MonoBehaviour
     [SerializeField] private float moveSpeed = 10f;
     [SerializeField] private float fastMoveMultiplier = 3f;
     [SerializeField] private float slowMoveMultiplier = 0.3f;
+    [SerializeField] private float positionSmoothTime = 0.1f;
     
     [Header("旋转设置")]
     [SerializeField] private float rotationSpeed = 3f;
-    [SerializeField] private float mouseSensitivity = 1.5f;
+    [SerializeField] private float mouseSensitivity = 2f;
     [SerializeField] private bool invertY = false;
+    [SerializeField] private float rotationSmoothTime = 0.05f;
     
     [Header("缩放设置")]
     [SerializeField] private float zoomSpeed = 10f;
     [SerializeField] private float minZoom = 1f;
     [SerializeField] private float maxZoom = 100f;
     
-    [Header("其他设置")]
+    [Header("控制设置")]
     [SerializeField] private KeyCode speedUpKey = KeyCode.LeftShift;
     [SerializeField] private KeyCode slowDownKey = KeyCode.LeftControl;
-    [SerializeField] private bool requireRightClickToRotate = true;
+    [SerializeField] private KeyCode exitControlModeKey = KeyCode.Escape;
+    
+    [Header("调试设置")]
+    [SerializeField] private DebugMode debugMode = DebugMode.None;
+    [SerializeField] private KeyCode toggleDebugKey = KeyCode.F1;
     
     private Vector3 _currentRotation;
-    private Vector3 _currentPosition;
+    private Vector3 _targetRotation;
+    private Vector3 _rotationVelocity;
+    
+    private Vector3 _targetPosition;
+    private Vector3 _positionVelocity;
+    
     private float _currentZoom = 10f;
+    
+    // 控制模式状态
+    private bool _isInControlMode = false;
+    private bool _isRotating = false;
+    
+    // 用于检测应用焦点变化，避免编辑器参数调整后的跳弹
+    private bool _wasFocused = true;
+    private float _inputDisableTimer = 0f;
+    private const float INPUT_DISABLE_DURATION = 0.1f;
+    
+    // 调试状态
+    private bool _showDebugInfo = false;
+    
+    /// <summary>
+    /// 调试模式枚举
+    /// </summary>
+    public enum DebugMode
+    {
+        None,           // 不显示调试信息
+        LogInfo,        // 在Console中输出日志
+        OnScreenInfo    // 在屏幕上显示信息
+    }
+    
+    /// <summary>
+    /// 当前是否处于控制模式
+    /// </summary>
+    public bool IsInControlMode => _isInControlMode;
     
     private void Start()
     {
         _currentRotation = transform.eulerAngles;
-        _currentPosition = transform.position;
+        _targetRotation = _currentRotation;
+        _targetPosition = transform.position;
         
         // 如果附加到摄像机，则设置初始距离
         if (TryGetComponent<Camera>(out var cam))
         {
             _currentZoom = Vector3.Distance(transform.position, transform.position + transform.forward * 10f);
         }
+        
+        // 初始状态：自由模式
+        ExitControlMode();
     }
     
     private void Update()
     {
-        HandleMovement();
-        HandleRotation();
-        HandleZoom();
+        HandleDebugToggle();
+        HandleApplicationFocus();
+        HandleControlModeSwitch();
+        
+        // 更新输入禁用计时器
+        if (_inputDisableTimer > 0)
+        {
+            _inputDisableTimer -= Time.unscaledDeltaTime;
+        }
+        
+        // 只在控制模式下处理相机控制
+        if (_isInControlMode && _inputDisableTimer <= 0)
+        {
+            HandleMovement();
+            HandleRotation();
+            HandleZoom();
+        }
+        
+        ApplySmoothTransform();
+        HandleDebugOutput();
+    }
+    
+    /// <summary>
+    /// 处理调试模式切换
+    /// </summary>
+    private void HandleDebugToggle()
+    {
+        if (Input.GetKeyDown(toggleDebugKey))
+        {
+            _showDebugInfo = !_showDebugInfo;
+        }
+    }
+    
+    /// <summary>
+    /// 处理应用焦点变化，避免编辑器参数调整后的跳弹
+    /// </summary>
+    private void HandleApplicationFocus()
+    {
+        bool isFocused = Application.isFocused;
+        
+        // 检测焦点变化
+        if (_wasFocused && !isFocused)
+        {
+            // 失去焦点，可能是在编辑器中操作
+            _inputDisableTimer = INPUT_DISABLE_DURATION;
+        }
+        else if (!_wasFocused && isFocused)
+        {
+            // 重新获得焦点，禁用输入一小段时间
+            _inputDisableTimer = INPUT_DISABLE_DURATION;
+        }
+        
+        _wasFocused = isFocused;
+    }
+    
+    /// <summary>
+    /// 处理控制模式切换
+    /// </summary>
+    private void HandleControlModeSwitch()
+    {
+        // 按ESC退出控制模式
+        if (Input.GetKeyDown(exitControlModeKey))
+        {
+            if (_isInControlMode)
+            {
+                ExitControlMode();
+            }
+            return;
+        }
+        
+        // 如果不在控制模式，点击鼠标进入控制模式
+        if (!_isInControlMode)
+        {
+            if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1))
+            {
+                EnterControlMode();
+            }
+        }
+    }
+    
+    /// <summary>
+    /// 进入控制模式
+    /// </summary>
+    private void EnterControlMode()
+    {
+        _isInControlMode = true;
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+        
+        // 进入控制模式时禁用输入一小段时间，避免跳弹
+        _inputDisableTimer = INPUT_DISABLE_DURATION;
+        
+        LogDebug("进入控制模式");
+    }
+    
+    /// <summary>
+    /// 退出控制模式
+    /// </summary>
+    private void ExitControlMode()
+    {
+        _isInControlMode = false;
+        _isRotating = false;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+        
+        LogDebug("退出控制模式");
     }
     
     /// <summary>
@@ -81,12 +226,11 @@ public class EditorStyleCameraController : MonoBehaviour
         if (Input.GetKey(KeyCode.E) || Input.GetKey(KeyCode.PageUp))
             moveDirection += Vector3.up;
         
-        // 平滑移动
+        // 更新目标位置
         if (moveDirection != Vector3.zero)
         {
             moveDirection.Normalize();
-            _currentPosition += moveDirection * currentSpeed * Time.deltaTime;
-            transform.position = _currentPosition;
+            _targetPosition += moveDirection * currentSpeed * Time.deltaTime;
         }
     }
     
@@ -95,62 +239,54 @@ public class EditorStyleCameraController : MonoBehaviour
     /// </summary>
     private void HandleRotation()
     {
-        // 检查是否需要右键才能旋转
-        if (requireRightClickToRotate && !Input.GetMouseButton(1))
-            return;
+        // 右键按下开始旋转
+        if (Input.GetMouseButtonDown(1))
+        {
+            _isRotating = true;
+        }
         
-        // 鼠标右键旋转
-        if (Input.GetMouseButton(1))
+        // 右键抬起停止旋转
+        if (Input.GetMouseButtonUp(1))
+        {
+            _isRotating = false;
+        }
+        
+        // 只在按住右键时旋转
+        if (_isRotating && Input.GetMouseButton(1))
         {
             float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
             float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * (invertY ? 1 : -1);
             
-            _currentRotation.x += mouseY;
-            _currentRotation.y += mouseX;
+            _targetRotation.x += mouseY;
+            _targetRotation.y += mouseX;
             
             // 限制X轴旋转角度
-            _currentRotation.x = Mathf.Clamp(_currentRotation.x, -90f, 90f);
-            
-            transform.rotation = Quaternion.Euler(_currentRotation);
-            
-            // 隐藏并锁定光标
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
-        }
-        else
-        {
-            // 恢复光标
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            _targetRotation.x = Mathf.Clamp(_targetRotation.x, -90f, 90f);
         }
         
         // 键盘旋转（可选）
         if (Input.GetKey(KeyCode.LeftArrow))
         {
-            _currentRotation.y -= rotationSpeed;
-            transform.rotation = Quaternion.Euler(_currentRotation);
+            _targetRotation.y -= rotationSpeed * Time.deltaTime * 60f;
         }
         if (Input.GetKey(KeyCode.RightArrow))
         {
-            _currentRotation.y += rotationSpeed;
-            transform.rotation = Quaternion.Euler(_currentRotation);
+            _targetRotation.y += rotationSpeed * Time.deltaTime * 60f;
         }
         if (Input.GetKey(KeyCode.UpArrow))
         {
-            _currentRotation.x -= rotationSpeed;
-            _currentRotation.x = Mathf.Clamp(_currentRotation.x, -90f, 90f);
-            transform.rotation = Quaternion.Euler(_currentRotation);
+            _targetRotation.x -= rotationSpeed * Time.deltaTime * 60f;
+            _targetRotation.x = Mathf.Clamp(_targetRotation.x, -90f, 90f);
         }
         if (Input.GetKey(KeyCode.DownArrow))
         {
-            _currentRotation.x += rotationSpeed;
-            _currentRotation.x = Mathf.Clamp(_currentRotation.x, -90f, 90f);
-            transform.rotation = Quaternion.Euler(_currentRotation);
+            _targetRotation.x += rotationSpeed * Time.deltaTime * 60f;
+            _targetRotation.x = Mathf.Clamp(_targetRotation.x, -90f, 90f);
         }
     }
     
     /// <summary>
-    /// 处理摄像机缩放
+    /// 处理摄像机缩放（只在控制模式下生效）
     /// </summary>
     private void HandleZoom()
     {
@@ -162,9 +298,80 @@ public class EditorStyleCameraController : MonoBehaviour
             _currentZoom = Mathf.Clamp(_currentZoom, minZoom, maxZoom);
             
             // 沿着摄像机前向方向移动
-            _currentPosition += transform.forward * scroll * zoomSpeed;
-            transform.position = _currentPosition;
+            _targetPosition += transform.forward * scroll * zoomSpeed;
         }
+    }
+    
+    /// <summary>
+    /// 应用平滑变换
+    /// </summary>
+    private void ApplySmoothTransform()
+    {
+        // 平滑位置
+        transform.position = Vector3.SmoothDamp(
+            transform.position, 
+            _targetPosition, 
+            ref _positionVelocity, 
+            positionSmoothTime
+        );
+        
+        // 平滑旋转
+        _currentRotation = Vector3.SmoothDamp(
+            _currentRotation, 
+            _targetRotation, 
+            ref _rotationVelocity, 
+            rotationSmoothTime
+        );
+        
+        transform.rotation = Quaternion.Euler(_currentRotation);
+    }
+    
+    /// <summary>
+    /// 处理调试输出
+    /// </summary>
+    private void HandleDebugOutput()
+    {
+        if (debugMode == DebugMode.None || !_showDebugInfo)
+            return;
+        
+        if (debugMode == DebugMode.LogInfo)
+        {
+            // 只在状态变化时输出，避免刷屏
+        }
+    }
+    
+    /// <summary>
+    /// 输出调试日志
+    /// </summary>
+    private void LogDebug(string message)
+    {
+        if (debugMode == DebugMode.LogInfo && _showDebugInfo)
+        {
+            Debug.Log($"[EditorStyleCameraController] {message}");
+        }
+    }
+    
+    /// <summary>
+    /// 在屏幕上显示调试信息
+    /// </summary>
+    private void OnGUI()
+    {
+        if (debugMode != DebugMode.OnScreenInfo || !_showDebugInfo)
+            return;
+        
+        GUILayout.BeginArea(new Rect(10, 10, 320, 220));
+        GUILayout.Box($"[EditorStyleCameraController 调试信息]\n" +
+                     $"控制模式: {(_isInControlMode ? "是" : "否")}\n" +
+                     $"正在旋转: {_isRotating}\n" +
+                     $"位置: {_targetPosition}\n" +
+                     $"旋转: {_targetRotation}\n" +
+                     $"缩放: {_currentZoom:F2}\n" +
+                     $"光标状态: {Cursor.lockState}\n" +
+                     $"应用焦点: {Application.isFocused}\n" +
+                     $"输入禁用计时: {_inputDisableTimer:F3}\n" +
+                     $"位置平滑速度: {_positionVelocity}\n" +
+                     $"旋转平滑速度: {_rotationVelocity}");
+        GUILayout.EndArea();
     }
     
     /// <summary>
@@ -182,12 +389,12 @@ public class EditorStyleCameraController : MonoBehaviour
         Vector3 direction = (transform.position - center).normalized;
         if (direction == Vector3.zero) direction = Vector3.back;
         
-        _currentPosition = center + direction * radius * distanceMultiplier;
-        transform.position = _currentPosition;
+        _targetPosition = center + direction * radius * distanceMultiplier;
         
         // 看向目标
-        transform.LookAt(center);
-        _currentRotation = transform.eulerAngles;
+        Vector3 lookRotation = Quaternion.LookRotation(center - _targetPosition).eulerAngles;
+        _targetRotation = lookRotation;
+        _currentRotation = lookRotation;
     }
     
     /// <summary>
@@ -214,9 +421,26 @@ public class EditorStyleCameraController : MonoBehaviour
     /// </summary>
     public void ResetCamera(Vector3 position, Vector3 rotation)
     {
-        _currentPosition = position;
+        _targetPosition = position;
+        _targetRotation = rotation;
         _currentRotation = rotation;
         transform.position = position;
         transform.rotation = Quaternion.Euler(rotation);
+    }
+    
+    /// <summary>
+    /// 手动进入控制模式（可从外部调用）
+    /// </summary>
+    public void RequestEnterControlMode()
+    {
+        EnterControlMode();
+    }
+    
+    /// <summary>
+    /// 手动退出控制模式（可从外部调用）
+    /// </summary>
+    public void RequestExitControlMode()
+    {
+        ExitControlMode();
     }
 }

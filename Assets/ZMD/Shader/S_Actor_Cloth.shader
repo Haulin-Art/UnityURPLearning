@@ -198,6 +198,13 @@ Shader "Unlit/S_Actor_Cloth"
 
 
                 // ======================== 流水 ==============================
+                // 处理额外的流水，有水的地方没有小水珠
+                float3 h = normalize(lightDir + viewDirWS);
+                float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv2.xy).xyz;
+
+
+
+
                 float T = _Time.y;
                 float t = T*0.2;
 
@@ -222,6 +229,11 @@ Shader "Unlit/S_Actor_Cloth"
                 float dyMask = pow(yingshe,6.0); // 动态水滴区域出现的范围
                 //dyMask *= upMask;
 
+
+                upMask *= step(extraFluidData.z,0.001);
+                dyMask *= step(extraFluidData.z,0.001);
+
+                
                 float2 cc = ActorDrops(dropUV / 1.5 , staticDropUV , t, 1.0, 0.5, 0.5,upMask,dyMask);
                 //float ccgg = ActorDrops(dropUV / 1.5 , staticDropUV , t, 0.15, 0.2, 0.2,upMask,dyMask).x;
                 // 通过微小偏移，计算法向
@@ -267,7 +279,7 @@ Shader "Unlit/S_Actor_Cloth"
                 data.viewDir = viewDirWS;
                 data.lightDir = lightDir;
                 data.irradiance = lightColor;
-                data.roughness =lerp( roughness * _RoughnessScale.x + _RoughnessScale.y,0.0,cc.x+cc.y);
+                data.roughness =lerp( roughness * _RoughnessScale.x + _RoughnessScale.y,0.0,cc.x+cc.y) * lerp(1.0,0.2,saturate(extraFluidData.z));
                 data.metallic = metallic;
                 data.F0 = 0.0;
                 data.occlusion = ao;
@@ -299,20 +311,29 @@ Shader "Unlit/S_Actor_Cloth"
                 float3 finalCol = diff+ spec+ + ambi + ambient*0.4 + emis + oems + rimm*0.0 + dropMC + dropHighlight;
 
                 // ======================== 额外流水 ==============================
-                float3 h = normalize(lightDir + viewDirWS);
-                float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv1.xy).xyz;
+                /*
+                //float3 h = normalize(lightDir + viewDirWS);
+                //float3 extraFluidData = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv2.xy).xyz;
                 float extraFluidHeight = extraFluidData.z;
                 float3 extraFluidColor = lerp(finalCol,_ExtraFluidColor,1.0-exp(-extraFluidHeight*_ExtraFluidTrans));
-                float3 extraFluidNor = SAMPLE_TEXTURE2D(_ExtraFluidNor,sampler_ExtraFluidNor,i.uv.xy).xyz;
-                extraFluidNor = extraFluidNor * 2.0 - 1.0;
-                float3 ef_Nor_WS = mul(extraFluidNor,TBN);
+                //float3 extraFluidNor = SAMPLE_TEXTURE2D(_ExtraFluidNor,sampler_ExtraFluidNor,i.uv.xy).xyz;
+                //extraFluidNor = extraFluidNor * 2.0 - 1.0;
+                float3 extraFluidDataR = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv1+float2(0.05,0.0).xy).xyz;
+                float3 extraFluidDataU = _EnableExtraFluid*SAMPLE_TEXTURE2D(_ExtraFluidTex,sampler_ExtraFluidTex,i.uv1+float2(0.0,0.05).xy).xyz;
+                float3 c_pos = i.posWS + i.norWS * extraFluidData.z;
+                float3 r_pos = i.posWS + i.norWS * extraFluidDataR.z;
+                float3 u_pos = i.posWS + i.norWS * extraFluidDataU.z;
+                float3 fluidNor = normalize(cross(r_pos - c_pos,u_pos - c_pos));
+
+                float3 ef_Nor_WS = fluidNor;
                 float ef_specular = pow(saturate(dot(h,ef_Nor_WS)),32.0);
                 extraFluidColor += ef_specular;
                 //return float4(extraFluidData.xy,0,1);
-
+                */
                 // dropHighlight
                 //return float4(ccgg*float3(1,1,1),1.0);
-                return float4(lerp(finalCol,extraFluidColor,smoothstep(0.01,0.1,extraFluidHeight)) ,1.0);     
+                return float4(finalCol,1.0);
+                //return float4(lerp(finalCol,extraFluidColor,_EnableExtraFluid*smoothstep(0.01,0.1,extraFluidHeight)) ,1.0);     
                 //return float4( finalCol ,1.0 );       
                 //return float4( diff + spec + ambi + emis + oems + dropMC ,1.0 );
                 //return float4(ramp*pbr.diffuse*shadow + pbr.specular + albedo*ao*lightColor*0.1  + emission*2.0 + otherEmis*_MColor*20.0 ,1.0);
