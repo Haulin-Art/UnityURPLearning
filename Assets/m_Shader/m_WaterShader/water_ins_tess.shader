@@ -568,7 +568,7 @@ Shader "FluidFlux/water_ins_tess"
                 o.ttt = float3(1,1,1)*foamMask; // 这个是用来测试近岸范围的mask的，红色部分是近岸范围，白色部分是远岸范围
 
                 // 正常的水面起伏置换与法线计算
-                float waterSurfMask = smoothstep(0.005,0.1,-sdf); // 在接近岸边的地方没有
+                float waterSurfMask = smoothstep(0.005,0.2,-sdf); // 在接近岸边的地方没有
                 o.norMask = waterSurfMask;
                 float4 waterSurf = waterSurfMask * SAMPLE_TEXTURE3D_LOD(_3DDisMap, sampler_3DDisMap, float3(1.0-frac(o.worldPos.xz*_SurfTiling),frac(_Time.y*_SurfSpeed)),0.0);
 
@@ -678,7 +678,7 @@ Shader "FluidFlux/water_ins_tess"
                 float dist = distance(i.worldPos, _WorldSpaceCameraPos);
                 float roughnessRamp = smoothstep(10.0,70.0,dist);
                 Nor = lerp(Nor, float3(0,1,0), roughnessRamp);
-                _Roughness = lerp(_Roughness, 0.3, roughnessRamp);
+                _Roughness = lerp(_Roughness, 0.5, roughnessRamp);
                 //return float4(float3(Nor.z,Nor.y,-Nor.x)*float3(1,1,1),1.0);
 
                 // ========================= 基础数据准备 ==========================
@@ -842,6 +842,8 @@ Shader "FluidFlux/water_ins_tess"
                 float3 reflectDir = reflect(-viewDirWS, normal);
                 float3 envReflection = FFSampleEnvReflection(reflectDir, _Roughness, _EnvReflectionStrength);
                 envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
+                envReflection = _EnvReflectionStrength*GlossyEnvironmentReflection(reflectDir, _Roughness, 1.0);
+
 
                 float3 reflectionColor = FFBlendReflection(albedo, envReflection, fresnel, 1.0);
                 reflectionColor *= lerp(shadowMask,1.0,0.5); // 将环境反射与阴影遮罩相乘，使得在阴影区域环境反射变暗
@@ -874,17 +876,19 @@ Shader "FluidFlux/water_ins_tess"
                 // 计算三层Alpha，第一层是基础的深度透明，第二个是使得岛屿下的看不见的变透明，第三个是靠近海岸的地方透明
                 float depAlpha = lerp(saturate(rampMask*50.0), 1.0, fresnel * 0.5);
                 float sdfAlpha = lerp(1.0,step(sdf,-0.0105),infanwei); // 用于将没用使用的部分剔除
-                float sdfEdgeAlpha = lerp(1.0,smoothstep(0.0,0.05,-sdf),infanwei); // 用于使岸边变得透明，避免突兀的边界
+                float sdfEdgeAlpha = lerp(1.0,smoothstep(0.0,0.03,-sdf),infanwei); // 用于使岸边变得透明，避免突兀的边界
                 //sdfEdgeAlpha = saturate(waterDepth);
-                //return float4(float3(1,1,1)*waterDepth,1);
+                //return float4(float3(1,1,1)*sdfEdgeAlpha,1);
 
                 // 用于修正浮沫在贴图边缘的白边问题
                 float3 foaml =  SAMPLE_TEXTURE2D(_FoamTex,sampler_FoamTex, worldUV * _FoamTex_ST.xy + _FoamTex_ST.zw);
                 float3 foaml2 =  SAMPLE_TEXTURE2D(_FoamTex_2,sampler_FoamTex_2, worldUV * _FoamTex_2_ST.xy + _FoamTex_2_ST.zw);
                 // 计算三层浮沫的权重，第一层是基于SDF的，第二层是基于矢量置换贴图的，第三层是基于SDF和foamMask的综合权重，这样可以让浮沫在岸边更自然地过渡，同时在远处也有一定的浮沫效果
-                float fMask_1 = (smoothstep(0.2,0.05,-sdf) + i.foamMask)*infanwei; // 在靠近海岸的地方
+                float fMask_1 = (smoothstep(0.1,0.05,-sdf) + i.foamMask)*infanwei; // 在靠近海岸的地方
+                fMask_1 = i.foamMask;
                 float fMask_2 = i.foamMask; // 在矢量置换图的浪尖
                 float fMask_3 = 0.2*(smoothstep(0.2,0.05,-sdf)*i.newUV.x*3.0 + i.foamMask)*infanwei; // 在每层浪的前面
+
                 // 计算每一层浮沫
                 float fff = fMask_1*foaml.z;
                 fff = clamp(fff*2.0,0.0,1.0);

@@ -33,6 +33,9 @@ namespace RuntimeGravityMap
         [Tooltip("SDF梯度图：xy=梯度方向（指向UV岛边界）")]
         public Texture2D sdfGradientMap;
 
+        [Tooltip("UV跳跃贴图：RG:跳跃目标UV, Z:跳跃边缘, A:UV范围")]
+        public Texture2D uvJumpMap;        
+
         [Header("调试")]
         [Tooltip("勾选后立即生成一次")]
         public bool debugGenerate = false;
@@ -160,7 +163,7 @@ namespace RuntimeGravityMap
                 if (!_isInitialized) return;
             }
 
-            if (osPosMap == null || computeShader == null || gravityMap == null)
+            if (osPosMap == null || computeShader == null || gravityMap == null || uvJumpMap == null)
             {
                 if (showDebugLog) Debug.LogWarning("[RealTimeGravityMap] 缺少必要资源！");
                 return;
@@ -182,6 +185,7 @@ namespace RuntimeGravityMap
             RenderTexture targetRT = enableOutlineExtend && _tempGravityMap != null ? _tempGravityMap : gravityMap;
             computeShader.SetTexture(_kernelCompute, "_OSPosMap", osPosMap);
             computeShader.SetTexture(_kernelCompute, "_GravityMap", targetRT);
+            computeShader.SetTexture(_kernelCompute, "_UVJumpMap", uvJumpMap);
             computeShader.Dispatch(_kernelCompute, groups, groups, 1);
 
             if (showDebugLog) Debug.Log($"[RealTimeGravityMap] Pass 1 完成，targetRT: {targetRT}");

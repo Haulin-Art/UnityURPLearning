@@ -10,6 +10,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         _SurfSpeed ("表面速度", Range(0, 1)) = 0.5
         _CautionTex ("焦散纹理", 3D) = "white" {}
         _CautionPow ("焦散强度", Range(0, 10)) = 4.0
+        _CautionScale ("焦散缩放", Range(0.0, 2.0)) = 1.0
     }
     
     HLSLINCLUDE
@@ -27,6 +28,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         float _Contrast;
         float _Saturation;
         float _CautionPow;
+        float _CautionScale;
         
         TEXTURE3D(_CautionTex);
         SAMPLER(sampler_CautionTex);
@@ -137,8 +139,9 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             float cautionU = pow((cautionTexU.x + cautionTexU.y * 1.0) / 1.8, _CautionPow) * 1.0;
 
             float3 cautionTotal = float3(cautionR, cautionU, caution) * mask * notInShadow;
-            caution *= mask;
-            caution *= notInShadow;
+            cautionTotal *= mask;
+            cautionTotal *= notInShadow;
+            cautionTotal *= _CautionScale;
 
             return float4(color.xyz + cautionTotal * float3(1, 1, 1), 1);
         }

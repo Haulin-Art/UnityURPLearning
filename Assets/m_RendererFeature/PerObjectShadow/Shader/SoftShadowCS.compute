@@ -28,6 +28,11 @@ void CSSoftShadowBlur(uint3 id : SV_DispatchThreadID)
     float shadow = _ScreenShadowMap.Load(int3(id.xy,0)).r;
     depth = LinearEyeDepth(depth,_ZBufferParams);
    
+    float sigmaSpace = 4.0;      // 空间标准差（新增）
+    float sigmaShadow = 0.15;     // 阴影值标准差（新增）
+    float twoSigmaSpace2 = 2.0*sigmaSpace*sigmaSpace;
+    float twoSigmaShadow2 = 2.0*sigmaShadow*sigmaShadow;
+
     // =================== 对PCF阴影进行模糊采样 =============================
     float2 w = float2(1.0/SizeW,0.0); // 固定步长
     float dd = clamp(depth,0.0,20)*2.0; // 限制深度
@@ -43,6 +48,33 @@ void CSSoftShadowBlur(uint3 id : SV_DispatchThreadID)
     int kenelC = sampleCount;
     kenelC = 3;
 
+    float weightSum = 0.0;
+    float shadowSum = 0.0;
+
+    for (float k = -kenelC; k<=kenelC ; k++)
+    {
+        for(float j = -kenelC ; j<=kenelC ;j++)
+        {
+            float2 newuv = uv + w.x*float2(k,j);
+            newuv = clamp(newuv,0.0,1.0);
+            float s1 = _ScreenShadowMap.SampleLevel(sampler_ScreenShadowMap_linear_clamp, newuv, 0).r;
+            // 空间权重
+            float spaceDist = k*k + j*j;
+            float spaceWeight = exp(-spaceDist/ twoSigmaSpace2);
+            // 相似度权重
+            float shadowDiff = s1 - s0;
+            float shadowWeight = exp(-shadowDiff*shadowDiff / twoSigmaShadow2);
+        
+            // 综合权重
+            float totalWeight = spaceWeight * shadowWeight;
+
+            weightSum += totalWeight;
+            shadowSum += s1 * totalWeight;
+        }
+    }
+    float newShadow = (weightSum > 0.0) ? (shadowSum/weightSum) : s0;
+
+    /*
     for(float k = -kenelC; k<=kenelC ; k++)
     {
         for(float j = -kenelC ; j<=kenelC ;j++)
@@ -59,8 +91,10 @@ void CSSoftShadowBlur(uint3 id : SV_DispatchThreadID)
             }
         }
     }
+      
     float newShadow =  total/count;
     //newShadow =  depth;
-    
+    */
+
     CSShadow[id.xy] = newShadow;
 }

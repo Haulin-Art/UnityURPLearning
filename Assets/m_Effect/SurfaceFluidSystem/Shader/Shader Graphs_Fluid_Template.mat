@@ -66,10 +66,10 @@ Material:
     - _CES: 0
     - _FluidNorScale: 0.2
     - _FluidReflectionScale: -0.02
-    - _FluidThickness: 1
+    - _FluidThickness: 10
     - _QueueControl: 0
     - _QueueOffset: 0
     - _ThicknessBlur: 2
     m_Colors:
-    - _FluidColor: {r: 0, g: 0, b: 1, a: 1}
+    - _FluidColor: {r: 1, g: 0.009674581, b: 0, a: 1}
   m_BuildTextureStacks: []

@@ -28,6 +28,8 @@ Shader "PostProcessing/AtmosScattering_Improved"
         _SunMieG ("太阳Mie相位函数G值", Range(0, 0.999)) = 0.98
         _SunMieIntensity ("太阳Mie散射强度", Range(0, 10)) = 1.0
 
+        _SunSize ("太阳大小", Range(0.00001,0.005)) = 0.001
+
         _NumSamples ("视线采样数", Range(4, 64)) = 32
         _NumSamplesLight ("太阳光采样数", Range(1, 16)) = 8
     }
@@ -83,6 +85,8 @@ Shader "PostProcessing/AtmosScattering_Improved"
             float _SunMieG;
             float _SunMieIntensity;
 
+            float _SunSize;
+            
             int _NumSamples;
             int _NumSamplesLight;
             
@@ -384,8 +388,13 @@ Shader "PostProcessing/AtmosScattering_Improved"
                 }
             }
 
+            float sunArea = ( 1.0 - smoothstep(1.0-_SunSize+0.0001,1.0-_SunSize,dot(rd,sunDir)));
+            float3 sun = _Brightness * _SunColor * sunArea;  
+            //return float4(*float3(1,1,1),1);
+
+
             // 最终颜色 = 散射光 + 太阳 + 原始场景 × 透射率
-            float3 finalCol = _Brightness * _SunColor * (scatter + sunScatter);
+            float3 finalCol = _Brightness * _SunColor * (scatter + sunScatter) ;
             
             // 计算视线方向的透射率
             float3 viewOpticalDepth = ComputeOpticalDepth(rayStart, rd, rayLen, 4,
@@ -398,7 +407,7 @@ Shader "PostProcessing/AtmosScattering_Improved"
             
             finalCol += originalColor.rgb * viewTransmittance * (1.0 - isFarPlane);
 
-            return float4(max(finalCol, 0.0), 1.0);
+            return float4(max(finalCol + sun*finalCol*isFarPlane , 0.0), 1.0);
         }
         ENDHLSL
         
