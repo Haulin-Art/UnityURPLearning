@@ -6,5 +6,6 @@
   <Project Path="UVAdjacencyMap.Editor.csproj" />
   <Project Path="RuntimeGravityMap.Editor.csproj" />
   <Project Path="TangentSpaceGravityMap.Runtime.csproj" />
+  <Project Path="MieScattering.Tools.csproj" />
   <Project Path="TangentSpaceGravityMap.Editor.csproj" />
 </Solution>

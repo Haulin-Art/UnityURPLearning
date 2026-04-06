@@ -102,7 +102,6 @@ public class AtmosScatteringFeature : ScriptableRendererFeature
                 // 获得相机当前的RT
                 _cameraColorTgt = renderingData.cameraData.renderer.cameraColorTargetHandle;
 
-
                 cmd.Blit(_cameraColorTgt.nameID,shaderID,material);
                 // 将上一步的RT重新写回到相机
                 cmd.Blit(shaderID, _cameraColorTgt.nameID);

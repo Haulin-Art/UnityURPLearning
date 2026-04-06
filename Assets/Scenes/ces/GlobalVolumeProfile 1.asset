@@ -1,5 +1,126 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-8671102059517930237
+MonoBehaviour:
+  m_ObjectHideFlags: 3
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1aa320c2f442c084aac2725fd64c3b58, type: 3}
+  m_Name: AtmosphereVolume
+  m_EditorClassIdentifier: 
+  active: 1
+  totalScale:
+    m_OverrideState: 0
+    m_Value: 1
+  planetRadius:
+    m_OverrideState: 0
+    m_Value: 6371000
+  altitude:
+    m_OverrideState: 1
+    m_Value: 1
+  sunBrightness:
+    m_OverrideState: 1
+    m_Value: 10
+  numSamples:
+    m_OverrideState: 0
+    m_Value: 32
+  numSamplesLight:
+    m_OverrideState: 0
+    m_Value: 8
+  panoramicRotation:
+    m_OverrideState: 0
+    m_Value: 0
+  cloudBaseHeight:
+    m_OverrideState: 1
+    m_Value: 2000
+  cloudThickness:
+    m_OverrideState: 1
+    m_Value: 4151
+  cloudAlpha:
+    m_OverrideState: 1
+    m_Value: 0.562
+  cloudScatterCoeff:
+    m_OverrideState: 0
+    m_Value: 1
+  cloudExtinctionCoeff:
+    m_OverrideState: 0
+    m_Value: 0.05
+  cloudPhaseG:
+    m_OverrideState: 1
+    m_Value: 0.081
+  cloudDensityThreshold:
+    m_OverrideState: 1
+    m_Value: 0.083
+  cloudEdgeSharpness:
+    m_OverrideState: 1
+    m_Value: 0.257
+  cloudDensityMultiplier:
+    m_OverrideState: 1
+    m_Value: 18.59
+  filterRadius:
+    m_OverrideState: 1
+    m_Value: 1
+  sigmaSpace:
+    m_OverrideState: 1
+    m_Value: 10
+  sigmaRange:
+    m_OverrideState: 1
+    m_Value: 1
+  cloudTex:
+    m_OverrideState: 0
+    m_Value: {fileID: 0}
+  blueNoise:
+    m_OverrideState: 0
+    m_Value: {fileID: 0}
+  envPanoramic:
+    m_OverrideState: 0
+    m_Value: {fileID: 0}
+  atmosphereHeight:
+    m_OverrideState: 0
+    m_Value: 100000
+  rayleighScaleHeight:
+    m_OverrideState: 0
+    m_Value: 8000
+  mieScaleHeight:
+    m_OverrideState: 0
+    m_Value: 1200
+  ozoneScaleHeight:
+    m_OverrideState: 0
+    m_Value: 25000
+  ozoneCenterHeight:
+    m_OverrideState: 0
+    m_Value: 25000
+  atmosIntensity:
+    m_OverrideState: 0
+    m_Value: 1
+  rayleighScatterScale:
+    m_OverrideState: 0
+    m_Value: 1
+  mieScatterScale:
+    m_OverrideState: 0
+    m_Value: 1
+  mieExtinctionCoeff:
+    m_OverrideState: 0
+    m_Value: 0.0000025
+  atmosMieG:
+    m_OverrideState: 0
+    m_Value: 0.76
+  sunMieG:
+    m_OverrideState: 0
+    m_Value: 0.98
+  sunMieIntensity:
+    m_OverrideState: 0
+    m_Value: 1
+  sunSize:
+    m_OverrideState: 0
+    m_Value: 0.001
+  sunColor:
+    m_OverrideState: 0
+    m_Value: {r: 1, g: 1, b: 1, a: 1}
 --- !u!114 &-5581660329029557428
 MonoBehaviour:
   m_ObjectHideFlags: 3
@@ -63,6 +184,7 @@ MonoBehaviour:
   - {fileID: 4713544739706743052}
   - {fileID: -5581660329029557428}
   - {fileID: 4737220247673552551}
+  - {fileID: -8671102059517930237}
 --- !u!114 &4713544739706743052
 MonoBehaviour:
   m_ObjectHideFlags: 3
@@ -131,3 +253,124 @@ MonoBehaviour:
   rounded:
     m_OverrideState: 0
     m_Value: 0
+--- !u!114 &7292585429788587707
+MonoBehaviour:
+  m_ObjectHideFlags: 3
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1aa320c2f442c084aac2725fd64c3b58, type: 3}
+  m_Name: AtmosphereVolume
+  m_EditorClassIdentifier: 
+  active: 1
+  totalScale:
+    m_OverrideState: 0
+    m_Value: 1
+  planetRadius:
+    m_OverrideState: 0
+    m_Value: 6371000
+  altitude:
+    m_OverrideState: 0
+    m_Value: 0
+  sunBrightness:
+    m_OverrideState: 0
+    m_Value: 1
+  numSamples:
+    m_OverrideState: 0
+    m_Value: 32
+  numSamplesLight:
+    m_OverrideState: 0
+    m_Value: 8
+  panoramicRotation:
+    m_OverrideState: 1
+    m_Value: 0
+  cloudBaseHeight:
+    m_OverrideState: 0
+    m_Value: 2000
+  cloudThickness:
+    m_OverrideState: 1
+    m_Value: 4000
+  cloudAlpha:
+    m_OverrideState: 0
+    m_Value: 0.5
+  cloudScatterCoeff:
+    m_OverrideState: 0
+    m_Value: 1
+  cloudExtinctionCoeff:
+    m_OverrideState: 0
+    m_Value: 0.05
+  cloudPhaseG:
+    m_OverrideState: 0
+    m_Value: 0.8
+  cloudDensityThreshold:
+    m_OverrideState: 1
+    m_Value: 0.076
+  cloudEdgeSharpness:
+    m_OverrideState: 0
+    m_Value: 0.5
+  cloudDensityMultiplier:
+    m_OverrideState: 1
+    m_Value: 18
+  filterRadius:
+    m_OverrideState: 0
+    m_Value: 3
+  sigmaSpace:
+    m_OverrideState: 0
+    m_Value: 1.5
+  sigmaRange:
+    m_OverrideState: 0
+    m_Value: 0.1
+  cloudTex:
+    m_OverrideState: 1
+    m_Value: {fileID: 11700000, guid: d20f73c7253d46147af78adc9e63ab0f, type: 2}
+  blueNoise:
+    m_OverrideState: 1
+    m_Value: {fileID: 2800000, guid: 6968970b52bd3ee468dc5bce62c13f1a, type: 3}
+  envPanoramic:
+    m_OverrideState: 1
+    m_Value: {fileID: 8400000, guid: f4f1718612fdb9947a15a9eae2aad0b7, type: 2}
+  atmosphereHeight:
+    m_OverrideState: 0
+    m_Value: 100000
+  rayleighScaleHeight:
+    m_OverrideState: 0
+    m_Value: 8000
+  mieScaleHeight:
+    m_OverrideState: 0
+    m_Value: 1200
+  ozoneScaleHeight:
+    m_OverrideState: 0
+    m_Value: 25000
+  ozoneCenterHeight:
+    m_OverrideState: 0
+    m_Value: 25000
+  atmosIntensity:
+    m_OverrideState: 0
+    m_Value: 1
+  rayleighScatterScale:
+    m_OverrideState: 0
+    m_Value: 1
+  mieScatterScale:
+    m_OverrideState: 0
+    m_Value: 1
+  mieExtinctionCoeff:
+    m_OverrideState: 0
+    m_Value: 0.0000025
+  atmosMieG:
+    m_OverrideState: 0
+    m_Value: 0.76
+  sunMieG:
+    m_OverrideState: 0
+    m_Value: 0.98
+  sunMieIntensity:
+    m_OverrideState: 0
+    m_Value: 1
+  sunSize:
+    m_OverrideState: 0
+    m_Value: 0.001
+  sunColor:
+    m_OverrideState: 0
+    m_Value: {r: 1, g: 1, b: 1, a: 1}

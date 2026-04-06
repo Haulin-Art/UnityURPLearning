@@ -47,6 +47,11 @@ public class DynamicLightColor : MonoBehaviour
         // 用曲线采样强度
         currentIntensity = intensityCurve.Evaluate(Mathf.Abs((1.0f-currentSunHeight*2.0f)));
         _light.intensity = Mathf.Max(0.01f,currentIntensity);
+        // 处理太阳在地平面下的情况
+        if (currentSunHeight >= 0.5f)
+        {
+            _light.intensity = 0.01f;
+        }
     }
     
     private float CalculateSunHeightFromDotProduct()

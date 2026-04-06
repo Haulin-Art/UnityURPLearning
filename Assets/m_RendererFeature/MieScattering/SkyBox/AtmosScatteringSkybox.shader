@@ -445,7 +445,24 @@ Shader "Custom/AtmosScatteringSkybox"
                     return float4(sun * sunVisible, 1.0);
                 }
                 */
-                return float4(max(finalCol, 0.0), 1.0);
+                //return float4(max(finalCol, 0.0), 1.0);
+
+                // 星星
+                float azi_scale = 60.0;
+                float azimuth = (atan2(rd.z,rd.x)+PI)/(2.0*PI);
+                float j_azimuth = floor(azimuth*azi_scale)/azi_scale;
+                float zen_scale = 20.0;
+                float zenithAngle = acos(rd.y);
+                float j_zenithAngle = floor(zenithAngle*zen_scale)/zen_scale;
+                float2 j_uv = float2(j_azimuth,j_zenithAngle);
+                float2 n_uv = float2(azimuth*azi_scale-j_azimuth*azi_scale,zenithAngle*zen_scale-j_zenithAngle*zen_scale)-0.5;
+                // 创建两个不同频率的噪波
+                float noise1 = frac(sin(dot(j_uv, float2(12.9898, 78.233))) * 43758.5453);
+                float noise2 = frac(sin(dot(j_uv, float2(92.9898, 35.233))) * 43758.5453);
+                float2 offset = float2(noise1,noise2)*2.0-1.0;
+                float star = step(length(n_uv+offset*0.5),noise1*0.015 + 0.01);
+                //return float4(offset,0.0,1.0);
+                return float4(max(finalCol, star*0.15), 1.0);; 
             }
             ENDHLSL
         }

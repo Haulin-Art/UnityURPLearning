@@ -74,6 +74,8 @@ Shader "FluidFlux/water_ins_tess"
         [Space(15)]
         _Tile12 ("================= 环境反射设置 ========================",Float) = 0.0 
         _EnvCubeMap ("环境反射贴图",Cube ) = "white" {}
+        _EnvPanoramic ("环境反射全景贴图",2D ) = "white" {}
+        _PanoramicRotation ("全景贴图旋转角度", Range(0.0, 1.0)) = 0.0
         _EnvReflectionStrength ("环境反射强度", Range(0.0, 10.0)) = 1.2
         _Roughness ("粗糙度", Range(0.0, 1.0)) = 0.18
         
@@ -216,6 +218,8 @@ Shader "FluidFlux/water_ins_tess"
 
 
                 float _EnvReflectionStrength;
+                float _PanoramicRotation;
+
                 float _Roughness;
                 float _SpecularPower;
                 float _SpecularIntensity;
@@ -251,6 +255,8 @@ Shader "FluidFlux/water_ins_tess"
             TEXTURE2D(_FoamTex_2);SAMPLER(sampler_FoamTex_2);
 
             TEXTURECUBE(_EnvCubeMap);SAMPLER(sampler_EnvCubeMap);
+            TEXTURE2D(_EnvPanoramic);SAMPLER(sampler_EnvPanoramic);
+            
 
             TEXTURE3D(_3DDisMap);SAMPLER(sampler_3DDisMap); 
 
@@ -585,8 +591,8 @@ Shader "FluidFlux/water_ins_tess"
                 float2 newWorldUV=1.0- (deformWSPos/scale + 0.5).xz;
                 float upwell = SAMPLE_TEXTURE2D_LOD(_HeighTex, sampler_HeighTex, newWorldUV, 0.0).x;
                 //deformWSPos += float3(0,1,0) * upwell * _waveUpwellingIntensity * mask ;
-                deformWSPos.xz += mmm*(-gradient*4.0);
-                deformWSPos.y += pow(mmm,2.0)*1.0 - langqian*1.0 ;
+                deformWSPos.xz += mmm*(-gradient*4.0) * _waveUpwellingIntensity;
+                deformWSPos.y += (pow(mmm,2.0)*1.0 - langqian*1.0) * _waveUpwellingIntensity;
                 //deformWSPos.y += upwell;
                 deformWSPos.y = lerp(-1,deformWSPos.y,sdfMask); // 只有在近岸范围内才有浪花上涌的效果，远处的海面就没有了
 
@@ -636,7 +642,39 @@ Shader "FluidFlux/water_ins_tess"
             #pragma multi_compile _ _REFLECTION_PROBE_BLENDING
             #pragma multi_compile _ _REFLECTION_PROBE_BOX_PROJECTION
 
+            // ======================== 全景图相关 ========================
+            // 绕 Y 轴旋转函数
+            float3 RotateAroundY(float3 position, float angle)
+            {
+                float sinAngle, cosAngle;
+                sincos(angle, sinAngle, cosAngle);
 
+                float3 rotatedPos;
+                rotatedPos.x = position.x * cosAngle - position.z * sinAngle;
+                rotatedPos.z = position.x * sinAngle + position.z * cosAngle;
+                rotatedPos.y = position.y;
+
+                return rotatedPos;
+            }
+            // 全景图UV转换
+            float2 DirToPanoramicUV(float3 dir)
+            {
+                dir = RotateAroundY(dir,6.0*_PanoramicRotation);
+                //dir = normalize(dir);
+                float phi = atan2(dir.z, dir.x);
+                float theta = acos(dir.y);
+                
+                float rotationRad = _PanoramicRotation * 3.14159265 / 180.0;
+                phi += rotationRad;
+                
+                float2 uv;
+                uv.x = phi / (2.0 * 3.14159265) + 0.5;
+                uv.y = theta / 3.14159265;
+                
+                return uv;
+            }
+            // ======================== 波花相关 ========================
+            // 波花遮罩函数
             float foamMask(float2 fuv,float2 fanimUV, float fDefaultFoam,float fFoamTex)
             {
                 fDefaultFoam = pow(abs(fDefaultFoam),0.77);
@@ -796,7 +834,7 @@ Shader "FluidFlux/water_ins_tess"
                         _ScatterColor, _BSDFAbsorptionColor,
                         thickness, _FresnelF0, _PhaseG,
                         0.0
-                    );
+                    )*smoothstep(-0.02,0.00,lightDir.y);
 
                 #else
                     // 使用简化的BSDF计算
@@ -841,9 +879,9 @@ Shader "FluidFlux/water_ins_tess"
                 // ==================== 环境反射 ====================
                 float3 reflectDir = reflect(-viewDirWS, normal);
                 float3 envReflection = FFSampleEnvReflection(reflectDir, _Roughness, _EnvReflectionStrength);
-                envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
-                envReflection = _EnvReflectionStrength*GlossyEnvironmentReflection(reflectDir, _Roughness, 1.0);
-
+                //envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
+                //envReflection = _EnvReflectionStrength*GlossyEnvironmentReflection(reflectDir, _Roughness, 1.0);
+                envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz;
 
                 float3 reflectionColor = FFBlendReflection(albedo, envReflection, fresnel, 1.0);
                 reflectionColor *= lerp(shadowMask,1.0,0.5); // 将环境反射与阴影遮罩相乘，使得在阴影区域环境反射变暗
@@ -863,12 +901,13 @@ Shader "FluidFlux/water_ins_tess"
                         _SSSColor, _SSSStrength, _SSSDepthScale, _SSSFade
                     );
                     finalColor += sss;
-                    
+                    /*
                     float3 sunGlitter = FFComputeSunGlitterAnimated(
                         normal, viewDirWS, lightDir, lightColor,
                         _Roughness, _SunGlitterIntensity,
                         _Time.y, _SunGlitterSpeed
                     );
+                    */
                     //finalColor += sunGlitter;
                 }
                 #endif
@@ -912,10 +951,11 @@ Shader "FluidFlux/water_ins_tess"
                 float3 foamCol = _FoamColor*fffDiff;
 
                 //return float4(i.ttt,1.0);
-
+                /*
                 if(_DebugView == 0) // 最终结果
                 {
                     return float4((finalColor + foamCol)*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
+                
                 }else if(_DebugView == 1) // BSDF + RayMarching 散射
                 {
                     return float4(bsdfScattering,1);
@@ -935,9 +975,9 @@ Shader "FluidFlux/water_ins_tess"
                 {
                     return float4(fresnel*float3(1,1,1),1);
                 }
-
-                return float4(1,0,1,0);
-                
+                */
+                //return float4(SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz,1);
+                return float4((finalColor + foamCol)*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
             }
             ENDHLSL
         }

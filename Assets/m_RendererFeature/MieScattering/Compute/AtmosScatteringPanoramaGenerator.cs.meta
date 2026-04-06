@@ -1,0 +1,13 @@
+fileFormatVersion: 2
+guid: 6a5c2dbb7fce39d47b41c0420c18d6d8
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - outputTexture: {fileID: 8400000, guid: f4f1718612fdb9947a15a9eae2aad0b7, type: 2}
+  - atmosComputeShader: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

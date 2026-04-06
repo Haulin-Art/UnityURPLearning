@@ -106,7 +106,7 @@ Material:
     - _Saturation: 3
     - _SunMieG: 0.999
     - _SunMieIntensity: 0.4
-    - _SunSize: 0.00078
+    - _SunSize: 0.00056
     - _TotalScale: 1
     m_Colors:
     - _OzoneAbsorption: {r: 0.00000065, g: 0.000001881, b: 0.000000085, a: 1}

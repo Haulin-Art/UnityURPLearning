@@ -1,0 +1,368 @@
+#pragma kernel CSMain
+
+// 输出纹理
+RWTexture2D<float4> _OutputTex;
+
+// 大气参数
+float _TotalScale;
+float _PlanetRadius;
+float _AtmosphereHeight;
+float _Altitude;
+
+// 大气密度参数
+float _RayleighScaleHeight;
+float _MieScaleHeight;
+float _OzoneScaleHeight;
+float _OzoneCenterHeight;
+float _AtmosIntensity;
+
+// 散射系数
+float2 _ScatterScale;
+float _MieExtinction;
+
+// 相位函数参数
+float _MieG;
+float _SunMieG;
+float _SunMieIntensity;
+
+// 太阳参数
+float _SunSize;
+float3 _SunColor;
+float _SunBrightness;
+float3 _SunDirection;
+
+// 采样参数
+int _NumSamples;
+int _NumSamplesLight;
+
+// 纹理尺寸
+uint _TexWidth;
+uint _TexHeight;
+
+// 瑞利散射系数 (单位: 1/m)
+// 红光散射最弱，蓝光散射最强，这就是天空是蓝色的原因
+static const float3 kBetaR = float3(5.8e-6, 13.5e-6, 33.1e-6);
+
+// 米氏散射系数 (单位: 1/m)
+// 对所有波长的散射大致相同，所以云和雾是白色的
+static const float3 kBetaM = float3(21e-6, 21e-6, 21e-6);
+
+// 臭氧吸收系数 (单位: 1/m)
+// 主要吸收绿光，对日落橙红色效果很重要
+static const float3 kOzone = float3(0.65e-6, 1.881e-6, 0.085e-6);
+
+// 射线与球体相交检测
+// 返回值: x = 近交点距离, y = 远交点距离，不相交返回 (-1, -1)
+float2 RaySphereIntersect(float3 rayOrigin, float3 rayDir, float3 sphereCenter, float sphereRadius)
+{
+    float3 oc = rayOrigin - sphereCenter;
+    float b = dot(oc, rayDir);
+    float c = dot(oc, oc) - sphereRadius * sphereRadius;
+    float discriminant = b * b - c;
+    
+    if (discriminant < 0.0)
+        return float2(-1.0, -1.0);
+    
+    float sqrtDisc = sqrt(discriminant);
+    return float2(-b - sqrtDisc, -b + sqrtDisc);
+}
+
+// 瑞利散射密度随高度变化: ρ(h) = exp(-h/H_R)
+float GetRayleighDensity(float h)
+{
+    return exp(-h / _RayleighScaleHeight);
+}
+
+// 米氏散射密度随高度变化: ρ(h) = exp(-h/H_M)
+float GetMieDensity(float h)
+{
+    return exp(-h / _MieScaleHeight);
+}
+
+// 臭氧密度随高度变化（高斯分布，中心在臭氧层高度）
+float GetOzoneDensity(float h)
+{
+    return exp(-abs(h - _OzoneCenterHeight) / _OzoneScaleHeight);
+}
+
+// 瑞利相位函数: P_R(θ) = 3/(16π) * (1 + cos²θ)
+float RayleighPhase(float cosTheta)
+{
+    return (3.0 / (16.0 * 3.14159265359)) * (1.0 + cosTheta * cosTheta);
+}
+
+// Henyey-Greenstein 米氏相位函数
+// g = 0: 各向同性散射
+// g > 0: 前向散射（太阳光晕效果）
+// g 越大，光晕越集中
+float MiePhase(float cosTheta, float g)
+{
+    float g2 = g * g;
+    float numerator = 1.0 - g2;
+    float denominator = pow(1.0 + g2 - 2.0 * g * cosTheta, 1.5);
+    return numerator / (4.0 * 3.14159265359 * denominator);
+}
+
+// 计算光学深度（Optical Depth）
+// 返回值: x = 瑞利光学深度, y = 米氏光学深度, z = 臭氧光学深度
+float3 ComputeOpticalDepth(float3 p, float3 dir, float rayLength, int numSamples,
+                           float3 planetCenter, float planetRadius)
+{
+    float ds = rayLength / (float)numSamples;
+    float3 currentP = p;
+    float3 opticalDepth = float3(0, 0, 0);
+    
+    for (int i = 0; i < numSamples; i++)
+    {
+        float h = length(currentP - planetCenter) - planetRadius;
+        
+        if (h < 0.0)
+            return float3(1e6, 1e6, 1e6);
+        
+        opticalDepth.x += GetRayleighDensity(h) * ds;
+        opticalDepth.y += GetMieDensity(h) * ds;
+        opticalDepth.z += GetOzoneDensity(h) * ds;
+        
+        currentP += dir * ds;
+    }
+    
+    return opticalDepth;
+}
+
+// 核心大气散射计算（单次散射模型）
+// 现在包含额外的太阳Mie散射（accumSunMie）
+float3 ComputeAtmosScattering(float3 rayOrigin, float3 rayDir, float rayLength,
+                              float3 planetCenter, float planetRadius, float atmosHeight,
+                              float3 sunDir, int numSamples, int numLightSamples,
+                              out float3 outViewTransmittance)
+{
+    float ds = rayLength / (float)numSamples;
+    float3 p = rayOrigin + rayDir * ds * 0.5;
+    
+    float3 accumRayleigh = float3(0, 0, 0);
+    float3 accumMie = float3(0, 0, 0);
+    float3 accumSunMie = float3(0, 0, 0);  // 额外的太阳Mie散射累积
+    
+    float3 totalRayleighDepth = float3(0, 0, 0);
+    float3 totalMieDepth = float3(0, 0, 0);
+    float3 totalOzoneDepth = float3(0, 0, 0);
+
+    float3 betaR = _ScatterScale.x * kBetaR;
+    float3 betaM = _ScatterScale.y * kBetaM;
+    float mieExtinction = _MieExtinction > 0 ? _MieExtinction : 1.1 * _ScatterScale.y * 21e-6;
+
+    // 计算相位函数（在整个积分过程中保持不变）
+    float cosTheta = dot(rayDir, sunDir);
+    float phaseR = RayleighPhase(cosTheta);
+    float phaseM = MiePhase(cosTheta, _MieG);
+    float sunPhaseM = MiePhase(cosTheta, _SunMieG);  // 太阳Mie散射的相位函数（使用更高的G值）
+
+    for (int i = 0; i < numSamples; i++)
+    {
+        float h = length(p - planetCenter) - planetRadius;
+        
+        if (h < 0.0)
+            break;
+        
+        float rayleighDensity = GetRayleighDensity(h);
+        float mieDensity = GetMieDensity(h);
+        float ozoneDensity = GetOzoneDensity(h);
+
+        // 计算从当前点到大气层边界的光线长度
+        float2 lightInter = RaySphereIntersect(p, sunDir, planetCenter, planetRadius + atmosHeight);
+        float lightRayLength = max(0.0, lightInter.y);
+        
+        // 检测地球遮挡
+        float2 planetInter = RaySphereIntersect(p, sunDir, planetCenter, planetRadius);
+        bool sunBlocked = false;
+        if (planetInter.x > 0.0)
+        {
+            if (planetInter.x < lightRayLength)
+            {
+                sunBlocked = true;
+            }
+        }
+
+        if (lightRayLength > 0.0 && !sunBlocked)
+        {
+            // 计算光线方向的光学深度
+            float3 lightOpticalDepth = ComputeOpticalDepth(p, sunDir, lightRayLength, numLightSamples,
+                                                           planetCenter, planetRadius);
+            
+            // 视线方向到当前点的光学深度
+            float3 viewOpticalDepth = float3(
+                totalRayleighDepth.x + rayleighDensity * ds * 0.5,
+                totalMieDepth.y + mieDensity * ds * 0.5,
+                totalOzoneDepth.z + ozoneDensity * ds * 0.5
+            );
+            
+            // 总光学深度
+            float3 totalOpticalDepth = (viewOpticalDepth + lightOpticalDepth) * _AtmosIntensity;
+            
+            // 计算透射率 T = exp(-τ)
+            float3 tau = betaR * totalOpticalDepth.x 
+                       + mieExtinction * totalOpticalDepth.y 
+                       + kOzone * totalOpticalDepth.z;
+            float3 transmittance = exp(-tau);
+            
+            // 累积散射光: 密度 × 步长 × 散射系数 × 相位函数 × 透射率
+            accumRayleigh += rayleighDensity * ds * betaR * phaseR * transmittance;
+            accumMie += mieDensity * ds * betaM * phaseM * transmittance;
+            
+            // 累积额外的太阳Mie散射（使用更高的G值和强度）
+            accumSunMie += _SunMieIntensity * mieDensity * ds * betaM * sunPhaseM * transmittance;
+        }
+
+        // 更新累积光学深度
+        totalRayleighDepth.x += rayleighDensity * ds;
+        totalMieDepth.y += mieDensity * ds;
+        totalOzoneDepth.z += ozoneDensity * ds;
+        
+        p += rayDir * ds;
+    }
+
+    // 计算视线方向的透射率（用于输出）
+    float3 viewTau = betaR * totalRayleighDepth.x 
+                   + mieExtinction * totalMieDepth.y 
+                   + kOzone * totalOzoneDepth.z;
+    outViewTransmittance = exp(-viewTau);
+    
+    // 返回所有散射的总和（瑞利 + 米氏 + 太阳米氏）
+    return accumRayleigh + accumMie + accumSunMie;
+}
+
+// 将UV坐标转换为世界空间方向向量（等距圆柱投影）
+// u: 经度 (0-1) -> 方位角 (0-2π)
+// v: 纬度 (0-1) -> 天顶角 (0-π)
+float3 UVToDirection(float2 uv)
+{
+    // 经度: 0到2π
+    float azimuth = uv.x * 2.0 * 3.14159265359;
+    // 纬度: 0到π (从上到下)
+    float zenith = uv.y * 3.14159265359;
+    
+    // 转换为笛卡尔坐标
+    // 调整坐标系以匹配Unity的右手坐标系
+    // y轴向上，z轴向前，x轴向右
+    float3 dir;
+    dir.x = sin(zenith) * sin(azimuth);  // 右
+    dir.y = cos(zenith);                  // 上
+    dir.z = sin(zenith) * cos(azimuth);  // 前
+    
+    return -normalize(dir);
+}
+
+// 生成星星
+// 参考自AtmosScatteringSkybox.shader的星星生成算法
+float GenerateStars(float3 rd)
+{
+    float azi_scale = 60.0;
+    float azimuth = (atan2(rd.z, rd.x) + 3.14159265359) / (2.0 * 3.14159265359);
+    float j_azimuth = floor(azimuth * azi_scale) / azi_scale;
+    float zen_scale = 20.0;
+    float zenithAngle = acos(rd.y);
+    float j_zenithAngle = floor(zenithAngle * zen_scale) / zen_scale;
+    float2 j_uv = float2(j_azimuth, j_zenithAngle);
+    float2 n_uv = float2(azimuth * azi_scale - j_azimuth * azi_scale, 
+                         zenithAngle * zen_scale - j_zenithAngle * zen_scale) - 0.5;
+    
+    // 创建两个不同频率的噪波
+    float noise1 = frac(sin(dot(j_uv, float2(12.9898, 78.233))) * 43758.5453);
+    float noise2 = frac(sin(dot(j_uv, float2(92.9898, 35.233))) * 43758.5453);
+    float2 offset = float2(noise1, noise2) * 2.0 - 1.0;
+    float star = step(length(n_uv + offset * 0.5), noise1 * 0.015 + 0.01);
+    
+    return star;
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    // 检查是否在纹理范围内
+    if (id.x >= _TexWidth || id.y >= _TexHeight)
+        return;
+    
+    // 计算UV坐标 (0-1)
+    float2 uv = float2(id.x / (float)_TexWidth, id.y / (float)_TexHeight);
+    
+    // 将UV转换为观察方向
+    float3 rd = UVToDirection(uv);
+    
+    // 相机位置作为射线起点（假设在地表）
+    // 计算缩放后的大气参数
+    float scaleFactor = _TotalScale;
+    float atmosH = _AtmosphereHeight / scaleFactor;
+    float planetR = _PlanetRadius / scaleFactor;
+    float altitudeScaled = _Altitude * 1000.0 / scaleFactor;
+    
+    // 行星中心在相机下方
+    float3 planetCenter = float3(0.0, -planetR - altitudeScaled, 0.0);
+    float3 ro = float3(0.0, 0.0, 0.0);  // 相机在原点
+    
+    // 太阳方向
+    float3 sunDir = normalize(_SunDirection);
+    
+    // 计算视线与大气层的交点
+    float2 inter = RaySphereIntersect(ro, rd, planetCenter, planetR + atmosH);
+    
+    float rayLen = 0.0;
+    float3 rayStart = ro;
+    
+    if (inter.x > 0.0 || inter.y > 0.0)
+    {
+        if (inter.x < 0.0)
+        {
+            rayStart = ro;
+            rayLen = inter.y;
+        }
+        else
+        {
+            rayStart = ro + rd * inter.x;
+            rayLen = inter.y - inter.x;
+        }
+    }
+    
+    // 检测与行星表面的交点
+    float2 planetInter = RaySphereIntersect(ro, rd, planetCenter, planetR);
+    if (planetInter.x > 0.0)
+    {
+        rayLen = min(rayLen, planetInter.x - (inter.x > 0.0 ? inter.x : 0.0));
+    }
+    
+    // 确保射线长度有效
+    rayLen = max(rayLen, 0.0);
+    
+    // 计算大气散射（现在包含太阳Mie散射）
+    float3 viewTransmittance;
+    float3 scatter = ComputeAtmosScattering(
+        rayStart, rd, rayLen,
+        planetCenter, planetR, atmosH,
+        sunDir, _NumSamples, _NumSamplesLight,
+        viewTransmittance
+    );
+    
+    // 太阳圆盘
+    float sunCosTheta = dot(rd, sunDir);
+    float sunArea = 1.0 - smoothstep(1.0 - _SunSize + 0.0001, 1.0 - _SunSize, sunCosTheta);
+    float3 sun = _SunBrightness * _SunColor * sunArea * smoothstep(-0.05, 0.0, rd.y);
+    
+    // 最终颜色 = 散射光 + 太阳圆盘
+    float3 finalCol = _SunBrightness * _SunColor * scatter;
+    finalCol += sun*0;
+    
+    // 生成星星
+    float star = GenerateStars(rd)*0;
+    
+    // 夜晚时显示星星（根据太阳高度调整星星可见度）
+    // 当太阳在地平线以下时，星星逐渐显现
+    float sunHeight = sunDir.y;  // 太阳高度（y分量）
+    float starVisibility = smoothstep(-0.3, -0.1, sunHeight);  // 太阳低于地平线时星星可见
+    finalCol = max(finalCol, star * 0.15 * starVisibility);
+    
+    // 确保颜色值范围正确
+    finalCol = max(finalCol, 0.0);
+    finalCol = min(finalCol, 10.0);  // 限制最大值，避免过度曝光
+    
+    // 输出颜色
+    _OutputTex[id.xy] = float4(finalCol, 1.0);
+}

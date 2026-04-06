@@ -1,0 +1,72 @@
+// 双边滤波Compute Shader
+// 用于消除体积云渲染中的噪点
+
+#pragma kernel CSMain
+
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+// 输入参数
+float4 _MainTex_TexelSize;
+float _Radius;
+float _SigmaSpace;
+float _SigmaRange;
+
+// 输入输出纹理
+Texture2D<float2> _MainTex;
+RWTexture2D<float2> _OutputTex;
+
+// 计算高斯权重
+float Gaussian(float x, float sigma) {
+    return exp(-(x * x) / (2.0 * sigma * sigma));
+}
+
+[numthreads(8, 8, 1)]
+void CSMain (uint3 id : SV_DispatchThreadID) {
+    // 确保线程ID在纹理范围内
+    uint2 texSize = _MainTex_TexelSize.zw;
+    if (id.x >= texSize.x || id.y >= texSize.y) {
+        return;
+    }
+
+    float2 centerColor = _MainTex[id.xy];
+    float totalWeight = 0.0;
+    float2 accumulatedColor = float2(0.0, 0.0);
+
+    // 计算滤波半径
+    int radius = (int)_Radius;
+
+    // 遍历滤波窗口
+    for (int y = -radius; y <= radius; y++) {
+        for (int x = -radius; x <= radius; x++) {
+            uint2 samplePos = id.xy + int2(x, y);
+
+            // 边界检查
+            if (samplePos.x < 0 || samplePos.x >= texSize.x || samplePos.y < 0 || samplePos.y >= texSize.y) {
+                continue;
+            }
+
+            float2 sampleColor = _MainTex[samplePos];
+
+            // 计算空间距离权重
+            float spaceDist = sqrt(float(x * x + y * y));
+            float spaceWeight = Gaussian(spaceDist, _SigmaSpace);
+
+            // 计算颜色距离权重（只考虑R和G通道）
+            float rangeDist = sqrt(pow(sampleColor.r - centerColor.r, 2.0) + pow(sampleColor.g - centerColor.g, 2.0));
+            float rangeWeight = Gaussian(rangeDist, _SigmaRange);
+
+            // 总权重
+            float weight = spaceWeight * rangeWeight;
+            totalWeight += weight;
+
+            // 累积颜色
+            accumulatedColor += sampleColor * weight;
+        }
+    }
+    // 归一化并输出
+    if (totalWeight > 0.0) {
+        _OutputTex[id.xy] = accumulatedColor / totalWeight;
+    } else {
+        _OutputTex[id.xy] = centerColor;
+    }
+}

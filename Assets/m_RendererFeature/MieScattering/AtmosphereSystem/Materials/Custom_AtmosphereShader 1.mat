@@ -1,0 +1,57 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Custom_AtmosphereShader 1
+  m_Shader: {fileID: 4800000, guid: 9f919e4f03f0d1045b12314874a8762e, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _BlueNoise:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _CloudTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _EnvPanoramic:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _Altitude: 0
+    - _CloudAlpha: 0.5
+    - _CloudBaseHeight: 2000
+    - _CloudDensityMultiplier: 0.1
+    - _CloudDensityThreshold: 0.1
+    - _CloudEdgeSharpness: 0.5
+    - _CloudExtinctionCoeff: 0.05
+    - _CloudPhaseG: 0.8
+    - _CloudScatterCoeff: 1
+    - _CloudThickness: 1000
+    - _NumSamples: 32
+    - _NumSamplesLight: 8
+    - _PanoramicRotation: 0
+    - _PlanetRadius: 6371000
+    - _SunBrightness: 1
+    - _TotalScale: 1
+    m_Colors: []
+  m_BuildTextureStacks: []

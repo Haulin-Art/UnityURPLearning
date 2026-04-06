@@ -34,6 +34,10 @@ Material:
         m_Texture: {fileID: 8900000, guid: 9f1ad7bb367669a43b9c33e80d1c1996, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _EnvPanoramic:
+        m_Texture: {fileID: 8400000, guid: f4f1718612fdb9947a15a9eae2aad0b7, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _FoamTex:
         m_Texture: {fileID: 2800000, guid: 19945c7d2da13b44fb456d00ea82c01d, type: 3}
         m_Scale: {x: 10, y: 10}
@@ -78,26 +82,27 @@ Material:
     m_Floats:
     - TessFactor: 10
     - Use_perSamPosShadow: 0
-    - _AbsorptionScale: 1
+    - _AbsorptionScale: 1.44
     - _CES: 3.03
     - _DebugView: 0
     - _DepthScale: 1
-    - _EnvReflectionStrength: 0.13
+    - _EnvReflectionStrength: 1
     - _FoamIntensity: 0
     - _FoamNorScale: 0.33
     - _FresnelF0: 0.1
-    - _FresnelPower: 2.18
+    - _FresnelPower: 3.26
+    - _PanoramicRotation: 0.783
     - _PhaseG: 0.49
-    - _RayMarchIntensity: 1.1
+    - _RayMarchIntensity: 1.53
     - _RayMarchMaxDistance: 5
     - _RayMarchSteps: 6
     - _RefractionBlurEnd: 5
     - _RefractionBlurStart: 0.3
     - _RefractionBlurStrength: 6.9
     - _RefractionStrength: 0.0694
-    - _Roughness: 0.162
+    - _Roughness: 0.077
     - _SSSDepthScale: 18
-    - _SSSStrength: 1.03
+    - _SSSStrength: 1.99
     - _SineCount: 2
     - _SpecularIntensity: 1
     - _SpecularPower: 64
@@ -131,7 +136,7 @@ Material:
     - _UseRayMarching: 1
     - _UseSSS: 1
     - _VDMXOffset: 0
-    - _VDMXScale: -0.44
+    - _VDMXScale: -0.55
     - _VDMYOffset: 0
     - _VDMYScale: 0.12
     - _VectorDisMapScale: 8
@@ -141,7 +146,7 @@ Material:
     - _WaveTilingX: 10
     - _WaveTilingY: 10.3
     - _sineScale: 0.04
-    - _waveUpwellingIntensity: 0.13
+    - _waveUpwellingIntensity: 1
     m_Colors:
     - _AbsorptionColor: {r: 1, g: 0.7012578, b: 0.7012578, a: 1}
     - _BSDFAbsorptionColor: {r: 0.7058824, g: 0.5764706, b: 0.5991496, a: 1}
