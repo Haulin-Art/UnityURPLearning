@@ -102,6 +102,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             Light ld = GetMainLight();
             float3 lightDir = normalize(ld.direction);
             float3 lightColor = ld.color;
+            float3 lightIntensity = dot(lightColor, float3(0.2126, 0.7152, 0.0722));
 
             // 通过深度还原世界位置
             float depth = SampleSceneDepth(input.uv);
@@ -143,7 +144,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             cautionTotal *= notInShadow;
             cautionTotal *= _CautionScale;
 
-            return float4(color.xyz + cautionTotal * float3(1, 1, 1), 1);
+            return float4(color.xyz + cautionTotal * lightColor, 1);
         }
         
         float4 FragCopy(Varyings input) : SV_Target

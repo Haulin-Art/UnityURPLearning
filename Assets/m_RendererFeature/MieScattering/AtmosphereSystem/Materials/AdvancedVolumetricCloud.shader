@@ -5,7 +5,12 @@ Shader "Custom/AdvancedVolumetricCloud"
         [Header(Environment)]
         _EnvPanoramic ("环境反射全景贴图",2D ) = "white" {}
         _PanoramicRotation ("全景贴图旋转角度", Range(0.0, 1.0)) = 0.0
+        _SunSize ("太阳大小", Range(0.00001,0.001)) = 0.0002
 
+        [Space(15)]
+        _CloudAlpha ("云层透明度", Range(0.0, 1.0)) = 0.5
+
+        [Space(15)]
         // ========== 基础参数 ==========
         //[Header(基础参数)]
         _PlanetRadius("行星半径(m)", Float) = 6371000.0
@@ -28,7 +33,11 @@ Shader "Custom/AdvancedVolumetricCloud"
         _2Dor3DCloudTexMix("2D/3D云纹理混合", Range(0, 1)) = 1.0
         _CloudTex2D("云纹理(2D)", 2D) = "white" {}
         _CloudTex("云纹理(3D)", 3D) = "white" {}
+        _CloudTiling ("云纹理(3D)平铺", Float) = 1.0
+        _CloudAxisScale("云纹理(3D)轴缩放", Vector) = (1, 1.0, 1)
         _CloudDetailTex("云纹理(3D)细节纹理", 3D) = "white" {}
+        _CloudDetailTiling ("云纹理(3D)细节纹理平铺", Float) = 1.0
+        [Space(10)]
         _CloudDensityScale("密度缩放", Float) = 0.001
         _CloudDensityThreshold("密度阈值", Range(0, 1)) = 0.1
         _CloudEdgeSharpness("边缘锐度", Range(0, 1)) = 0.5
@@ -83,6 +92,16 @@ Shader "Custom/AdvancedVolumetricCloud"
         _DebugMode("调试模式", Int) = 0
         _ShowNormals("显示法线", Range(0, 1)) = 0
         _ShowDensity("显示密度", Range(0, 1)) = 0
+    
+        [Space(15)]
+        // ========== 夜间参数 ==========
+        //[Header(夜间参数)]
+        _NightBrightness("夜间亮度", Float) = 0.5
+        _NightColor("夜间天顶颜色", Color) = (0.5, 0.5, 0.5, 1)
+        _NightSkyLineColor("夜间天空线颜色", Color) = (0.5, 0.5, 0.5, 1)
+
+        [Space(15)]
+        _CES ("测试用",Range(0,1)) = 0.0
     }
     
     SubShader
@@ -115,8 +134,10 @@ Shader "Custom/AdvancedVolumetricCloud"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             
             // ========== 常量定义 ==========
-            #define PI 3.14159265359
+            //#define PI 3.14159265359
             #define MAX_FLOAT 3.402823466e+38
+            #define IS_SKYBOX // 是否为天空盒
+            //#define USE_TYNDALL_EFFECT
             
             // ========== 纹理定义 ==========
             TEXTURE2D(_EnvPanoramic);
@@ -135,6 +156,8 @@ Shader "Custom/AdvancedVolumetricCloud"
             // ========== 属性变量 ==========
             CBUFFER_START(UnityPerMaterial)
                 float _PanoramicRotation;
+                float _CloudAlpha;
+                float _SunSize;
 
                 float _PlanetRadius;
                 float3 _CloudLayerCenter;
@@ -147,6 +170,9 @@ Shader "Custom/AdvancedVolumetricCloud"
                 float _StepSizeMultiplier;
                 
                 float _2Dor3DCloudTexMix;
+                float _CloudTiling;
+                float3 _CloudAxisScale;
+                float _CloudDetailTiling;
                 float _CloudDensityScale;
                 float _CloudDensityThreshold;
                 float _CloudEdgeSharpness;
@@ -183,6 +209,14 @@ Shader "Custom/AdvancedVolumetricCloud"
                 int _DebugMode;
                 float _ShowNormals;
                 float _ShowDensity;
+
+                float _NightBrightness;
+                float3 _NightColor;
+                float3 _NightSkyLineColor;
+
+                float _CES;
+
+                float4x4 _InvViewProj; 
             CBUFFER_END
             
             // ========== 结构体定义 ==========
@@ -212,6 +246,20 @@ Shader "Custom/AdvancedVolumetricCloud"
                 float ToNormHeight;     // 到标准化高度的转换因子
             };
             
+            // 颜色转亮度
+            float GetLuminance(float3 color)
+            {
+                // 方法1：标准感知亮度（人眼对绿色最敏感）
+                return dot(color, float3(0.2126, 0.7152, 0.0722));
+
+                // 方法2：简化版
+                // return dot(color, float3(0.299, 0.587, 0.114));
+
+                // 方法3：平均值
+                // return (color.r + color.g + color.b) * 0.3333;
+            }
+
+
             // ======================== 全景图相关 ========================
             // 绕 Y 轴旋转函数
             float3 RotateAroundY(float3 position, float angle)
@@ -341,7 +389,7 @@ Shader "Custom/AdvancedVolumetricCloud"
              * 计算云密度（核心函数）
              * 结合3D噪声纹理和高度渐变
              */
-            float CalculateCloudDensity(float3 WorldPos, CloudLayerParams CloudParams, float2 ScreenUV)
+            float CalculateCloudDensity(float3 WorldPos,float sunHeight , CloudLayerParams CloudParams)
             {
                 // 计算相对高度
                 float Height = length(WorldPos - CloudParams.Center) - CloudParams.InnerRadius;
@@ -354,17 +402,17 @@ Shader "Custom/AdvancedVolumetricCloud"
                 // 应用高度渐变
                 float HeightFactor = SAMPLE_TEXTURE2D_LOD(_CloudHeightGradient, sampler_CloudHeightGradient, 
                                                         float2(NormHeight, 0.5), 0).r;
-                
+
                 // 风动画
                 float3 WindOffset = _WindDirection * _WindSpeed * _Time.y * _TimeScale;
                 
                 // 采样3D噪声纹理
                 // 缩放因子很重要：控制云朵的大小和平铺
                 float3 TexCoord = (WorldPos + WindOffset*100) * _CloudDensityScale;
-                float4 Noise3D = SAMPLE_TEXTURE3D_LOD(_CloudTex, sampler_CloudTex, TexCoord.xzy/20.0, 0);
+                float4 Noise3D = SAMPLE_TEXTURE3D_LOD(_CloudTex, sampler_CloudTex, TexCoord.xzy*_CloudAxisScale/(20.0*_CloudTiling), 0);
                 float4 Noise2D = SAMPLE_TEXTURE2D_LOD(_CloudTex2D, sampler_CloudTex2D, TexCoord.xz/20.0, 0);
                 
-                float4 NoiseDetail = SAMPLE_TEXTURE3D_LOD(_CloudDetailTex, sampler_CloudDetailTex, TexCoord/2.5, 0);
+                float4 NoiseDetail = SAMPLE_TEXTURE3D_LOD(_CloudDetailTex, sampler_CloudDetailTex, TexCoord/(2.5*_CloudDetailTiling), 0);
                 
                 // 组合噪声通道
                 // 使用大尺度和小尺度噪声组合
@@ -373,13 +421,14 @@ Shader "Custom/AdvancedVolumetricCloud"
                 
                 // 组合密度
                 float Density = LargeScale * lerp(0.4, 1.0, FineDetail) ;
-                Density = Noise3D.r ;
+                Density = Noise3D.r + Noise3D.g*0.5 + Noise3D.b*0.2  + Noise3D.a*0.1;
+                Density /= 1.8;
 
                 // 应用阈值和边缘锐化
                 float Edge = max(_CloudEdgeSharpness, _CloudDensityThreshold + 0.001);
                 float Edge2 = max(_MixEdgeFieldFactor , _CloudDensityThreshold + 0.001); // 用于定义侵蚀范围
                 float erosion = smoothstep(_CloudDensityThreshold, Edge2, Density );
-                Density = smoothstep(_CloudDensityThreshold, Edge, Density );
+                Density = smoothstep(_CloudDensityThreshold, Edge, Density * HeightFactor );
 
                 // 细节噪声
                 float detailFactor = NoiseDetail.r * saturate(1.0 - NoiseDetail.b + 0.0);
@@ -390,7 +439,7 @@ Shader "Custom/AdvancedVolumetricCloud"
 
                 
                 // 最终密度
-                return Density * detailFactor * _CloudDensityMultiplier * HeightFactor ;//* NoiseDetail.r;
+                return Density * lerp(1.0,detailFactor,sunHeight) * sunHeight * _CloudDensityMultiplier ;//* HeightFactor ;//* NoiseDetail.r;
             }
             
             /**
@@ -427,8 +476,8 @@ Shader "Custom/AdvancedVolumetricCloud"
              * 计算云阴影
              * 向太阳方向步进计算光学深度
              */
-            float CalculateCloudShadow(float3 SamplePos, float3 LightDir, CloudLayerParams CloudParams, 
-                                       int NumSamples, float StepSize, float2 ScreenUV)
+            float CalculateCloudShadow(float3 SamplePos, float3 LightDir, float sunHeight, CloudLayerParams CloudParams, 
+                                       int NumSamples, float StepSize)
             {
                 float OpticalDepth = 0.0;
                 float3 CurrentPos = SamplePos;
@@ -439,7 +488,7 @@ Shader "Custom/AdvancedVolumetricCloud"
                     CurrentPos += LightDir * StepSize;
                     
                     // 计算当前点密度
-                    float Density = CalculateCloudDensity(CurrentPos, CloudParams, ScreenUV);
+                    float Density = CalculateCloudDensity(CurrentPos, sunHeight, CloudParams);
                     OpticalDepth += Density * StepSize;
                     
                     // 提前终止优化
@@ -452,6 +501,65 @@ Shader "Custom/AdvancedVolumetricCloud"
                 return exp(-_ExtinctionCoefficient * OpticalDepth);
             }
             
+            // 增强版星星生成函数
+            // 输入：
+            //   rd: 视线方向
+            //   azi_scale: 方位角密度
+            //   zen_scale: 天顶角密度
+            //   star_size_min: 星星最小尺寸
+            //   star_size_max: 星星最大尺寸
+            //   offset_strength: 偏移强度
+            //   star_threshold: 星星生成阈值 (0-1，越大星星越少)
+            // 输出：0-1之间的星星亮度
+            float GenerateStarsAdvanced(
+                float3 rd, 
+                float azi_scale, 
+                float zen_scale,
+                float star_size_min,
+                float star_size_max,
+                float offset_strength,
+                float star_threshold
+            )
+            {
+                //const float PI = 3.14159265359;
+                
+                // 计算方位角和天顶角
+                float azimuth = (atan2(rd.z, rd.x) + PI) / (2.0 * PI);
+                float j_azimuth = floor(azimuth * azi_scale) / azi_scale;
+                
+                float zenithAngle = acos(rd.y);
+                float j_zenithAngle = floor(zenithAngle * zen_scale) / zen_scale;
+                
+                // 计算UV
+                float2 j_uv = float2(j_azimuth, j_zenithAngle);
+                float2 n_uv = float2(
+                    azimuth * azi_scale - j_azimuth * azi_scale,
+                    zenithAngle * zen_scale - j_zenithAngle * zen_scale
+                ) - 0.5;
+                
+                // 生成多个随机数用于不同效果
+                float noise1 = frac(sin(dot(j_uv, float2(12.9898, 78.233))) * 43758.5453);
+                float noise2 = frac(sin(dot(j_uv, float2(92.9898, 35.233))) * 43758.5453);
+                float noise3 = frac(sin(dot(j_uv, float2(37.123, 12.456))) * 43758.5453);
+                
+                // 只有超过阈值的区域生成星星
+                if (noise3 > star_threshold)
+                    return 0.0;
+                
+                // 使用随机数生成偏移
+                float2 offset = float2(noise1, noise2) * 2.0 - 1.0;
+                offset *= offset_strength;
+                
+                // 计算星星大小（基于噪声）
+                float star_size = lerp(star_size_min, star_size_max, noise1);
+                
+                // 使用smoothstep实现柔和的星星边缘
+                float distance_to_star = length(n_uv + offset);
+                float star = 1.0 - smoothstep(star_size * 0.7, star_size, distance_to_star);
+                
+                return star;
+            }
+
             // ========== 顶点着色器 ==========
             Varyings vert(Attributes v)
             {
@@ -487,6 +595,29 @@ Shader "Custom/AdvancedVolumetricCloud"
                 float3 RayOrigin = _WorldSpaceCameraPos;
                 float3 RayDir = normalize(i.viewDir);
                 
+                // 如果不是天空盒，才计算视线方向
+                #ifndef IS_SKYBOX
+                    // 非skybox的话用这个
+                    float2 screenUV = i.screenUV.xy/i.screenUV.w;
+                    // 1. 把屏幕UV转成裁剪空间坐标（范围：x/y∈[-1,1]）
+                    float4 clipPos = float4(screenUV * 2.0 - 1.0, 1.0, 1.0);
+                    // 2. 逆视投影矩阵：裁剪空间 → 世界空间
+                    float4 worldPos = mul(_InvViewProj, clipPos);
+                    worldPos /= worldPos.w; // 透视除法
+                    // 3. 计算光线方向并单位化
+                    float3 rd = normalize(worldPos.xyz - RayOrigin);
+                    RayDir = rd;
+                #endif
+
+                // 计算太阳高度
+                float sunHeight = smoothstep(0.0,0.01, RayDir.y);
+                //return float4(sunHeight*float3(1,1,1), 0);
+
+                // 采样大气层散射
+                float3 EnvColor = SAMPLE_TEXTURE2D_LOD(_EnvPanoramic,sampler_EnvPanoramic, DirToPanoramicUV(RotateAroundY(-RayDir, _PanoramicRotation)), 0.0).rgb;
+                float sun = dot(RayDir, SunDir);
+                sun = step(1.0-_SunSize, sun);
+                EnvColor += sun*EnvColor;
                 // 云层参数
                 CloudLayerParams CloudParams = GetCloudLayerParams();
                 
@@ -528,21 +659,39 @@ Shader "Custom/AdvancedVolumetricCloud"
                 
                 // 光线步进循环
                 float CurrentDist = EntryDist + StepSize * 0.5;  // 从中间开始
-                CurrentDist += StepSize * Dither * 1.0;  // 应用抖动
+                CurrentDist += StepSize * Dither * 0.2;  // 应用抖动
                 
+
+                // 丁达尔光采样开始位置
+                float3 RayStart = RayOrigin + RayDir * (CurrentDist+StepSize*10);
+                float2 touying = SunDir.xz * StepSize ; // 太阳光在平面上的投影
+                float TyndallEffect = 0.0;
+
+                //RayStart.xz += touying;
+                //float hereDens = CalculateCloudDensity(RayStart, sunHeight, CloudParams);
+                //hereDens = 1.0-saturate(hereDens*500.0);
+
+                
+                [unroll(6)]
                 for (int step = 0; step < NumSamples; step++)
                 {
+                    #ifdef USE_TYNDALL_EFFECT
+                        float3 tyndallSamplePos = RayStart ;
+                        tyndallSamplePos.xz += touying * step;
+                        float tyndallDensity = CalculateCloudDensity(tyndallSamplePos, sunHeight, CloudParams);
+                        TyndallEffect += 1.0 - tyndallDensity*StepSize;
+                    #endif
+
                     // 当前位置
                     float3 SamplePos = RayOrigin + RayDir * CurrentDist;
-                    
                     // 计算云密度
-                    float Density = CalculateCloudDensity(SamplePos, CloudParams, i.screenUV);
+                    float Density = CalculateCloudDensity(SamplePos, sunHeight, CloudParams);
                     
                     if (Density > 0.0)
                     {
                         // 计算阴影
-                        float Shadow = CalculateCloudShadow(SamplePos, SunDir, CloudParams, 
-                                                           int(_NumLightSamples), StepSize * 2.0, i.screenUV);
+                        float Shadow = CalculateCloudShadow(SamplePos, SunDir, sunHeight, CloudParams, 
+                                                           int(_NumLightSamples), StepSize * 1.0);
                         
                         // 计算消光和散射
                         float Extinction = Density * _ExtinctionCoefficient;
@@ -555,7 +704,7 @@ Shader "Custom/AdvancedVolumetricCloud"
                             TotalTransmittance,
                             PhaseCtx,
                             LightContrib,
-                            float3(0.5, 0.6, 0.8),  // 天光颜色
+                            EnvColor*0.5*_Albedo,  // 天光颜色
                             _MsScattFactor
                         );
                         
@@ -573,7 +722,7 @@ Shader "Custom/AdvancedVolumetricCloud"
                     // 自适应步长
                     StepSize = lerp(StepSize*1.0, StepSize * 0.05, Density);
                     // 步进
-                    CurrentDist += StepSize + StepSize * Dither * 0.5;
+                    CurrentDist += StepSize + StepSize * Dither * 0.2;
                     
                     // 提前终止
                     if (TotalTransmittance < 0.01)
@@ -582,9 +731,19 @@ Shader "Custom/AdvancedVolumetricCloud"
                     if (CurrentDist > ExitDist)
                         break;
                 }
-                
+                // 当前点的大气散射光照
+                float3 atmosDir = normalize(RayDir + SunDir);
+                float3 AtmosColor = SAMPLE_TEXTURE2D_LOD(_EnvPanoramic,sampler_EnvPanoramic, DirToPanoramicUV(RotateAroundY(-atmosDir, _PanoramicRotation)), 0.0).rgb;
+                //return float4(AtmosColor, 1.0);
                 // 最终颜色合成
                 float3 FinalColor = TotalLuminance * _CloudColor.rgb * SunColor + _CloudEmission.rgb;
+                
+                //return float4(float3(1,1,1)*TyndallEffect/float(NumSamples),1);
+
+                #ifndef IS_SKYBOX
+                    FinalColor = TotalLuminance * _CloudColor.rgb  + _CloudEmission.rgb;
+                #endif
+                
                 FinalColor = clamp(FinalColor, 0.0, 10.0);
                 
                 // 调试模式
@@ -609,10 +768,38 @@ Shader "Custom/AdvancedVolumetricCloud"
                 // 正常输出
                 //return float4(float3(1,1,1),1);
                 //return float4(FinalColor, 1.0 - TotalTransmittance);
-                float3 EnvColor = SAMPLE_TEXTURE2D_LOD(_EnvPanoramic,sampler_EnvPanoramic, DirToPanoramicUV(RotateAroundY(-RayDir, _PanoramicRotation)), 0.0).rgb;
+                
+                #ifndef IS_SKYBOX
+                    return float4(FinalColor.r,TotalTransmittance,0.0, 1.0);
+                #endif
 
-                //return float4(EnvColor, 1.0);
-                return float4(lerp(lerp(FinalColor, EnvColor, 0.5), EnvColor, TotalTransmittance),1.0);
+                float3 nightColor = _NightBrightness * lerp( _NightSkyLineColor.rgb, _NightColor.rgb,pow(abs(RayDir.y),0.5));
+                float nightAlpha = saturate(GetLuminance(EnvColor)-GetLuminance(nightColor));
+                nightAlpha = smoothstep(0.0,0.05,nightAlpha);
+
+                float3 cloudColor = lerp(FinalColor, EnvColor, _CloudAlpha);
+                float3 mixColor = EnvColor + nightColor*smoothstep(0.0,0.1,abs(SunDir.y));
+                mixColor = lerp(cloudColor, mixColor, TotalTransmittance);
+                
+                #ifdef USE_TYNDALL_EFFECT
+                    mixColor +=_CES*20.0*TyndallEffect/float(NumSamples)*0.5*SunColor;
+                #endif
+
+                /*
+                float star = GenerateStarsAdvanced(RayDir,
+                    50.0, // 方位角密度
+                    20.0,  // 天顶角密度
+                    0.005, // 最小尺寸
+                    0.01, // 最大尺寸
+                    0.7,   // 偏移强度
+                    0.3    // 生成阈值
+                );
+                */
+
+
+                //return float4(float3(1,1,1)*nightAlpha,1);
+                //return float4(float3(1,1,1)*lerp(nightColor,mixColor,nightAlpha),1);  
+                return float4(mixColor,1.0);
             }
             
             ENDHLSL

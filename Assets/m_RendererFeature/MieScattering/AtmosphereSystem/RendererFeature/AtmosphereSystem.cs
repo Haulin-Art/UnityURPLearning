@@ -108,7 +108,7 @@ public class AtmosphereSystem : ScriptableRendererFeature
             material.SetMatrix("_InvViewProj", invViewProjMatrix);
             
             // 如果存在Volume参数，则传递给材质
-            if (atmosphereVolume != null)
+            if (atmosphereVolume != null && false)
             {
                 // 大气参数
                 material.SetFloat("_TotalScale", atmosphereVolume.totalScale.value);
@@ -200,6 +200,7 @@ public class AtmosphereSystem : ScriptableRendererFeature
                 _cameraColorTgt = renderingData.cameraData.renderer.cameraColorTargetHandle;
                 
                 // =========================== 大气散射Compute Shader区域 ===========================
+                /*
                 if (atmosComputeShader != null && atmosphereVolume != null)
                 {
                     // 设置大气散射Compute Shader参数
@@ -249,7 +250,7 @@ public class AtmosphereSystem : ScriptableRendererFeature
                     int atmosThreadGroupsY = Mathf.CeilToInt(1024 / 8.0f);
                     cmd.DispatchCompute(atmosComputeShader, atmosKernelIndex, atmosThreadGroupsX, atmosThreadGroupsY, 1);
                 }
-                
+                */
                 // 渲染体积云
                 cmd.Blit(_cameraColorTgt.nameID, shaderID, material);
                 

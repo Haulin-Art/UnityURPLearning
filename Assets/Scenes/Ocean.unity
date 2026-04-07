@@ -3201,10 +3201,10 @@ MonoBehaviour:
   sunSize: 0.001
   sunColor: {r: 1, g: 1, b: 1, a: 1}
   sunBrightness: 10
-  sunDirection: {x: -0, y: 0.06279047, z: -0.9980267}
+  sunDirection: {x: -0, y: 0.019546526, z: -0.99980897}
   autoSunDirection: 1
-  numSamples: 16
-  numSamplesLight: 8
+  numSamples: 24
+  numSamplesLight: 12
   updateEveryFrame: 1
   generateOnStart: 1
 --- !u!4 &1412673899
@@ -3389,8 +3389,8 @@ MonoBehaviour:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
-      time: 0.0083351135
-      value: 0.34951782
+      time: -0.011043549
+      value: -0.004714966
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -3398,17 +3398,26 @@ MonoBehaviour:
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 0.42409295
-      value: 0.20572029
-      inSlope: -0.8087161
-      outSlope: -0.8087161
+      time: 0.099607274
+      value: 1.0215578
+      inSlope: 0.03703049
+      outSlope: 0.03703049
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 1
+    - serializedVersion: 3
+      time: 0.72700566
+      value: 0.6761601
+      inSlope: -1.6832895
+      outSlope: -1.6832895
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
-      time: 1
-      value: 0
+      time: 1.0168152
+      value: -0.0031471252
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -4292,8 +4301,8 @@ Light:
   serializedVersion: 10
   m_Type: 1
   m_Shape: 0
-  m_Color: {r: 1, g: 0.6191572, b: 0.38920504, a: 1}
-  m_Intensity: 0.5539171
+  m_Color: {r: 1, g: 0.58832633, b: 0.3397587, a: 1}
+  m_Intensity: 0.206609
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -4351,13 +4360,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2135745284}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.03141073, y: 0, z: 0, w: 0.9995066}
+  m_LocalRotation: {x: 0.009773729, y: 0, z: 0, w: 0.99995226}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 3.6, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 1.12, y: 0, z: 0}
 --- !u!114 &2135745287
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4456,8 +4465,8 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  currentSunHeight: 0.48
-  currentIntensity: 0.5539171
+  currentSunHeight: 0.49377805
+  currentIntensity: 0.206609
 --- !u!1 &2139419151
 GameObject:
   m_ObjectHideFlags: 0

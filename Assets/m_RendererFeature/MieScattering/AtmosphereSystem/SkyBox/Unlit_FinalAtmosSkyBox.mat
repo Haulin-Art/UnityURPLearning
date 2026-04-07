@@ -33,7 +33,7 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _CloudAlpha: 0.5
-    - _PanoramicRotation: 0.336
+    - _CloudAlpha: 0.544
+    - _PanoramicRotation: 0.261
     m_Colors: []
   m_BuildTextureStacks: []
