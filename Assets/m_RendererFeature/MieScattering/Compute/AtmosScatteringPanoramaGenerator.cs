@@ -76,6 +76,16 @@ public class AtmosScatteringPanoramaGenerator : MonoBehaviour
     [Range(1, 16)]
     public int numSamplesLight = 8;
 
+
+    [Header("夜色参数")]
+    [Tooltip("夜色亮度")]
+    [Range(0f, 10f)]
+    public float nightBrightness = 1.0f;
+    [Tooltip("夜色天空线颜色")]
+    public Color nightSkyLineColor = new Color(0.05098039f, 0.07843138f, 0.1686275f, 1f);
+    [Tooltip("夜色天顶颜色")]
+    public Color nightZenithColor = new Color(0.1843137f, 0.1647059f, 0.1647059f, 1f);
+
     [Header("运行设置")]
     [Tooltip("是否每帧更新")]
     public bool updateEveryFrame = false;
@@ -203,6 +213,11 @@ public class AtmosScatteringPanoramaGenerator : MonoBehaviour
         // 采样参数
         atmosComputeShader.SetInt("_NumSamples", numSamples);
         atmosComputeShader.SetInt("_NumSamplesLight", numSamplesLight);
+
+        // 夜色参数
+        atmosComputeShader.SetFloat("_NightBrightness", nightBrightness);
+        atmosComputeShader.SetVector("_NightSkyLineColor", new Vector3(nightSkyLineColor.r, nightSkyLineColor.g, nightSkyLineColor.b));
+        atmosComputeShader.SetVector("_NightZenithColor", new Vector3(nightZenithColor.r, nightZenithColor.g, nightZenithColor.b));
 
         // 纹理尺寸
         atmosComputeShader.SetInt("_TexWidth", outputTexture.width);

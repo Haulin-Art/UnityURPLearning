@@ -114,7 +114,7 @@
 #ifndef FF_WATER_REFRACTION_INCLUDED
 #define FF_WATER_REFRACTION_INCLUDED
 
-#include "ff_WaterCommon.hlsl"
+#include "Assets/m_Shader/m_WaterShader/ff_WaterCommon.hlsl"
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 折射偏移计算

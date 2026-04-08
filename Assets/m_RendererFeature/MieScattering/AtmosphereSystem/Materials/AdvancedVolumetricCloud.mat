@@ -70,7 +70,7 @@ Material:
     - _CloudDensityMultiplier: 0.03
     - _CloudDensityOffset: 0
     - _CloudDensityScale: 0.001
-    - _CloudDensityThreshold: 0.503
+    - _CloudDensityThreshold: 0.499
     - _CloudDetailMix: 1
     - _CloudDetailSharpness: 0.494
     - _CloudDetailThreshold: 0
@@ -95,16 +95,17 @@ Material:
     - _MixEdgeFieldFactor: 0.79
     - _MsExtinFactor: 0.3
     - _MsPhaseFactor: 0.7
-    - _MsScattFactor: 0.36
+    - _MsScattFactor: 0.542
+    - _NightBrightness: 4
     - _NumLightSamples: 8
     - _NumSamples: 32
     - _NumSamplesLight: 8
     - _NumViewSamples: 24
     - _OnlyOnEdgeErosion: 0
     - _PanoramicRotation: 0.2257
-    - _PhaseBlend: 0.414
-    - _PhaseG: -0.62
-    - _PhaseG2: 0.48
+    - _PhaseBlend: 0.196
+    - _PhaseG: -0.75
+    - _PhaseG2: 0.3
     - _PlanetRadius: 6360000
     - _SampleCountMax: 128
     - _SampleCountMin: 16
@@ -116,7 +117,7 @@ Material:
     - _SunBrightness: 1
     - _SunIntensity: 1
     - _SunSize: 0.000185
-    - _TimeScale: 1
+    - _TimeScale: 5
     - _TotalScale: 1
     - _TracingMaxDistance: 100000
     - _TracingStartDistance: 0
@@ -129,6 +130,8 @@ Material:
     - _CloudEmission: {r: 0, g: 0, b: 0, a: 1}
     - _CloudLayerCenter: {r: 0, g: -6360000, b: 0, a: 1}
     - _GroundAlbedo: {r: 0.29999998, g: 0.29999998, b: 0.29999998, a: 1}
+    - _NightColor: {r: 0.051797763, g: 0.077452846, b: 0.16981131, a: 1}
+    - _NightSkyLineColor: {r: 0.18238991, g: 0.16460976, b: 0.16460976, a: 1}
     - _SkyLightColor: {r: 0.5, g: 0.6, b: 0.8, a: 1}
     - _SunColor: {r: 1, g: 0.95, b: 0.9, a: 1}
     - _SunDirection: {r: -0, g: 0.019546526, b: -0.99980897, a: 0}

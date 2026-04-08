@@ -88,6 +88,7 @@ Shader "FluidFlux/water_ins_tess"
         //[Header("BSDF设置")]
         [Space(15)]
         _Tile10 ("================= BSDF 基础散射设置 ========================",Float) = 0.0 
+        _SSSNormalSmoothness ("次表面法线平滑度(决定是否使用波浪的法线)", Range(0.0, 1.0)) = 0.5
         _ScatterColor ("散射颜色", Color) = (0.2, 0.5, 0.8)
         _BSDFAbsorptionColor ("BSDF吸收颜色", Color) = (0.1, 0.2, 0.3)
         _PhaseG ("相位参数G", Range(-1.0, 1.0)) = 0.8
@@ -110,9 +111,6 @@ Shader "FluidFlux/water_ins_tess"
         _SSSColor ("次表面散射颜色", Color) = (0.53, 0.52, 0.5, 1.0)
         _SSSStrength ("次表面散射强度", Range(0.0, 5.0)) = 3.72
         _SSSDepthScale ("次表面散射深度缩放", Range(0.1, 50.0)) = 5.0
-        _SSSFade ("次表面散射衰减", Color) = (1.0, 1.0, 1.0, 1.0)
-        _SunGlitterIntensity ("太阳闪烁强度", Range(0.0, 2.0)) = 2.0
-        _SunGlitterSpeed ("太阳闪烁速度", Range(0.0, 10.0)) = 2.0
 
         [Space(15)]
         _Tile09 ("================= 细分着色器设置 ========================",Float) = 0.0 
@@ -132,6 +130,9 @@ Shader "FluidFlux/water_ins_tess"
         Cull Off
 
         HLSLINCLUDE
+            #define _USE_WATER_INCLUDE 1 // 定义是否使用  HLSLINCLUDE 当中的一些公共值
+
+
             #pragma shader_feature _USE_RAY_MARCHING
             #pragma shader_feature _USE_SSS
             #pragma multi_compile_instancing // 开启GPU Instancing支持
@@ -141,6 +142,7 @@ Shader "FluidFlux/water_ins_tess"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+
             #include "ff_WaterCommon.hlsl"
             #include "ff_WaterFresnel.hlsl"
             #include "ff_WaterRefraction.hlsl"
@@ -223,6 +225,7 @@ Shader "FluidFlux/water_ins_tess"
                 float _Roughness;
                 float _SpecularPower;
                 float _SpecularIntensity;
+                float _SSSNormalSmoothness;
                 float3 _ScatterColor;
                 float3 _BSDFAbsorptionColor;
                 float _PhaseG;
@@ -239,15 +242,23 @@ Shader "FluidFlux/water_ins_tess"
                 float _SSSStrength;
                 float _SSSDepthScale;
                 float3 _SSSFade;
-                float _SunGlitterIntensity;
-                float _SunGlitterSpeed;
+
 
                 int _TessFactor;
                 float _TessMaxDistance;
                 float _TessMinDistance;
                 float _TessDistanceFalloff;
+
+
+                float2 CameraCenterPos; // 用于渲染正交水面高度场的相机中心位置
             CBUFFER_END
-            
+
+            // 自定义的带有Mipmap的屏幕不透明物体纹理
+            TEXTURE2D(_ScreenMipMapRT);SAMPLER(sampler_ScreenMipMapRT); // 只用这个实现伪前向散射模糊效果
+            //TEXTURE2D(_ScreenMipMapDepthRT);SAMPLER(sampler_ScreenMipMapDepthRT);
+
+        
+
             TEXTURE2D(_VectorDisMap);SAMPLER(sampler_VectorDisMap); 
             TEXTURE2D(_VectorDisThickness);SAMPLER(sampler_VectorDisThickness);
 
@@ -267,9 +278,6 @@ Shader "FluidFlux/water_ins_tess"
             TEXTURE2D(_CameraOpaqueTexture);SAMPLER(sampler_CameraOpaqueTexture);
             
 
-            // 自定义的带有Mipmap的屏幕不透明物体纹理
-            TEXTURE2D(_ScreenMipMapRT);SAMPLER(sampler_ScreenMipMapRT); // 只用这个实现伪前向散射模糊效果
-            //TEXTURE2D(_ScreenMipMapDepthRT);SAMPLER(sampler_ScreenMipMapDepthRT);
 
             // 顶点着色器输入结构
             struct appdata
@@ -805,6 +813,8 @@ Shader "FluidFlux/water_ins_tess"
                 
                 float3 bsdfScattering;
                 
+                // 这里我发现使用不平滑的法线后，此表面散射会呈现一块一块黑的，环境反射不能很好地结合，表现在有黑边的感觉，这个给个只有近岸海浪的此表面的法线调整阈值
+                float3 sssNormal = normalize(lerp(normal,i.norWS,_SSSNormalSmoothness));
                 #ifdef _USE_RAY_MARCHING
                     // 使用Ray Marching进行体积散射
                     FFRayMarchConfig rmConfig = FFCreateDefaultRayMarchConfig();
@@ -825,12 +835,12 @@ Shader "FluidFlux/water_ins_tess"
                     
                     bsdfScattering *= _RayMarchIntensity;
                     
-                    float T_exit = FFFresnelExit(_FresnelF0, normal, viewDirWS);
+                    float T_exit = FFFresnelExit(_FresnelF0, sssNormal, viewDirWS);
                     //bsdfScattering *= lerp(T_exit,1.0,0.7);
 
                     // 使用简化的BSDF计算
                     bsdfScattering += 2.0*FFEvaluateWaterScattering(
-                        normal, viewDirWS, lightDir, lightColor,
+                        sssNormal, viewDirWS, lightDir, lightColor,
                         _ScatterColor, _BSDFAbsorptionColor,
                         thickness, _FresnelF0, _PhaseG,
                         0.0
@@ -839,7 +849,7 @@ Shader "FluidFlux/water_ins_tess"
                 #else
                     // 使用简化的BSDF计算
                     bsdfScattering = FFEvaluateWaterScattering(
-                        normal, viewDirWS, lightDir, lightColor,
+                        sssNormal, viewDirWS, lightDir, lightColor,
                         _ScatterColor, _BSDFAbsorptionColor,
                         thickness, _FresnelF0, _PhaseG,
                         0.0
@@ -877,11 +887,12 @@ Shader "FluidFlux/water_ins_tess"
 
                 //return float4(float3(1,1,1)*fresnel,1);
                 // ==================== 环境反射 ====================
-                float3 reflectDir = reflect(-viewDirWS, normal);
+                float3 reflectDir = reflect(-viewDirWS, normalize(float3(normal.x*1.0,normal.y*1.0,normal.z*1.0)));
                 float3 envReflection = FFSampleEnvReflection(reflectDir, _Roughness, _EnvReflectionStrength);
                 //envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
                 //envReflection = _EnvReflectionStrength*GlossyEnvironmentReflection(reflectDir, _Roughness, 1.0);
                 envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz;
+                envReflection *= _EnvReflectionStrength;
 
                 float3 reflectionColor = FFBlendReflection(albedo, envReflection, fresnel, 1.0);
                 reflectionColor *= lerp(shadowMask,1.0,0.5); // 将环境反射与阴影遮罩相乘，使得在阴影区域环境反射变暗
@@ -896,7 +907,7 @@ Shader "FluidFlux/water_ins_tess"
                 #ifdef _USE_SSS
                 {
                     sss = FFComputeWaterSSSFull(
-                        normal, normal, viewDirWS,
+                        sssNormal, normal, viewDirWS,
                         lightDir, lightColor, waterDepth,
                         _SSSColor, _SSSStrength, _SSSDepthScale, _SSSFade
                     );
@@ -951,7 +962,7 @@ Shader "FluidFlux/water_ins_tess"
                 float3 foamCol = _FoamColor*fffDiff;
 
                 //return float4(i.ttt,1.0);
-                /*
+                
                 if(_DebugView == 0) // 最终结果
                 {
                     return float4((finalColor + foamCol)*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
@@ -975,12 +986,39 @@ Shader "FluidFlux/water_ins_tess"
                 {
                     return float4(fresnel*float3(1,1,1),1);
                 }
-                */
+                
                 //return float4(SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz,1);
                 return float4((finalColor + foamCol)*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
             }
             ENDHLSL
         }
+
+        // 这个Pass用于获取海面高度
+        Pass
+        {
+            Name "GetWaterSurfaceHeight"
+            Tags {"RenderType" = "Opaque" "RenderQueue" = "Geometry" "LightMode" = "WaterSurfaceHeight"}
+            ZWrite On
+            //ColorMask 0
+            HLSLPROGRAM
+            float4 frag (v2f i) : SV_Target
+            {   
+                float3 camPos = _WorldSpaceCameraPos;
+                float3 relativePos = i.deformWSPos - camPos;
+                float2 uvPos = relativePos.xz/2.0 + 0.5;
+
+                //return float4(i.uv.y,0,0,1);
+                //return float4(uvPos.y,0,0,1);
+                //return float4(((i.deformWSPos.y - 0.97 - 0.07/2.0)*0.95+0.97+0.07/2.0) * float3(1,1,1),1);
+                //return float4(0 * float3(1,1,1),1);
+                return float4(i.deformWSPos.y * float3(1,1,1),1);
+                //return float4(i.deformWSPos.xyz * float3(1,1,1),1);
+                return float4((i.deformWSPos.y-0.97) * float3(1,1,1),1);
+                //return float4((i.deformWSPos.y) * float3(1,1,1),1);
+            }
+            ENDHLSL
+        }
+
             
     }
 }

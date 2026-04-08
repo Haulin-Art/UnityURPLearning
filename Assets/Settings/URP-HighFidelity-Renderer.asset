@@ -15,6 +15,25 @@ MonoBehaviour:
   m_Active: 0
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: 882febf2956997a43be5ef3f29aec3fd, type: 2}
+--- !u!114 &-8353285721275133182
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5d42d7d26560364e912c2c968ac21c5, type: 3}
+  m_Name: WaterLineFeature
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  renderPassEvent: 600
+  featureMaterial: {fileID: 2100000, guid: cd1aa1b9b04106149a49df274ef36a7e, type: 2}
+  WaterSurfaceHeightMaterial: {fileID: 2100000, guid: 5350d0455a3e56740b1235c35c5e6701,
+    type: 2}
+  heightOffset: 0.97
+  CES: 0.002
 --- !u!114 &-7783706233956903524
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -54,7 +73,7 @@ MonoBehaviour:
   m_Name: MieScatteringFeature
   m_EditorClassIdentifier: 
   m_Active: 0
-  renderPassEvent: 400
+  renderPassEvent: 300
   featureMaterial: {fileID: 2100000, guid: c0be4d37c89af5f4f876513a67de283b, type: 2}
 --- !u!114 &-6080455395541124650
 MonoBehaviour:
@@ -140,7 +159,8 @@ MonoBehaviour:
   - {fileID: -2947568646573396506}
   - {fileID: 5276956939491072028}
   - {fileID: 179033236966121960}
-  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d290455d6f9298c08e29dab9c5501896bb8fa93e6ede9cdee2118d71cd865c160843b49e8a15accc70d7c02
+  - {fileID: -8353285721275133182}
+  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d290455d6f9298c08e29dab9c5501896bb8fa93e6ede9cdee2118d71cd865c160843b49e8a15accc70d7c0202930de4e42a138c
   m_UseNativeRenderPass: 1
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
@@ -272,7 +292,7 @@ MonoBehaviour:
     highlightShapeSource: {fileID: 2800000, guid: 9d38f2888107b6a42a046d54d0077d5d,
       type: 3}
     highlightShapeScale: {x: 3, y: 3}
-    aspectRatio: 1.4884696
+    aspectRatio: 1.7777778
     highlightKernelFrequencyRT: {fileID: 0}
     needUpdateHighlightKernel: 0
     intensity: 0.33

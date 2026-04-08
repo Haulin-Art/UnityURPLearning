@@ -135,8 +135,8 @@
 #ifndef FF_WATER_RAY_MARCHING_INCLUDED
 #define FF_WATER_RAY_MARCHING_INCLUDED
 
-#include "ff_WaterCommon.hlsl"
-#include "ff_WaterPhase.hlsl"
+#include "Assets/m_Shader/m_WaterShader/ff_WaterCommon.hlsl"
+#include "Assets/m_Shader/m_WaterShader/ff_WaterPhase.hlsl"
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量定义

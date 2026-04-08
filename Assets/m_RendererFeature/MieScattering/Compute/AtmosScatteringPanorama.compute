@@ -1,7 +1,9 @@
 #pragma kernel CSMain
+#pragma kernel GenerateStars
 
 // 输出纹理
 RWTexture2D<float4> _OutputTex;
+RWTexture2D<float> _OutputStarsTex;
 
 // 大气参数
 float _TotalScale;
@@ -30,6 +32,11 @@ float _SunSize;
 float3 _SunColor;
 float _SunBrightness;
 float3 _SunDirection;
+
+// 夜色参数
+float _NightBrightness; 
+float3 _NightSkyLineColor; // 夜色天空线颜色
+float3 _NightZenithColor; // 夜色天顶颜色
 
 // 采样参数
 int _NumSamples;
@@ -341,28 +348,40 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         viewTransmittance
     );
     
-    // 太阳圆盘
-    float sunCosTheta = dot(rd, sunDir);
-    float sunArea = 1.0 - smoothstep(1.0 - _SunSize + 0.0001, 1.0 - _SunSize, sunCosTheta);
-    float3 sun = _SunBrightness * _SunColor * sunArea * smoothstep(-0.05, 0.0, rd.y);
+    // 太阳圆盘,这种需要高分辨率且不需要很大算力的玩意，在具体shader中实现
+    //float sunCosTheta = dot(rd, sunDir);
+    //float sunArea = 1.0 - smoothstep(1.0 - _SunSize + 0.0001, 1.0 - _SunSize, sunCosTheta);
+    //float3 sun = _SunBrightness * _SunColor * sunArea * smoothstep(-0.05, 0.0, rd.y);
     
     // 最终颜色 = 散射光 + 太阳圆盘
     float3 finalCol = _SunBrightness * _SunColor * scatter;
-    finalCol += sun*0;
-    
-    // 生成星星
-    float star = GenerateStars(rd)*0;
-    
-    // 夜晚时显示星星（根据太阳高度调整星星可见度）
-    // 当太阳在地平线以下时，星星逐渐显现
-    float sunHeight = sunDir.y;  // 太阳高度（y分量）
-    float starVisibility = smoothstep(-0.3, -0.1, sunHeight);  // 太阳低于地平线时星星可见
-    finalCol = max(finalCol, star * 0.15 * starVisibility);
-    
+    //finalCol += sun*0;
+    float3 nightColor = _NightBrightness * lerp(pow(_NightZenithColor.rgb,2.2),pow(_NightSkyLineColor.rgb,2.2),pow(abs(rd.y),0.5));
+    finalCol += nightColor;
     // 确保颜色值范围正确
     finalCol = max(finalCol, 0.0);
     finalCol = min(finalCol, 10.0);  // 限制最大值，避免过度曝光
     
     // 输出颜色
     _OutputTex[id.xy] = float4(finalCol, 1.0);
+}
+
+[numthreads(8, 8, 1)]
+void GenerateStars(uint3 id : SV_DispatchThreadID)
+{
+    // 检查是否在纹理范围内
+    if (id.x >= _TexWidth || id.y >= _TexHeight)
+        return;
+    
+    // 计算UV坐标 (0-1)
+    float2 uv = float2(id.x / (float)_TexWidth, id.y / (float)_TexHeight);
+    
+    // 将UV转换为观察方向
+    float3 rd = UVToDirection(uv);
+
+    // 生成星星
+    float star = GenerateStars(rd)*0;
+
+    // 输出星星亮度
+    _OutputStarsTex[id.xy] = star;
 }

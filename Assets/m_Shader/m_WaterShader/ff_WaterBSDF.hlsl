@@ -125,9 +125,9 @@
 #ifndef FF_WATER_BSDF_INCLUDED
 #define FF_WATER_BSDF_INCLUDED
 
-#include "ff_WaterCommon.hlsl"
-#include "ff_WaterFresnel.hlsl"
-#include "ff_WaterPhase.hlsl"
+#include "Assets/m_Shader/m_WaterShader/ff_WaterCommon.hlsl" 
+#include "Assets/m_Shader/m_WaterShader/ff_WaterFresnel.hlsl"
+#include "Assets/m_Shader/m_WaterShader/ff_WaterPhase.hlsl"
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量定义

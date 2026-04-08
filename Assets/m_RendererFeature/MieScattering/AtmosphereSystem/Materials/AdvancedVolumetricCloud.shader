@@ -138,6 +138,7 @@ Shader "Custom/AdvancedVolumetricCloud"
             #define MAX_FLOAT 3.402823466e+38
             #define IS_SKYBOX // 是否为天空盒
             //#define USE_TYNDALL_EFFECT
+            #define USE_STARS_EFFECT
             
             // ========== 纹理定义 ==========
             TEXTURE2D(_EnvPanoramic);
@@ -773,28 +774,39 @@ Shader "Custom/AdvancedVolumetricCloud"
                     return float4(FinalColor.r,TotalTransmittance,0.0, 1.0);
                 #endif
 
-                float3 nightColor = _NightBrightness * lerp( _NightSkyLineColor.rgb, _NightColor.rgb,pow(abs(RayDir.y),0.5));
-                float nightAlpha = saturate(GetLuminance(EnvColor)-GetLuminance(nightColor));
-                nightAlpha = smoothstep(0.0,0.05,nightAlpha);
+                // 混合颜色
+                float3 nightColor = _NightBrightness * lerp( _NightSkyLineColor.rgb,_NightColor.rgb,pow(abs(RayDir.y),0.5));
+                //float nightAlpha = saturate(GetLuminance(EnvColor)-GetLuminance(nightColor));
+                //nightAlpha = smoothstep(0.0,0.05,nightAlpha);
 
+                // 混合夜色
+                float3 mixColor = EnvColor ;//+ nightColor;//*smoothstep(0.0,0.1,saturate(SunDir.y));
+                //return float4(float3(1,1,1)*smoothstep(0.0,0.1,saturate(SunDir.y)),1);
+                // 混合星星
+                #ifdef USE_STARS_EFFECT
+                    float star = GenerateStarsAdvanced(RayDir,
+                        50.0, // 方位角密度
+                        20.0,  // 天顶角密度
+                        0.005, // 最小尺寸
+                        0.02, // 最大尺寸
+                        0.7,   // 偏移强度
+                        0.3    // 生成阈值
+                    );
+                    float starAlpha = saturate(GetLuminance(mixColor)-star*0.01);
+                    starAlpha = smoothstep(0.0,0.1,starAlpha);
+                    mixColor = lerp(star*float3(1,1,1)*TotalTransmittance,mixColor,starAlpha);
+                #endif
+
+                // 混合云
                 float3 cloudColor = lerp(FinalColor, EnvColor, _CloudAlpha);
-                float3 mixColor = EnvColor + nightColor*smoothstep(0.0,0.1,abs(SunDir.y));
                 mixColor = lerp(cloudColor, mixColor, TotalTransmittance);
                 
                 #ifdef USE_TYNDALL_EFFECT
                     mixColor +=_CES*20.0*TyndallEffect/float(NumSamples)*0.5*SunColor;
                 #endif
 
-                /*
-                float star = GenerateStarsAdvanced(RayDir,
-                    50.0, // 方位角密度
-                    20.0,  // 天顶角密度
-                    0.005, // 最小尺寸
-                    0.01, // 最大尺寸
-                    0.7,   // 偏移强度
-                    0.3    // 生成阈值
-                );
-                */
+                
+
 
 
                 //return float4(float3(1,1,1)*nightAlpha,1);

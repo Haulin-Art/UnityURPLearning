@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Unlit_ScreenWSPos
+  m_Shader: {fileID: 4800000, guid: 785d87183353c484ca7324ca490da372, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords:
+  - _USEPERSAMPOSSHADOW_ON
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _DropNormalTex:
+        m_Texture: {fileID: 2800000, guid: cb05753c33e5bc242bc85a1d9bc159e5, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _HeightTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _AbsorptionScale: 4.7
+    - _DepthScale: 39.4
+    - _PhaseG: 0.7
+    - _RayMarchIntensity: 0.79
+    - _RayMarchMaxDistance: 5
+    - _RayMarchSteps: 6
+    - _RefractionBlurEnd: 5
+    - _RefractionBlurStart: 0.3
+    - _RefractionBlurStrength: 4.74
+    - _Thickness: 10.9
+    - _Tile06: 0
+    - _Tile07: 0
+    - _Tile10: 0
+    - _UsePerSamPosShadow: 1
+    m_Colors:
+    - _AbsorptionColor: {r: 1, g: 0.7019608, b: 0.7019608, a: 1}
+    - _BSDFAbsorptionColor: {r: 0.7058824, g: 0.5764706, b: 0.6, a: 1}
+    - _ScatterColor: {r: 0.28235295, g: 0.5647059, b: 0.89411765, a: 1}
+  m_BuildTextureStacks: []
