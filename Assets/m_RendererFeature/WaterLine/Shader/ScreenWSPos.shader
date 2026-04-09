@@ -149,7 +149,7 @@ Shader "Unlit/ScreenWSPos"
 
                 float3 rd = normalize(ScreenWorldPos - cameraPos);
 
-                float thickness = 0.007;float shixin = thickness - 0.0025;
+                float thickness = 0.003;float shixin = thickness - 0.0015;
                 float shuixia = step(ScreenWorldPos.y,height);
                 float waterline = smoothstep(height-thickness,height-shixin,ScreenWorldPos.y)*
                     (1.0-smoothstep(height+shixin,height+thickness,ScreenWorldPos.y));
@@ -157,7 +157,7 @@ Shader "Unlit/ScreenWSPos"
                 // ==================== 静态水珠,偏移采样 ==================================
                 float3 dropNormal = SAMPLE_TEXTURE2D_LOD(_DropNormalTex, sampler_DropNormalTex, ScreenUV,0).rgb * 2.0 - 1.0;
                 float dropMask = (1.0-shuixia)*smoothstep(1.0,0.8,ScreenUV.y);
-                //ScreenUV += (dropNormal.xz * 0.04)* dropMask;
+                //ScreenUV += (dropNormal.xz * 0.08)* dropMask;
                 ScreenUV = saturate(ScreenUV); 
                 
                 //return float4(float3(1,1,1)*(dropMask+waterline),1.0);
@@ -181,7 +181,7 @@ Shader "Unlit/ScreenWSPos"
                 float mipmapDepRamp = smoothstep(_RefractionBlurStart, _RefractionBlurEnd, linearDepth);
                 float3 mipmapScreenColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT, sampler_ScreenMipMapRT, ScreenUV, mipmapDepRamp*_RefractionBlurStrength).rgb;
                 // 根据水深应用水的吸收效果
-                float3 refractionColor = FFApplyWaterAbsorption(sceneColor, smoothstep(0.0, 5.0, linearDepth)*_AbsorptionScale, _AbsorptionColor);
+                float3 refractionColor = FFApplyWaterAbsorption(mipmapScreenColor, smoothstep(0.0, 5.0, linearDepth)*_AbsorptionScale, _AbsorptionColor);
                 
                 
                 //return float4(refractionColor,1);
@@ -244,8 +244,10 @@ Shader "Unlit/ScreenWSPos"
                 //bsdfScattering = -rd;
                 //return float4(float3(1,1,1)*shuixia,1);
 
+                float3 finalColor = lerp(sceneColor,bsdfScattering+0.7*refractionColor,shuixia) *saturate(1.0-waterline*shuixia+0.6);
+                //finalColor = finalColor * (1.0-smoothstep(3.0,10.0,linearDepth)*shuixia);
 
-                return float4(lerp(sceneColor,bsdfScattering+0.5*refractionColor,shuixia) *saturate(1.0-waterline*shuixia+0.4),1);
+                return float4(finalColor,1);
             }
             ENDHLSL
         }
