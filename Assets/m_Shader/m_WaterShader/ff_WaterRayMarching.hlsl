@@ -523,6 +523,7 @@ float3 FFRayMarchVolumeScattering(
             currentShadow = 1.0 - FFSampleShadowAtPositionFast(currentWorldPos);
             //currentShadow = 1.0 - FFSampleShadowAtPosition(currentWorldPos);
         }
+        
         // 丁达尔阴影值
         float3 tindalPos = mul(tindalShadowData.tindalShadowMatrix, float4(currentWorldPos, 1.0)).xyz;
         float tindalShadow = tex2D(tindalShadowData.tindalShadowTex, tindalPos.xy).r;

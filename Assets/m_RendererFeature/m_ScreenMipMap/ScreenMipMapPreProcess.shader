@@ -126,6 +126,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             
             // ================================= 灯光空间转换 ==================================
             float3 lightSpacePos = WorldToLightSpace(worldPos, lightDir);
+            //lightSpacePos = mul(_MainLightWorldToShadow[0], float4(worldPos, 1.0)).xyz*50.0;
             //return float4(lightSpacePos, 1);
             // ================================= 焦散 ==================================
             float mask = smoothstep(30.0, 15.0, linerDep);

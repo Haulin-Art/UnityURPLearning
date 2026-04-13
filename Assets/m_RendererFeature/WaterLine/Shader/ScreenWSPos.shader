@@ -29,6 +29,7 @@ Shader "Unlit/ScreenWSPos"
         //[Header("光线步进设置")]
         [Space(15)]
         _Tile07 ("================= 光线步进散射 ========================",Float) = 0.0 
+        _TindalShadowTex ("丁达尔阴影纹理", 2D) = "white" {}
         //[Toggle(_USE_RAY_MARCHING)] _UseRayMarching ("启用光线步进", Float) = 0
         _RayMarchSteps ("步进次数", Range(1, 16)) = 6
         _RayMarchIntensity ("步进强度", Range(0.0, 10.0)) = 2.71
@@ -67,6 +68,7 @@ Shader "Unlit/ScreenWSPos"
             TEXTURE2D(_ScreenMipMapRT);SAMPLER(sampler_ScreenMipMapRT); // 只用这个实现伪前向散射模糊效果
             TEXTURE2D(_ScreenMipMapRT2);SAMPLER(sampler_ScreenMipMapRT2);
 
+            TEXTURE2D(TindalShadowTex);SAMPLER(sampler_TindalShadowTex);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST;
@@ -299,7 +301,11 @@ Shader "Unlit/ScreenWSPos"
                 float3 rayDir = rd;
                 //rayDir.y = -abs(rayDi.y);
                 //rayDir = normalize(rayDir);
+                // 灯光矩阵
                 
+
+
+
                 bsdfScattering = FFRayMarchVolumeScattering(
                     ScreenWorldPos, rayDir, rmConfig.maxDistance,
                     extinctionCoeff, scatterAlbedo,
@@ -307,7 +313,28 @@ Shader "Unlit/ScreenWSPos"
                     _PhaseG, 0.0, rmConfig
                 );
                 
+                
+
+                
+                #ifdef _USE_TINDAL_SHADOW
+                    float4x4 lightMatrix = _MainLightWorldToShadow[4];
+                    // 丁达尔阴影数据
+                    TindalShadowData tindalShadowData;
+                    tindalShadowData.tindalShadowTex = _TindalShadowTex;
+                    tindalShadowData.tindalShadowMatrix = lightMatrix;
+                    tindalShadowData.valueFlip = false; // 根据需要翻转阴影值
+                    tindalShadowData.tindalShadowStrength = 0.5; // 根据需要
+                    // 使用带有丁达尔阴影的函数重载版本
+                    bsdfScattering = FFRayMarchVolumeScattering(
+                        ScreenWorldPos, rayDir, rmConfig.maxDistance,
+                        extinctionCoeff, scatterAlbedo,
+                        SunDir, -rd, SunColor,
+                        _PhaseG, 0.0, rmConfig , tindalShadowData
+                    );
+                #endif
+
                 bsdfScattering *= _RayMarchIntensity;
+
                 //bsdfScattering = ScreenWorldPos;
 
                 //20*saturate(10.0-linearDepth)*100000
