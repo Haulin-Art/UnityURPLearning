@@ -76,7 +76,8 @@ public class HiZGenerationPass : ScriptableRenderPass
             enableRandomWrite = true,
             useMipMap = true,
             autoGenerateMips = false,
-            depthBufferBits = 0
+            depthBufferBits = 0,
+            msaaSamples = 1   
         };
 
         RenderingUtils.ReAllocateIfNeeded(ref hiZDepthRT, depthDesc, 

@@ -92,6 +92,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         {
             float3x3 lightMatrix = CreateLightSpaceMatrix(lightDir);
             float3 lightSpacePos = mul(lightMatrix, worldPos);
+            lightSpacePos = mul(worldPos,lightMatrix);
             return lightSpacePos;
         }
         
@@ -147,6 +148,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             cautionTotal *= _CautionScale;
             cautionTotal *= _CautionIntensity;
 
+            //return float4(float3(1,1,1)*0,1.0);
             return float4(color.xyz + cautionTotal * lightColor, 1);
         }
         

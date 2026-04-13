@@ -325,6 +325,7 @@ Shader "FluidFlux/water_ins_tess"
                 float3 tanWave : TEXCOORD11;
                 float3 bitWave : TEXCOORD12;
 
+
                 // GPU Instancing：传递实例ID到片元着色器
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
@@ -432,7 +433,7 @@ Shader "FluidFlux/water_ins_tess"
                 output.tangent = input.tangent;
                 
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
-
+                
                 return output;
             }
             // ============================================================================
@@ -695,7 +696,8 @@ Shader "FluidFlux/water_ins_tess"
                 return foam;
             }
 
-            float4 frag (v2f i) : SV_Target
+            // VFACE 语义：这个内置语义告诉我们当前片元是朝向摄像机的正面还是背面
+            float4 frag (v2f i , half facing : VFACE) : SV_Target
             {
                 
                 // GPU Instancing：在片元着色器中设置实例ID
@@ -720,6 +722,9 @@ Shader "FluidFlux/water_ins_tess"
                 Nor = normalize(float3(Nor.x,Nor.y,Nor.z)); // 根据贴图计算的法线，但是靠近海岸边的依旧用波浪的
                 Nor = lerp( i.norWS,Nor, i.norMask); // 修正法线，岸边的法线
             
+
+
+
                 // 远处的海面粗糙度增加，且要让法线更平坦一些，这样看起来才像远处的海面
                 float dist = distance(i.worldPos, _WorldSpaceCameraPos);
                 float roughnessRamp = smoothstep(10.0,70.0,dist);
@@ -729,14 +734,16 @@ Shader "FluidFlux/water_ins_tess"
 
                 // ========================= 基础数据准备 ==========================
                 float3 viewDirWS = normalize(i.viewDirWS);
+                //viewDirWS *= lerp(-1.0, 1.0, step(0,facing));
                 //float3 normal = normalize(i.norWS);
                 float3 normal = Nor;
+                normal *= lerp(-1.0, 1.0, step(0,facing));
                 float sdf = SAMPLE_TEXTURE2D(_SDFTex,sampler_SDFTex,worldUV).x;
 
                 // ========================= 菲涅尔 ===================================
                 float fresnel = FFFresnelWater(normal, viewDirWS, _FresnelF0);
                 fresnel = pow(abs(fresnel), _FresnelPower);
-                fresnel *= smoothstep(0.5,3.0,length(_WorldSpaceCameraPos - i.deformWSPos));
+                fresnel *= saturate(step(0,facing) + smoothstep(0.3,2.0,length(_WorldSpaceCameraPos - i.deformWSPos)));
                 // 屏幕UV
                 float2 screenUV = i.screenUV.xy/i.screenUV.w;
 
@@ -820,7 +827,7 @@ Shader "FluidFlux/water_ins_tess"
                     FFRayMarchConfig rmConfig = FFCreateDefaultRayMarchConfig();
                     rmConfig.stepCount = (int)_RayMarchSteps;
                     rmConfig.maxDistance = min(waterDepth, _RayMarchMaxDistance);
-                    rmConfig.usePerStepShadow = _UsePerSamPosShadow;
+                    rmConfig.usePerStepShadow = _UsePerSamPosShadow*step(0,facing);
                     
                     float3 rayDir = -viewDirWS;
                     rayDir.y = -abs(rayDir.y);
@@ -887,6 +894,7 @@ Shader "FluidFlux/water_ins_tess"
 
                 //return float4(float3(1,1,1)*fresnel,1);
                 // ==================== 环境反射 ====================
+                _EnvReflectionStrength *= lerp(3.0,1.0,step(0,facing)); // 背面环境反射更强一些，这样看起来更自然
                 float3 reflectDir = reflect(-viewDirWS, normalize(float3(normal.x*1.0,normal.y*1.0,normal.z*1.0)));
                 float3 envReflection = FFSampleEnvReflection(reflectDir, _Roughness, _EnvReflectionStrength);
                 //envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
@@ -961,7 +969,6 @@ Shader "FluidFlux/water_ins_tess"
                 fffDiff *= clamp(totalFoam* _FoamIntensity,0.0,1.0)  ;
                 float3 foamCol = _FoamColor*fffDiff;
 
-                //return float4(i.ttt,1.0);
                 
                 if(_DebugView == 0) // 最终结果
                 {

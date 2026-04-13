@@ -3,25 +3,27 @@ Shader "Custom/AdvancedVolumetricCloud"
     Properties
     {
         [Header(Environment)]
+        [Space(10)]
         _EnvPanoramic ("环境反射全景贴图",2D ) = "white" {}
         _PanoramicRotation ("全景贴图旋转角度", Range(0.0, 1.0)) = 0.0
         _SunSize ("太阳大小", Range(0.00001,0.001)) = 0.0002
 
-        [Space(15)]
-        _CloudAlpha ("云层透明度", Range(0.0, 1.0)) = 0.5
 
         [Space(15)]
         // ========== 基础参数 ==========
-        //[Header(基础参数)]
+        [Header(BasicParameters)]
+        [Space(10)]
         _PlanetRadius("行星半径(m)", Float) = 6371000.0
         _CloudLayerCenter("云层中心", Vector) = (0, 0, 0)
         _CloudBaseHeight("云底高度(m)", Float) = 2000.0
         _CloudThickness("云厚度(m)", Float) = 1000.0
         _TotalScale("整体缩放", Float) = 1.0
+        _CloudAlpha ("云层透明度", Range(0.0, 1.0)) = 0.5
         
         [Space(15)]
         // ========== 光线步进参数 ==========
-        //[Header(光线步进参数)]
+        [Header(RayMarchingParameters)]
+        [Space(10)]
         _NumViewSamples("视线采样数", Range(4, 128)) = 32
         _NumLightSamples("光照采样数", Range(1, 16)) = 8
         _StepSizeMultiplier("步长乘数", Range(0.1, 5.0)) = 1.0
@@ -29,7 +31,8 @@ Shader "Custom/AdvancedVolumetricCloud"
         
         [Space(15)]
         // ========== 云密度参数 ==========
-        //[Header(云密度参数)]
+        [Header(CloudDensityParameters)]
+        [Space(10)]
         _2Dor3DCloudTexMix("2D/3D云纹理混合", Range(0, 1)) = 1.0
         _CloudTex2D("云纹理(2D)", 2D) = "white" {}
         _CloudTex("云纹理(3D)", 3D) = "white" {}
@@ -54,14 +57,16 @@ Shader "Custom/AdvancedVolumetricCloud"
         
         [Space(15)]
         // ========== 光照参数 ==========
-        //[Header(光照参数)]
+        [Header(LightingParameters)]
+        [Space(10)]
         _SunBrightness("太阳亮度", Float) = 1.0
         _SunColor("太阳颜色", Color) = (1, 0.95, 0.9, 1)
         _SunDirection("太阳方向", Vector) = (0, 1, 0, 0)
         
         [Space(15)]
         // ========== 散射参数 ==========
-        //[Header(散射参数)]
+        [Header(ScatteringParameters)]
+        [Space(10)]
         _ExtinctionCoefficient("消光系数", Range(0.1, 10.0)) = 0.1
         _ScatteringCoefficient("散射系数", Float) = 0.8
         _Albedo("云反照率", Color) = (0.9, 0.9, 0.9, 1)
@@ -71,7 +76,8 @@ Shader "Custom/AdvancedVolumetricCloud"
         
         [Space(15)]
         // ========== 多重散射参数 ==========
-        //[Header(多重散射参数)]
+        [Header(MultipleScatteringParameters)]
+        [Space(10)]
         _MsScattFactor("多重散射衰减因子", Range(0, 1)) = 0.5
         _MsExtinFactor("多重消光衰减因子", Range(0, 1)) = 0.3
         _MsPhaseFactor("多重相位衰减因子", Range(0, 1)) = 0.7
@@ -79,7 +85,8 @@ Shader "Custom/AdvancedVolumetricCloud"
         
         [Space(15)]
         // ========== 外观参数 ==========
-        //[Header(外观参数)]
+        [Header(AppearanceParameters)]
+        [Space(10)]
         _CloudColor("云基础颜色", Color) = (1, 1, 1, 1)
         _CloudEmission("云自发光", Color) = (0, 0, 0, 1)
         _WindDirection("风向", Vector) = (1, 0, 0, 0)
@@ -88,14 +95,16 @@ Shader "Custom/AdvancedVolumetricCloud"
         
         [Space(15)]
         // ========== 调试参数 ==========
-        //[Header(调试参数)]
+        [Header(DebugParameters)]
+        [Space(10)]
         _DebugMode("调试模式", Int) = 0
         _ShowNormals("显示法线", Range(0, 1)) = 0
         _ShowDensity("显示密度", Range(0, 1)) = 0
     
         [Space(15)]
         // ========== 夜间参数 ==========
-        //[Header(夜间参数)]
+        [Header(NightParameters)]
+        [Space(10)]
         _NightBrightness("夜间亮度", Float) = 0.5
         _NightColor("夜间天顶颜色", Color) = (0.5, 0.5, 0.5, 1)
         _NightSkyLineColor("夜间天空线颜色", Color) = (0.5, 0.5, 0.5, 1)
@@ -128,7 +137,9 @@ Shader "Custom/AdvancedVolumetricCloud"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+
             #pragma multi_compile_instancing
+
             
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -610,8 +621,14 @@ Shader "Custom/AdvancedVolumetricCloud"
                     RayDir = rd;
                 #endif
 
+                // 以下用于测试
+                #if defined(_IS_SKYBOX)
+                    return float4(0, 0, 0, 1);
+                #endif
+
                 // 计算太阳高度
-                float sunHeight = smoothstep(0.0,0.01, RayDir.y);
+                float sunHeight = smoothstep(0.0,0.01, RayDir.y); // 用于剔除太靠近地平线的云
+                //sunHeight = 1.0;
                 //return float4(sunHeight*float3(1,1,1), 0);
 
                 // 采样大气层散射
@@ -624,22 +641,64 @@ Shader "Custom/AdvancedVolumetricCloud"
                 
                 // 计算射线与云层的交点
                 float2 InnerIntersect = RaySphereIntersect(RayOrigin, RayDir, 
-                                                          CloudParams.Center, CloudParams.InnerRadius);
+                                                          CloudParams.Center, CloudParams.InnerRadius); // 云的内层边界
                 float2 OuterIntersect = RaySphereIntersect(RayOrigin, RayDir, 
-                                                          CloudParams.Center, CloudParams.OuterRadius);
+                                                          CloudParams.Center, CloudParams.OuterRadius); // 云的外层边界
                 
+                
+                //// 判断射线起点位置，以及射线长度
+                // 这个云的话，要是x大于0说明在球的外部，要是小于0说明在球的内部
+                
+
+                float ces =0.0;
+                int state = 0; // 0=在云层下，1=在云层内，2=在云层外
                 // 确定步进范围
-                float EntryDist = max(0.0, InnerIntersect.y);
-                float ExitDist = OuterIntersect.y;
-                
-                if (EntryDist <= 0.0 || ExitDist <= EntryDist)
+                float EntryDist = 0.0;
+                float ExitDist = 0.0;
+                // 要是在云层下
+                if ( InnerIntersect.x < 0.0 && OuterIntersect.x < 0.0)
                 {
-                    // 无云，返回透明
-                    return float4(0, 0, 0, 0);
+                    state = 0;
+                    EntryDist = max(0.0, InnerIntersect.y);
+                    ExitDist = OuterIntersect.y;
+                    ces = OuterIntersect.y-InnerIntersect.y;
                 }
+                // 要是在云层内
+                if ( InnerIntersect.x > 0.0 && OuterIntersect.x < 0.0)
+                {
+                    state = 1;
+                    EntryDist = 0.0;
+                    ExitDist = min(InnerIntersect.x,OuterIntersect.y);
+                    sunHeight = 1.0; // 不然的话，地平线下的会被清除掉
+                    ces = min(InnerIntersect.x,OuterIntersect.y);
+                }
+                // 要是在云层上
+                if ( InnerIntersect.x > 0.0 && OuterIntersect.x < 0.0)
+                {
+                    state = 2;
+                    EntryDist = OuterIntersect.x;
+                    ExitDist = InnerIntersect.x;
+                }
+                //return float4((OuterIntersect.x-0*InnerIntersect.x)/200*float3(1,1,1), 1);
+
+                //return float4(ces/10000 * float3(1,1,1), 1);
+                // 确定步进范围
+                //float EntryDist = max(0.0, InnerIntersect.y);
+                //float ExitDist = OuterIntersect.y;
                 
+
+                //if (EntryDist <= 0.0 || ExitDist <= EntryDist)
+                //{
+                    // 无云，返回透明
+                    //return float4(0, 0, 0, 0);
+                //}
+                
+
+
                 float RayLength = ExitDist - EntryDist;
-                
+                //return float4(RayLength/100000 * float3(1,1,1), 1);
+
+
                 // 蓝噪声抖动
                 float BlueNoise = SAMPLE_TEXTURE2D(_BlueNoise, sampler_BlueNoise, (i.screenUV.xy/i.screenUV.w) * 3.0).r;
                 float Dither = (BlueNoise - 0.5) * 2.0;
@@ -647,6 +706,11 @@ Shader "Custom/AdvancedVolumetricCloud"
                 // 步进设置
                 int NumSamples = int(_NumViewSamples);
                 float StepSize = RayLength / float(NumSamples) * _StepSizeMultiplier;
+
+                if (state == 1)
+                {
+                    StepSize = min(StepSize*0.0001, 10.0);
+                }
                 
                 // 初始化相位函数
                 float CosTheta = dot(RayDir, SunDir);
@@ -723,7 +787,7 @@ Shader "Custom/AdvancedVolumetricCloud"
                     // 自适应步长
                     StepSize = lerp(StepSize*1.0, StepSize * 0.05, Density);
                     // 步进
-                    CurrentDist += StepSize + StepSize * Dither * 0.2;
+                    CurrentDist += StepSize ;//+ StepSize * Dither * 0.2;
                     
                     // 提前终止
                     if (TotalTransmittance < 0.01)
@@ -766,13 +830,11 @@ Shader "Custom/AdvancedVolumetricCloud"
                     return float4(TotalTransmittance, TotalTransmittance, TotalTransmittance, 1.0);
                 }
                 
+                //return float4(FinalColor, 1.0);
                 // 正常输出
                 //return float4(float3(1,1,1),1);
                 //return float4(FinalColor, 1.0 - TotalTransmittance);
                 
-                #ifndef IS_SKYBOX
-                    return float4(FinalColor.r,TotalTransmittance,0.0, 1.0);
-                #endif
 
                 // 混合颜色
                 float3 nightColor = _NightBrightness * lerp( _NightSkyLineColor.rgb,_NightColor.rgb,pow(abs(RayDir.y),0.5));

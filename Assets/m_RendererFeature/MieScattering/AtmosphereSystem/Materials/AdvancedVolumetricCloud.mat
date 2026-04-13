@@ -12,7 +12,10 @@ Material:
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
-  m_InvalidKeywords: []
+  m_InvalidKeywords:
+  - MIS_SKYBOX_ON
+  - _ISSKYBOX_ON
+  - _IS_SKYBOX_ON
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
@@ -61,16 +64,17 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - MIS_SKYBOX: 1
     - _2Dor3DCloudTexMix: 0
     - _Altitude: 0
     - _CES: 0.034
-    - _CloudAlpha: 0.585
+    - _CloudAlpha: 0.5
     - _CloudBaseHeight: 2000
     - _CloudBottomRadius: 6361000
     - _CloudDensityMultiplier: 0.03
     - _CloudDensityOffset: 0
     - _CloudDensityScale: 0.001
-    - _CloudDensityThreshold: 0.499
+    - _CloudDensityThreshold: 0.477
     - _CloudDetailMix: 1
     - _CloudDetailSharpness: 0.494
     - _CloudDetailThreshold: 0
@@ -88,7 +92,9 @@ Material:
     - _DetailStrength: 0.263
     - _EmptySpaceSkipThreshold: 0.001
     - _ExtinctionCoefficient: 0.68
+    - _IS_SKYBOX: 1
     - _InvDistanceToSampleCountMax: 0.00001
+    - _IsSkybox: 1
     - _LODDistance: 100000
     - _LODFactor: 0.5
     - _MaxScatteringOrder: 2
@@ -117,7 +123,7 @@ Material:
     - _SunBrightness: 1
     - _SunIntensity: 1
     - _SunSize: 0.000185
-    - _TimeScale: 5
+    - _TimeScale: 20
     - _TotalScale: 1
     - _TracingMaxDistance: 100000
     - _TracingStartDistance: 0
@@ -134,6 +140,6 @@ Material:
     - _NightSkyLineColor: {r: 0.18238991, g: 0.16460976, b: 0.16460976, a: 1}
     - _SkyLightColor: {r: 0.5, g: 0.6, b: 0.8, a: 1}
     - _SunColor: {r: 1, g: 0.95, b: 0.9, a: 1}
-    - _SunDirection: {r: -0, g: 0.019546526, b: -0.99980897, a: 0}
+    - _SunDirection: {r: -0, g: 0.07027874, b: -0.9975274, a: 0}
     - _WindDirection: {r: 1, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []

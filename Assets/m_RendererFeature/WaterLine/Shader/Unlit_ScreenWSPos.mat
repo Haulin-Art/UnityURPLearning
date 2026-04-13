@@ -38,15 +38,15 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _AbsorptionScale: 4.7
+    - _AbsorptionScale: 5.78
     - _DepthScale: 39.4
     - _PhaseG: 0.7
-    - _RayMarchIntensity: 0.79
+    - _RayMarchIntensity: 2.72
     - _RayMarchMaxDistance: 5
     - _RayMarchSteps: 6
-    - _RefractionBlurEnd: 5
+    - _RefractionBlurEnd: 7
     - _RefractionBlurStart: 0.3
-    - _RefractionBlurStrength: 4.74
+    - _RefractionBlurStrength: 3.01
     - _Thickness: 10.9
     - _Tile06: 0
     - _Tile07: 0
@@ -54,6 +54,6 @@ Material:
     - _UsePerSamPosShadow: 1
     m_Colors:
     - _AbsorptionColor: {r: 1, g: 0.7019608, b: 0.7019608, a: 1}
-    - _BSDFAbsorptionColor: {r: 0.7058824, g: 0.5764706, b: 0.6, a: 1}
-    - _ScatterColor: {r: 0.28235295, g: 0.5647059, b: 0.89411765, a: 1}
+    - _BSDFAbsorptionColor: {r: 0.6415094, g: 0.48617533, b: 0.5746796, a: 1}
+    - _ScatterColor: {r: 0.13818665, g: 0.51646036, b: 0.8616352, a: 1}
   m_BuildTextureStacks: []

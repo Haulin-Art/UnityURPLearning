@@ -8,6 +8,7 @@ public class WaterLineFeature : ScriptableRendererFeature
 {
     public RenderPassEvent renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing; // 定义执行的时机
     public Material featureMaterial; // 定义使用的Pass的材质
+    public Material CautionMaterial; // 焦散处理材质
     public Material WaterSurfaceHeightMaterial; // 定义使用的Pass的材质
     public float heightOffset = 0.97f; // 水线高度偏移
     public float CES = 0.0f;
@@ -21,6 +22,7 @@ public class WaterLineFeature : ScriptableRendererFeature
         m_ScriptablePass = new WaterLineFeaturePass();
         // 将可编程RendererFeature中的值传递给执行者
         m_ScriptablePass.material = featureMaterial;
+        m_ScriptablePass.cautionMat = CautionMaterial;
         m_ScriptablePass.WaterSurfaceHeightMaterial = WaterSurfaceHeightMaterial;
         m_ScriptablePass.heightOffset = heightOffset;
         m_ScriptablePass.CES = CES;
@@ -50,11 +52,14 @@ public class WaterLineFeature : ScriptableRendererFeature
         RTHandle _tempDepthRT;
         RTHandle _dropProcessRT;
 
+        RTHandle _mipmapSceneRT;
+
         int shaderID = Shader.PropertyToID("_Temp_RT"); // 定义用于申请临时RT的ID，其实就是把字符串换成id的形式表达，效率更高
         int heightShaderID = Shader.PropertyToID("_WaterSurfaceHeightRT");
 
 
         public Material material;
+        public Material cautionMat;
         public Material WaterSurfaceHeightMaterial;
         public float heightOffset;
         //public 
@@ -133,6 +138,11 @@ public class WaterLineFeature : ScriptableRendererFeature
             RenderingUtils.ReAllocateIfNeeded(ref _dropProcessRT,
                 descriptor,  // 使用ARGB32而不是默认格式
                 FilterMode.Bilinear);
+
+
+            RenderingUtils.ReAllocateIfNeeded(ref _mipmapSceneRT,
+                descriptor,  // 使用ARGB32而不是默认格式
+                FilterMode.Bilinear);
         }
 
         // 具体渲染逻辑代码
@@ -166,8 +176,7 @@ public class WaterLineFeature : ScriptableRendererFeature
                 //Vector2 centerPos = new Vector2(renderingData.cameraData.camera.transform.position.x,renderingData.cameraData.camera.transform.position.z);
                 Vector2 centerPos = new Vector2(
                 Mathf.Floor(renderingData.cameraData.camera.transform.position.x/0.5f)*0.5f,
-                Mathf.Floor(renderingData.cameraData.camera.transform.position.z/0.5f)*0.5f
-            );
+                Mathf.Floor(renderingData.cameraData.camera.transform.position.z/0.5f)*0.5f);
                 
                 // V矩阵
                 Matrix4x4 vMatrix = Matrix4x4.TRS(
@@ -242,6 +251,18 @@ public class WaterLineFeature : ScriptableRendererFeature
 
                 //cmd.Blit(_cameraColorTgt.nameID,_dropProcessRT); // 吃水线以及水下效果
                 //cmd.GenerateMips(_dropProcessRT); // 生成Mipmap，供水珠效果使用
+                
+                // 给当前场景生成mipmap链，并且焦散处理
+                if (cautionMat == null)
+                {
+                    cmd.Blit(_cameraColorTgt.nameID,_mipmapSceneRT);
+                }else
+                {
+                    cmd.Blit(_cameraColorTgt.nameID,_mipmapSceneRT,cautionMat,0);
+                }
+                cmd.GenerateMips(_mipmapSceneRT);
+                material.SetTexture("_ScreenMipMapRT2",_mipmapSceneRT);
+
 
                 cmd.Blit(_cameraColorTgt.nameID,shaderID,material,0); // 吃水线以及水下效果
                 cmd.Blit(shaderID, _cameraColorTgt.nameID);

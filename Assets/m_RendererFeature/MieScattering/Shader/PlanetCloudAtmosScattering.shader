@@ -625,6 +625,7 @@ Shader "PostProcessing/PlanetCloudAtmosScattering"
             vfx01 *= 15.0*step(0.47,vfxMask/40)*step(0,cinter2.x);
             vfx01 *= 0;
 
+            return float4(atmosScattering,1);
 
             //float4 volume1 = SAMPLE_TEXTURE3D(_CloudSDFVolume,sampler_CloudSDFVolume,planetPos/10);
             //float4 volume2 = SAMPLE_TEXTURE3D(_CloudVoulumeTex,sampler_CloudVoulumeTex,planetPos/2);

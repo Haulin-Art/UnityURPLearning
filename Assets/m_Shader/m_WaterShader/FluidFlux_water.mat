@@ -86,7 +86,7 @@ Material:
     - _CES: 3.03
     - _DebugView: 0
     - _DepthScale: 1
-    - _EnvReflectionStrength: 1
+    - _EnvReflectionStrength: 2
     - _FoamIntensity: 0
     - _FoamNorScale: 0.33
     - _FresnelF0: 0.1

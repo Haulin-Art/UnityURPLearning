@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: Mi_AtmosScattering
-  m_Shader: {fileID: 4800000, guid: 058cb433b70d40e489b4e2a63caa22c9, type: 3}
+  m_Shader: {fileID: 4800000, guid: f607150280242124eb735e2a8278056f, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -94,7 +94,7 @@ Material:
     - _AtmosphereHeight: 100000
     - _Brightness: 15
     - _MieExtinction: 0.00002
-    - _MieG: 0.68
+    - _MieG: 0.614
     - _MieScaleHeight: 1200
     - _MieScattering: 0.00002
     - _NumSamples: 24

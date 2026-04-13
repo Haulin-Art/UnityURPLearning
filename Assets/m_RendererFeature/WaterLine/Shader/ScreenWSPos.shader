@@ -65,6 +65,8 @@ Shader "Unlit/ScreenWSPos"
 
             // 自定义的带有Mipmap的屏幕不透明物体纹理
             TEXTURE2D(_ScreenMipMapRT);SAMPLER(sampler_ScreenMipMapRT); // 只用这个实现伪前向散射模糊效果
+            TEXTURE2D(_ScreenMipMapRT2);SAMPLER(sampler_ScreenMipMapRT2);
+
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST;
@@ -115,6 +117,80 @@ Shader "Unlit/ScreenWSPos"
                 float3 worldPos : TEXCOORD2;
             };
 
+
+            
+            float3 m_FFRayMarchVolumeScattering(
+                float3 rayOrigin,
+                float3 rayDirection,
+                float maxDistance,
+                float3 extinctionCoeff,
+                float3 scatterAlbedo,
+                float3 lightDir,
+                float3 viewDir,
+                float3 lightColor,
+                float phaseG,
+                float shadowValue,
+                FFRayMarchConfig config)
+            {
+                // 初始化累积变量
+                float3 totalScatter = 0;            // 总散射
+                float3 accumulatedTransmittance = 1; // 累积透射率，初始为1（无衰减）
+
+                // 计算抖动值，消除带状伪影
+                // 使用屏幕位置和时间作为随机种子
+                float dither = FFSampleDither(rayOrigin.xy, _Time.y) * config.jitterStrength;
+
+                // 预计算相位函数参数
+                // cosTheta = cos(视线方向与光线方向的夹角)
+                float cosTheta = FFComputePhaseCosTheta(viewDir, lightDir);
+
+                // 步进循环
+                [loop]
+                for (int i = 0; i < config.stepCount; i++)
+                {
+                    // 计算归一化参数t，加入抖动偏移
+                    float t = (float(i) + dither) / float(config.stepCount);
+
+                    // 计算当前位置的归一化距离（指数分布）
+                    float normalizedDistance = FFGetExponentialStepPosition(t, config.expFactor, config.stepCount);
+                    float currentDistance = normalizedDistance * maxDistance;
+
+                    // 计算当前步长
+                    float stepSize = FFGetExponentialStepSize(t, config.expFactor, config.stepCount, maxDistance);
+
+                    // 计算当前步进点的世界坐标
+                    float3 currentWorldPos = rayOrigin + rayDirection * currentDistance;
+
+                    // 计算当前步的阴影值
+                    float currentShadow = shadowValue;
+                    if (config.usePerStepShadow)
+                    {
+                        currentShadow = 1.0 - FFSampleShadowAtPositionFast(currentWorldPos);
+                        //currentShadow = 1.0 - FFSampleShadowAtPosition(currentWorldPos);
+                    }
+
+                    // 计算当前步的透射率
+                    float3 stepTransmittance = exp(-extinctionCoeff * stepSize);
+
+                    // 计算相位函数值
+                    float phaseValue = FFWaterPhaseFunctionFast(phaseG, cosTheta);
+
+                    // 计算消光因子和散射贡献
+                    float3 extinctionFactor = 1.0 - stepTransmittance;
+                    float3 scatterContribution = lightColor * extinctionFactor * scatterAlbedo * phaseValue * (1.0 - currentShadow);
+
+                    // 累积散射
+                    totalScatter += scatterContribution * accumulatedTransmittance;
+
+                    // 更新累积透射率
+                    accumulatedTransmittance *= stepTransmittance;
+                }
+
+                return totalScatter;
+            }
+
+
+
             v2f vert (appdata v)
             {
                 v2f o;
@@ -127,6 +203,7 @@ Shader "Unlit/ScreenWSPos"
                 o.worldPos = TransformObjectToWorld(v.vertex);
                 return o;
             }
+
 
             float4 frag (v2f i) : SV_Target
             {
@@ -164,7 +241,7 @@ Shader "Unlit/ScreenWSPos"
                 //return float4(float3(1,1,1)*smoothstep(ScreenWorldPos.y+0.03,ScreenWorldPos.y+0.07,height),1);
 
 
-                float3 sceneColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, ScreenUV);
+                float3 sceneColor = SAMPLE_TEXTURE2D_LOD(_MainTex, sampler_MainTex, ScreenUV,5.0);
                 float3 hei = SAMPLE_TEXTURE2D(_HeightTex, sampler_HeightTex, ScreenUV);
                 
                 float zzz = step(length(ScreenWorldPos-hei),0.0002);
@@ -176,15 +253,21 @@ Shader "Unlit/ScreenWSPos"
                 float depth = SAMPLE_TEXTURE2D(_CameraDepthTexture, sampler_CameraDepthTexture, ScreenUV).r;
                 float linearDepth = LinearEyeDepth(depth, _ZBufferParams);
 
+
+                float planeT = (1.2-cameraPos.y) / rd.y; // 到达水平面的距离
+                planeT = max(planeT, 0); // 确保不为负数
+                planeT += 100000000*step(planeT,0); // 没有相交的地方设置为极大数
                 //float
+                float waterDepth = min(linearDepth,planeT);
 
                 float mipmapDepRamp = smoothstep(_RefractionBlurStart, _RefractionBlurEnd, linearDepth);
-                float3 mipmapScreenColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT, sampler_ScreenMipMapRT, ScreenUV, mipmapDepRamp*_RefractionBlurStrength).rgb;
+                //float3 mipmapScreenColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT, sampler_ScreenMipMapRT, ScreenUV, mipmapDepRamp*_RefractionBlurStrength).rgb;
+                float3 newMipScene = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT2,sampler_ScreenMipMapRT2, ScreenUV,mipmapDepRamp*_RefractionBlurStrength);
                 // 根据水深应用水的吸收效果
-                float3 refractionColor = FFApplyWaterAbsorption(mipmapScreenColor, smoothstep(0.0, 5.0, linearDepth)*_AbsorptionScale, _AbsorptionColor);
+                float3 refractionColor = FFApplyWaterAbsorption(newMipScene, smoothstep(0.0, 5.0, waterDepth)*_AbsorptionScale, _AbsorptionColor);
                 
-                
-                //return float4(refractionColor,1);
+                //float3 newMipScene = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT2,sampler_ScreenMipMapRT2, ScreenUV,3.0);
+                //return float4(newMipScene,1);
 
 
                 // 获取太阳方向
@@ -192,10 +275,13 @@ Shader "Unlit/ScreenWSPos"
                 float3 SunDir = normalize(mainLight.direction);
                 float3 SunColor = mainLight.color;
 
-                float waterDepth = linearDepth;
+
+                
+
+                
                 float _FresnelF0 = 0.02;
 
-
+                //return float4(float3(1,1,1)*waterDepth/10,1);
                 // 计算消光系数和散射反照率
                 float3 extinctionCoeff = _ScatterColor + _BSDFAbsorptionColor;
                 float3 scatterAlbedo = _ScatterColor / max(extinctionCoeff, 1e-6);

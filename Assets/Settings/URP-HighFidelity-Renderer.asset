@@ -30,6 +30,7 @@ MonoBehaviour:
   m_Active: 1
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: cd1aa1b9b04106149a49df274ef36a7e, type: 2}
+  CautionMaterial: {fileID: 2100000, guid: c786bdecd4e74ce479d6e12aff9e9ee5, type: 2}
   WaterSurfaceHeightMaterial: {fileID: 2100000, guid: 5350d0455a3e56740b1235c35c5e6701,
     type: 2}
   heightOffset: 0.97
@@ -73,7 +74,7 @@ MonoBehaviour:
   m_Name: MieScatteringFeature
   m_EditorClassIdentifier: 
   m_Active: 0
-  renderPassEvent: 300
+  renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: c0be4d37c89af5f4f876513a67de283b, type: 2}
 --- !u!114 &-6080455395541124650
 MonoBehaviour:
@@ -88,7 +89,7 @@ MonoBehaviour:
   m_Name: HiZGenerationFeature
   m_EditorClassIdentifier: 
   m_Active: 0
-  downsampleLevel: 4
+  downsampleLevel: 2
   maxMipCount: 5
   depthFormat: 14
   filterMode: 0
@@ -96,7 +97,7 @@ MonoBehaviour:
   renderPassEvent: 500
   hiZComputeShader: {fileID: 7200000, guid: 24ddb3ed404f31d459a34b04600a5712, type: 3}
   debugMaterial: {fileID: 2100000, guid: 6f86a367394f1cd40af1b918f566b441, type: 2}
-  debugStep: 2
+  debugStep: 0
   debugMipLevel: 0
 --- !u!114 &-2947568646573396506
 MonoBehaviour:
@@ -292,7 +293,7 @@ MonoBehaviour:
     highlightShapeSource: {fileID: 2800000, guid: 9d38f2888107b6a42a046d54d0077d5d,
       type: 3}
     highlightShapeScale: {x: 3, y: 3}
-    aspectRatio: 1.7777778
+    aspectRatio: 1.7771966
     highlightKernelFrequencyRT: {fileID: 0}
     needUpdateHighlightKernel: 0
     intensity: 0.33
