@@ -467,10 +467,12 @@ float3 FFRayMarchVolumeScattering(
 // 函数重载版本，支持自定义的丁达尔阴影
 struct TindalShadowData
 {
-    sampler2D tindalShadowTex;
-    float4x4 tindalShadowMatrix;
+    
+    //sampler3D tindalShadowTex;
+    float3x3 tindalShadowMatrix;
     bool valueFlip;
     float tindalShadowStrength;
+    float speed;
 };
 
 float3 FFRayMarchVolumeScattering(
@@ -485,7 +487,8 @@ float3 FFRayMarchVolumeScattering(
     float phaseG,
     float shadowValue,
     FFRayMarchConfig config,
-    TindalShadowData tindalShadowData)
+    TindalShadowData tindalShadowData,
+    TEXTURE3D_PARAM(tindalShadowTex, sampler_tindalShadowTex))
 {
     // 初始化累积变量
     float3 totalScatter = 0;            // 总散射
@@ -526,12 +529,13 @@ float3 FFRayMarchVolumeScattering(
         
         // 丁达尔阴影值
         float3 tindalPos = mul(tindalShadowData.tindalShadowMatrix, float4(currentWorldPos, 1.0)).xyz;
-        float tindalShadow = tex2D(tindalShadowData.tindalShadowTex, tindalPos.xy).r;
+        //tindalPos = currentWorldPos;
+        float tindalShadow = SAMPLE_TEXTURE3D(tindalShadowTex, sampler_tindalShadowTex, float3(tindalPos.xy/2.0,frac(_Time.y * tindalShadowData.speed))).r;
         tindalShadow = tindalShadowData.valueFlip ? (1.0 - tindalShadow) : tindalShadow;
-        tindalShadow = lerp(1.0, tindalShadow, tindalShadowData.tindalShadowStrength);
+        tindalShadow = 1.0-lerp(1.0, smoothstep(0.2,0.5,tindalShadow), tindalShadowData.tindalShadowStrength);
         
         // 混合传统阴影和丁达尔阴影，取较暗的值
-        currentShadow = min(currentShadow, tindalShadow);
+        currentShadow = max(currentShadow, tindalShadow);
 
         
         // 计算当前步的透射率
@@ -542,10 +546,13 @@ float3 FFRayMarchVolumeScattering(
         
         // 计算消光因子和散射贡献
         float3 extinctionFactor = 1.0 - stepTransmittance;
-        float3 scatterContribution = lightColor * extinctionFactor * scatterAlbedo * phaseValue * (1.0 - currentShadow);
+        float3 scatterContribution = lightColor * extinctionFactor * scatterAlbedo * phaseValue * 
+                                (1.0 - currentShadow)
+                                ;//* (1.0 + tindalShadow * 0.2);
         
         // 累积散射
         totalScatter += scatterContribution * accumulatedTransmittance;
+        //totalScatter += tindalShadow * accumulatedTransmittance;
         
         // 更新累积透射率
         accumulatedTransmittance *= stepTransmittance;

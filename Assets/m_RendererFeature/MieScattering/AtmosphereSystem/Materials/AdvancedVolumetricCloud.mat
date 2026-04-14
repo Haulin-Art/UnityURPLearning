@@ -83,7 +83,7 @@ Material:
     - _CloudExtinctionCoeff: 0.05
     - _CloudPhaseG: 0.8
     - _CloudScatterCoeff: 1
-    - _CloudThickness: 2000
+    - _CloudThickness: 1500
     - _CloudTiling: 5
     - _CloudTopRadius: 6363000
     - _DebugMode: 0

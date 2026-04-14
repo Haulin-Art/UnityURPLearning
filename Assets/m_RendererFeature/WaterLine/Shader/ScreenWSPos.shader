@@ -29,7 +29,7 @@ Shader "Unlit/ScreenWSPos"
         //[Header("光线步进设置")]
         [Space(15)]
         _Tile07 ("================= 光线步进散射 ========================",Float) = 0.0 
-        _TindalShadowTex ("丁达尔阴影纹理", 2D) = "white" {}
+        _TindalShadowTex ("丁达尔阴影纹理", 3D) = "white" {}
         //[Toggle(_USE_RAY_MARCHING)] _UseRayMarching ("启用光线步进", Float) = 0
         _RayMarchSteps ("步进次数", Range(1, 16)) = 6
         _RayMarchIntensity ("步进强度", Range(0.0, 10.0)) = 2.71
@@ -66,9 +66,12 @@ Shader "Unlit/ScreenWSPos"
 
             // 自定义的带有Mipmap的屏幕不透明物体纹理
             TEXTURE2D(_ScreenMipMapRT);SAMPLER(sampler_ScreenMipMapRT); // 只用这个实现伪前向散射模糊效果
-            TEXTURE2D(_ScreenMipMapRT2);SAMPLER(sampler_ScreenMipMapRT2);
+            TEXTURE2D(_ScreenMipMapRT2);SAMPLER(sampler_ScreenMipMapRT2); // 用这个再次实现的生成更恰当的模糊
 
-            TEXTURE2D(TindalShadowTex);SAMPLER(sampler_TindalShadowTex);
+            // 但前帧的吃水线Mask，包含吃水线和水下部分的遮罩
+            TEXTURE2D(_WaterLineMaskRT);SAMPLER(sampler_WaterLineMaskRT);
+
+            TEXTURE3D(_TindalShadowTex);SAMPLER(sampler_TindalShadowTex);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST;
@@ -104,6 +107,8 @@ Shader "Unlit/ScreenWSPos"
         Pass
         {
             HLSLPROGRAM
+
+            #define _USE_TINDAL_SHADOW
 
             struct appdata
             {
@@ -191,7 +196,15 @@ Shader "Unlit/ScreenWSPos"
                 return totalScatter;
             }
 
-
+            // 获取灯光矩阵
+            float3x3 CreateLightSpaceMatrix(float3 lightDir)
+            {
+                lightDir = normalize(lightDir);
+                float3 up = abs(lightDir.y) < 0.999 ? float3(0, 1, 0) : float3(0, 0, 1);
+                float3 right = normalize(cross(up, lightDir));
+                float3 forward = normalize(cross( lightDir,right));
+                return float3x3(right, forward, lightDir);
+            }
 
             v2f vert (appdata v)
             {
@@ -219,37 +232,34 @@ Shader "Unlit/ScreenWSPos"
                     lerp(_NearPlaneCornersTL, _NearPlaneCornersTR, ScreenUV.x),
                     ScreenUV.y
                 );
-                float3 nearPlaneCenter = (_NearPlaneCornersTL + _NearPlaneCornersTR + _NearPlaneCornersBL + _NearPlaneCornersBR) / 4.0;
+                //float3 nearPlaneCenter = (_NearPlaneCornersTL + _NearPlaneCornersTR + _NearPlaneCornersBL + _NearPlaneCornersBR) / 4.0;
                 float3 cameraPos = _WorldSpaceCameraPos;
-
+                float3 rd = normalize(ScreenWorldPos - cameraPos);
+                /*
                 float4 touying = mul(_VPMatrix, float4(ScreenWorldPos,1));
                 float2 zz = (touying.xy / touying.w)/2.0 + 0.5;
                 float height = SAMPLE_TEXTURE2D(_HeightTex, sampler_HeightTex, zz).r;
-
-                float3 rd = normalize(ScreenWorldPos - cameraPos);
 
                 float thickness = 0.003;float shixin = thickness - 0.0015;
                 float shuixia = step(ScreenWorldPos.y,height);
                 float waterline = smoothstep(height-thickness,height-shixin,ScreenWorldPos.y)*
                     (1.0-smoothstep(height+shixin,height+thickness,ScreenWorldPos.y));
-
+                */
+                float2 waterLineMask = SAMPLE_TEXTURE2D(_WaterLineMaskRT, sampler_WaterLineMaskRT, ScreenUV).rg;
+                float shuixia = waterLineMask.g;
+                float waterline = waterLineMask.r;
                 // ==================== 静态水珠,偏移采样 ==================================
-                float3 dropNormal = SAMPLE_TEXTURE2D_LOD(_DropNormalTex, sampler_DropNormalTex, ScreenUV,0).rgb * 2.0 - 1.0;
-                float dropMask = (1.0-shuixia)*smoothstep(1.0,0.8,ScreenUV.y);
+                //float3 dropNormal = SAMPLE_TEXTURE2D_LOD(_DropNormalTex, sampler_DropNormalTex, ScreenUV,0).rgb * 2.0 - 1.0;
+                //float dropMask = (1.0-shuixia)*smoothstep(1.0,0.8,ScreenUV.y);
                 //ScreenUV += (dropNormal.xz * 0.08)* dropMask;
                 ScreenUV = saturate(ScreenUV); 
-                
-                //return float4(float3(1,1,1)*(dropMask+waterline),1.0);
-                //return float4(float3(1,1,1)*smoothstep(ScreenWorldPos.y+0.03,ScreenWorldPos.y+0.07,height),1);
 
-
+                // 采样场景颜色
                 float3 sceneColor = SAMPLE_TEXTURE2D_LOD(_MainTex, sampler_MainTex, ScreenUV,5.0);
-                float3 hei = SAMPLE_TEXTURE2D(_HeightTex, sampler_HeightTex, ScreenUV);
                 
-                float zzz = step(length(ScreenWorldPos-hei),0.0002);
-                
-
-
+                // 屏幕边缘
+                //float edgeMask = smoothstep(0.05, 0.0, min(ScreenUV.x, min(ScreenUV.y, min(1.0 - ScreenUV.x, 1.0 - ScreenUV.y))));
+                //return float4(edgeMask,edgeMask,edgeMask,1);
 
                 // 采样深度
                 float depth = SAMPLE_TEXTURE2D(_CameraDepthTexture, sampler_CameraDepthTexture, ScreenUV).r;
@@ -262,7 +272,7 @@ Shader "Unlit/ScreenWSPos"
                 //float
                 float waterDepth = min(linearDepth,planeT);
 
-                float mipmapDepRamp = smoothstep(_RefractionBlurStart, _RefractionBlurEnd, linearDepth);
+                float mipmapDepRamp = smoothstep(_RefractionBlurStart, _RefractionBlurEnd, linearDepth); // 模糊深度权重，靠近边缘增加模糊，避免边缘处突兀
                 //float3 mipmapScreenColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT, sampler_ScreenMipMapRT, ScreenUV, mipmapDepRamp*_RefractionBlurStrength).rgb;
                 float3 newMipScene = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT2,sampler_ScreenMipMapRT2, ScreenUV,mipmapDepRamp*_RefractionBlurStrength);
                 // 根据水深应用水的吸收效果
@@ -320,16 +330,17 @@ Shader "Unlit/ScreenWSPos"
                     float4x4 lightMatrix = _MainLightWorldToShadow[4];
                     // 丁达尔阴影数据
                     TindalShadowData tindalShadowData;
-                    tindalShadowData.tindalShadowTex = _TindalShadowTex;
-                    tindalShadowData.tindalShadowMatrix = lightMatrix;
+                    tindalShadowData.tindalShadowMatrix = CreateLightSpaceMatrix(SunDir); // 传递灯光矩阵
                     tindalShadowData.valueFlip = false; // 根据需要翻转阴影值
-                    tindalShadowData.tindalShadowStrength = 0.5; // 根据需要
+                    tindalShadowData.tindalShadowStrength = 0.5; // 丁达尔阴影强度
+                    tindalShadowData.speed = 0.5; // 丁达尔阴影动画速度
                     // 使用带有丁达尔阴影的函数重载版本
                     bsdfScattering = FFRayMarchVolumeScattering(
                         ScreenWorldPos, rayDir, rmConfig.maxDistance,
                         extinctionCoeff, scatterAlbedo,
                         SunDir, -rd, SunColor,
-                        _PhaseG, 0.0, rmConfig , tindalShadowData
+                        _PhaseG, 0.0, rmConfig , tindalShadowData,
+                        TEXTURE3D_ARGS(_TindalShadowTex, sampler_TindalShadowTex)
                     );
                 #endif
 
@@ -365,7 +376,7 @@ Shader "Unlit/ScreenWSPos"
             ENDHLSL
         }
 
-        // 屏幕后处理，给画面增加水滴模糊
+        // 获取屏幕的吃水线遮罩Mask
         Pass
         {
             HLSLPROGRAM
@@ -399,16 +410,99 @@ Shader "Unlit/ScreenWSPos"
 
             float4 frag (v2f i) : SV_Target
             {
+                // 平面UV坐标
                 float2 ScreenUV = i.screenPos.xy / i.screenPos.w;
-                float3 dropNormal = SAMPLE_TEXTURE2D_LOD(_DropNormalTex, sampler_DropNormalTex, ScreenUV,0).rgb * 2.0 - 1.0;
-                ScreenUV -= dropNormal.xz * 0.05;
+                //#if UNITY_UV_STARTS_AT_TOP
+                //    ScreenUV.y = 1.0 - ScreenUV.y;
+                //#endif
+                float3 ScreenWorldPos = lerp(
+                    lerp(_NearPlaneCornersBL, _NearPlaneCornersBR, ScreenUV.x),
+                    lerp(_NearPlaneCornersTL, _NearPlaneCornersTR, ScreenUV.x),
+                    ScreenUV.y
+                );
+                float3 nearPlaneCenter = (_NearPlaneCornersTL + _NearPlaneCornersTR + _NearPlaneCornersBL + _NearPlaneCornersBR) / 4.0;
+                float3 cameraPos = _WorldSpaceCameraPos;
 
-                float3 sceneColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, ScreenUV);
+                float4 touying = mul(_VPMatrix, float4(ScreenWorldPos,1));
+                float2 zz = (touying.xy / touying.w)/2.0 + 0.5;
+                float height = SAMPLE_TEXTURE2D(_HeightTex, sampler_HeightTex, zz).r;
+
+                float3 rd = normalize(ScreenWorldPos - cameraPos);
+
+                float thickness = 0.005;float shixin = thickness - 0.0025;
+                float shuixia = step(ScreenWorldPos.y,height);
+                float waterline = smoothstep(height-thickness,height-shixin,ScreenWorldPos.y)*
+                    (1.0-smoothstep(height+shixin,height+thickness,ScreenWorldPos.y));
 
 
-                return float4(sceneColor,1);
+                return float4(waterline,shuixia,0,1);
             }
             ENDHLSL
         }
+
+        // 混合多帧的吃水线Mask，得到屏幕湿润区域
+        Pass
+        {
+            HLSLPROGRAM
+
+            struct appdata
+            {
+                float4 vertex : POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            struct v2f
+            {
+                float2 uv : TEXCOORD0;
+                float4 vertex : SV_POSITION;
+                float4 screenPos : TEXCOORD1;
+                float3 worldPos : TEXCOORD2;
+            };
+
+            v2f vert (appdata v)
+            {
+                v2f o;
+                o.vertex = TransformObjectToHClip(v.vertex);
+                o.uv = v.uv;
+                
+                // 计算屏幕空间位置
+                o.screenPos = ComputeScreenPos(o.vertex);
+
+                o.worldPos = TransformObjectToWorld(v.vertex);
+                return o;
+            }
+
+            float4 frag (v2f i) : SV_Target
+            {
+                // 平面UV坐标
+                float2 ScreenUV = i.screenPos.xy / i.screenPos.w;
+                //#if UNITY_UV_STARTS_AT_TOP
+                //    ScreenUV.y = 1.0 - ScreenUV.y;
+                //#endif
+                float3 ScreenWorldPos = lerp(
+                    lerp(_NearPlaneCornersBL, _NearPlaneCornersBR, ScreenUV.x),
+                    lerp(_NearPlaneCornersTL, _NearPlaneCornersTR, ScreenUV.x),
+                    ScreenUV.y
+                );
+                float3 nearPlaneCenter = (_NearPlaneCornersTL + _NearPlaneCornersTR + _NearPlaneCornersBL + _NearPlaneCornersBR) / 4.0;
+                float3 cameraPos = _WorldSpaceCameraPos;
+
+                float4 touying = mul(_VPMatrix, float4(ScreenWorldPos,1));
+                float2 zz = (touying.xy / touying.w)/2.0 + 0.5;
+                float height = SAMPLE_TEXTURE2D(_HeightTex, sampler_HeightTex, zz).r;
+
+                float3 rd = normalize(ScreenWorldPos - cameraPos);
+
+                float thickness = 0.005;float shixin = thickness - 0.0025;
+                float shuixia = step(ScreenWorldPos.y,height);
+                float waterline = smoothstep(height-thickness,height-shixin,ScreenWorldPos.y)*
+                    (1.0-smoothstep(height+shixin,height+thickness,ScreenWorldPos.y));
+
+
+                return float4(waterline,shuixia,0,1);
+            }
+            ENDHLSL
+        }
+
     }
 }

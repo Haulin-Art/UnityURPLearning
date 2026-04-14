@@ -82,9 +82,10 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         
         float3x3 CreateLightSpaceMatrix(float3 lightDir)
         {
-            float3 up = abs(lightDir.y) < 0.999 ? float3(0, 1, 0) : float3(1, 0, 0);
+            lightDir = normalize(lightDir);
+            float3 up = abs(lightDir.y) < 0.999 ? float3(0, 1, 0) : float3(0, 0, 1);
             float3 right = normalize(cross(up, lightDir));
-            float3 forward = normalize(cross(lightDir, right));
+            float3 forward = normalize(cross( lightDir,right));
             return float3x3(right, forward, lightDir);
         }
         
@@ -92,7 +93,6 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         {
             float3x3 lightMatrix = CreateLightSpaceMatrix(lightDir);
             float3 lightSpacePos = mul(lightMatrix, worldPos);
-            lightSpacePos = mul(worldPos,lightMatrix);
             return lightSpacePos;
         }
         
@@ -126,11 +126,14 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             
             // ================================= 灯光空间转换 ==================================
             float3 lightSpacePos = WorldToLightSpace(worldPos, lightDir);
-            //lightSpacePos = mul(_MainLightWorldToShadow[0], float4(worldPos, 1.0)).xyz*50.0;
+            //lightSpacePos = frac(lightSpacePos);
+            //lightSpacePos =TransformWorldToShadowCoord(float4(worldPos, 1.0)).xyz;
             //return float4(lightSpacePos, 1);
             // ================================= 焦散 ==================================
             float mask = smoothstep(30.0, 15.0, linerDep);
             
+            //return float4(lightSpacePos.xy, 0, 1);
+
             // 使用灯光空间的XY坐标（垂直于光源方向的平面）
             float2 lightUV = frac(lightSpacePos.xy / 2.0) * mask;
             

@@ -52,6 +52,9 @@ public class WaterLineFeature : ScriptableRendererFeature
         RTHandle _tempDepthRT;
         RTHandle _dropProcessRT;
 
+        RTHandle _waterLineMaskRT;
+        RTHandle _mixWaterLineMaskRT;
+
         RTHandle _mipmapSceneRT;
 
         int shaderID = Shader.PropertyToID("_Temp_RT"); // 定义用于申请临时RT的ID，其实就是把字符串换成id的形式表达，效率更高
@@ -142,6 +145,20 @@ public class WaterLineFeature : ScriptableRendererFeature
 
             RenderingUtils.ReAllocateIfNeeded(ref _mipmapSceneRT,
                 descriptor,  // 使用ARGB32而不是默认格式
+                FilterMode.Bilinear);
+
+
+            // 吃水线mask，与计算解耦，这样的话就可以很方便地得到上一帧的吃水线mask，供水珠效果使用
+            RenderingUtils.ReAllocateIfNeeded(ref _waterLineMaskRT,
+                new RenderTextureDescriptor(
+                    512, 512,
+                    RenderTextureFormat.RGFloat, 0),  // 两个通道，a是吃水线，b是水下部分遮罩
+                FilterMode.Bilinear);
+
+            RenderingUtils.ReAllocateIfNeeded(ref _mixWaterLineMaskRT,
+                new RenderTextureDescriptor(
+                    512, 512,
+                    RenderTextureFormat.RFloat, 0),  // 每帧累加的吃水线mask
                 FilterMode.Bilinear);
         }
 
@@ -249,6 +266,13 @@ public class WaterLineFeature : ScriptableRendererFeature
 
                 material.SetTexture("_HeightTex", _waterSurfaceHeightRT);
 
+                // 生成吃水线以及水下的部分Mask
+                cmd.Blit(null, _waterLineMaskRT.nameID, material, 1); // Pass 1 负责生成吃水线和水下部分的Mask
+                // 使用多帧累加的水下部分Mask，用于确定出屏幕湿润区域
+                //cmd.Blit(_waterLineMaskRT.nameID, _mixWaterLineMaskRT.nameID, material, 2); // Pass 2 负责将当前帧的水下部分Mask与上一帧累加的结果进行混合，得到新的累加结果
+                //cmd.Blit(_waterLineMaskRT.nameID, _cameraColorTgt.nameID); // 将吃水线和水下部分的Mask直接写回相机目标，供后续Pass使用
+                material.SetTexture("_WaterLineMaskRT", _waterLineMaskRT); // 将吃水线和水下部分的Mask传递给后续Pass使用
+                
                 //cmd.Blit(_cameraColorTgt.nameID,_dropProcessRT); // 吃水线以及水下效果
                 //cmd.GenerateMips(_dropProcessRT); // 生成Mipmap，供水珠效果使用
                 
@@ -270,6 +294,7 @@ public class WaterLineFeature : ScriptableRendererFeature
                 //cmd.Blit(shaderID,_dropProcessRT.nameID,material,1); // 水珠效果
                 // 将上一步的RT重新写回到相机
                 //cmd.Blit(_dropProcessRT.nameID, _cameraColorTgt.nameID);
+                
                 // 将CommandBuffer录制的所有渲染命令提交给GPU执行
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
