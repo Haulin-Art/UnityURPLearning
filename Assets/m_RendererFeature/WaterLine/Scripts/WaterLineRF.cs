@@ -53,7 +53,7 @@ public class WaterLineFeature : ScriptableRendererFeature
         RTHandle _dropProcessRT;
 
         RTHandle _waterLineMaskRT;
-        RTHandle _mixWaterLineMaskRT;
+        RTHandle _waterLineMaskRT_Read;
 
         RTHandle _mipmapSceneRT;
 
@@ -152,13 +152,13 @@ public class WaterLineFeature : ScriptableRendererFeature
             RenderingUtils.ReAllocateIfNeeded(ref _waterLineMaskRT,
                 new RenderTextureDescriptor(
                     512, 512,
-                    RenderTextureFormat.RGFloat, 0),  // 两个通道，a是吃水线，b是水下部分遮罩
+                    RenderTextureFormat.RGFloat, 0),  // 两个通道，a是水线sdf，b多帧混合结果
                 FilterMode.Bilinear);
 
-            RenderingUtils.ReAllocateIfNeeded(ref _mixWaterLineMaskRT,
+            RenderingUtils.ReAllocateIfNeeded(ref _waterLineMaskRT_Read,
                 new RenderTextureDescriptor(
                     512, 512,
-                    RenderTextureFormat.RFloat, 0),  // 每帧累加的吃水线mask
+                    RenderTextureFormat.RFloat, 0), 
                 FilterMode.Bilinear);
         }
 
@@ -249,9 +249,6 @@ public class WaterLineFeature : ScriptableRendererFeature
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
 
-                
-                //cmd.SetViewProjectionMatrices(vMatrix, pMatrix);
-
                 // 计算摄像机近平面上的四个点，用于传递到Shader中进行屏幕空间线性插值，进而计算出每个像素对应的世界空间位置
                 // 计算摄像机近平面的四个顶点
                 float nearOffset = 0.0f; // 避免精度问题导致的穿透
@@ -267,14 +264,11 @@ public class WaterLineFeature : ScriptableRendererFeature
                 material.SetTexture("_HeightTex", _waterSurfaceHeightRT);
 
                 // 生成吃水线以及水下的部分Mask
-                cmd.Blit(null, _waterLineMaskRT.nameID, material, 1); // Pass 1 负责生成吃水线和水下部分的Mask
-                // 使用多帧累加的水下部分Mask，用于确定出屏幕湿润区域
-                //cmd.Blit(_waterLineMaskRT.nameID, _mixWaterLineMaskRT.nameID, material, 2); // Pass 2 负责将当前帧的水下部分Mask与上一帧累加的结果进行混合，得到新的累加结果
-                //cmd.Blit(_waterLineMaskRT.nameID, _cameraColorTgt.nameID); // 将吃水线和水下部分的Mask直接写回相机目标，供后续Pass使用
+                material.SetTexture("_waterLineMaskRT_Read", _waterLineMaskRT_Read);
+                cmd.Blit(_waterLineMaskRT_Read, _waterLineMaskRT.nameID, material, 1); // Pass 1 负责生成吃水线和水下部分的Mask,a通道是吃水线SDF，b通道上一帧的b加上当前帧的水下部分，进行多帧混合
+                cmd.Blit(_waterLineMaskRT,_waterLineMaskRT_Read); // 把当前帧生成的吃水线mask保存到_waterLineMaskRT_Read中，以供下一帧使用
                 material.SetTexture("_WaterLineMaskRT", _waterLineMaskRT); // 将吃水线和水下部分的Mask传递给后续Pass使用
                 
-                //cmd.Blit(_cameraColorTgt.nameID,_dropProcessRT); // 吃水线以及水下效果
-                //cmd.GenerateMips(_dropProcessRT); // 生成Mipmap，供水珠效果使用
                 
                 // 给当前场景生成mipmap链，并且焦散处理
                 if (cautionMat == null)
@@ -291,9 +285,6 @@ public class WaterLineFeature : ScriptableRendererFeature
                 cmd.Blit(_cameraColorTgt.nameID,shaderID,material,0); // 吃水线以及水下效果
                 cmd.Blit(shaderID, _cameraColorTgt.nameID);
 
-                //cmd.Blit(shaderID,_dropProcessRT.nameID,material,1); // 水珠效果
-                // 将上一步的RT重新写回到相机
-                //cmd.Blit(_dropProcessRT.nameID, _cameraColorTgt.nameID);
                 
                 // 将CommandBuffer录制的所有渲染命令提交给GPU执行
                 context.ExecuteCommandBuffer(cmd);
@@ -313,6 +304,12 @@ public class WaterLineFeature : ScriptableRendererFeature
                 //_cameraColorTgt?.Release();
                 //_cameraDepthTgt?.Release();
             }
+        }
+        public void SwapRT(ref RTHandle rt1, ref RTHandle rt2)
+        {
+            RTHandle temp = rt1;
+            rt1 = rt2;
+            rt2 = temp;
         }
     }
 }

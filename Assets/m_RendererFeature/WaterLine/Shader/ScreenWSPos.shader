@@ -68,9 +68,10 @@ Shader "Unlit/ScreenWSPos"
             TEXTURE2D(_ScreenMipMapRT);SAMPLER(sampler_ScreenMipMapRT); // 只用这个实现伪前向散射模糊效果
             TEXTURE2D(_ScreenMipMapRT2);SAMPLER(sampler_ScreenMipMapRT2); // 用这个再次实现的生成更恰当的模糊
 
-            // 但前帧的吃水线Mask，包含吃水线和水下部分的遮罩
+            // 当前帧的吃水线Mask，a通道是水线SDF，b通道是多帧混合结果
             TEXTURE2D(_WaterLineMaskRT);SAMPLER(sampler_WaterLineMaskRT);
-
+            TEXTURE2D(_WaterLineMaskRT_Read);SAMPLER(sampler_WaterLineMaskRT_Read); // 上一帧的吃水线Mask，用于和当前帧的吃水线进行混合，得到更平滑的结果
+ 
             TEXTURE3D(_TindalShadowTex);SAMPLER(sampler_TindalShadowTex);
 
             CBUFFER_START(UnityPerMaterial)
@@ -224,6 +225,7 @@ Shader "Unlit/ScreenWSPos"
             {
                 // 平面UV坐标
                 float2 ScreenUV = i.screenPos.xy / i.screenPos.w;
+                
                 //#if UNITY_UV_STARTS_AT_TOP
                 //    ScreenUV.y = 1.0 - ScreenUV.y;
                 //#endif
@@ -235,7 +237,7 @@ Shader "Unlit/ScreenWSPos"
                 //float3 nearPlaneCenter = (_NearPlaneCornersTL + _NearPlaneCornersTR + _NearPlaneCornersBL + _NearPlaneCornersBR) / 4.0;
                 float3 cameraPos = _WorldSpaceCameraPos;
                 float3 rd = normalize(ScreenWorldPos - cameraPos);
-                /*
+                /* 原计算吃水线部分，现在已经移动到pass1中进行
                 float4 touying = mul(_VPMatrix, float4(ScreenWorldPos,1));
                 float2 zz = (touying.xy / touying.w)/2.0 + 0.5;
                 float height = SAMPLE_TEXTURE2D(_HeightTex, sampler_HeightTex, zz).r;
@@ -246,20 +248,44 @@ Shader "Unlit/ScreenWSPos"
                     (1.0-smoothstep(height+shixin,height+thickness,ScreenWorldPos.y));
                 */
                 float2 waterLineMask = SAMPLE_TEXTURE2D(_WaterLineMaskRT, sampler_WaterLineMaskRT, ScreenUV).rg;
-                float shuixia = waterLineMask.g;
-                float waterline = waterLineMask.r;
+                //float shuixia = waterLineMask.g;
+                //float waterline = waterLineMask.r;
+                float shuixia = step(waterLineMask.r,0.0);
+                float waterline = smoothstep(-0.005,0.0,waterLineMask.r) * (1.0-smoothstep(0.0,0.005,waterLineMask.r));
+
+                //return float4(waterLineMask.g,0,0,1);
+
+
                 // ==================== 静态水珠,偏移采样 ==================================
-                //float3 dropNormal = SAMPLE_TEXTURE2D_LOD(_DropNormalTex, sampler_DropNormalTex, ScreenUV,0).rgb * 2.0 - 1.0;
-                //float dropMask = (1.0-shuixia)*smoothstep(1.0,0.8,ScreenUV.y);
-                //ScreenUV += (dropNormal.xz * 0.08)* dropMask;
+                float3 dropNormal = SAMPLE_TEXTURE2D_LOD(_DropNormalTex, sampler_DropNormalTex, ScreenUV,0).rgb * 2.0 - 1.0;
+                float dropMask = (1.0-shuixia)*smoothstep(1.0,0.8,ScreenUV.y);
+                float dropStrength = lerp(1.0,0.0,saturate(2.0*(cameraPos.y - 0.97)));
+                // ==================== 动态水珠 ==========================================
+                float t = _Time.y*0.5;
+                //float drop1 = Drops(ScreenUV,_Time.y,  0.1, 0.5, 0.1);
+                float2 d = DropLayer2(ScreenUV*1.0, t,0.5);
+                float2 d_r = DropLayer2((ScreenUV+float2(0.001,0.0))*1.0, t,0.5);
+                float2 d_u = DropLayer2((ScreenUV+float2(0.0,0.001))*1.0, t,0.5);
+                float2 d_normal = normalize(float2(saturate(d_r.x+d_r.y)-saturate(d.x+d.y),saturate(d_u.x+d_u.y)-saturate(d.x+d.y)))*0.5 + 0.5;
+                //d_normal *= float2(1.0,-1.0);
+                //return float4(d_normal,0,1);
+                //return float4(float3(1,1,1)*(1.0-length(dropNormal.xy)),1);
+
+                ScreenUV += 0.01*(saturate(d_normal)*2.0-1.0)*step(0.01,(d.x+d.y)) * dropMask * dropStrength;
+                //return float4(ScreenUV,0,1);
+                ScreenUV += (dropNormal.xy * 0.05)* dropMask * dropStrength;
                 ScreenUV = saturate(ScreenUV); 
 
-                // 采样场景颜色
-                float3 sceneColor = SAMPLE_TEXTURE2D_LOD(_MainTex, sampler_MainTex, ScreenUV,5.0);
-                
+
                 // 屏幕边缘
                 //float edgeMask = smoothstep(0.05, 0.0, min(ScreenUV.x, min(ScreenUV.y, min(1.0 - ScreenUV.x, 1.0 - ScreenUV.y))));
                 //return float4(edgeMask,edgeMask,edgeMask,1);
+
+                // 采样场景颜色
+                float3 sceneColor = SAMPLE_TEXTURE2D_LOD(_MainTex, sampler_MainTex, ScreenUV,5.0);
+                //float3 sceneColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT2,sampler_ScreenMipMapRT2, ScreenUV,0);
+                //sceneColor = lerp(sceneColor,sceneColorMip,edgeMask);
+
 
                 // 采样深度
                 float depth = SAMPLE_TEXTURE2D(_CameraDepthTexture, sampler_CameraDepthTexture, ScreenUV).r;
@@ -287,9 +313,6 @@ Shader "Unlit/ScreenWSPos"
                 float3 SunDir = normalize(mainLight.direction);
                 float3 SunColor = mainLight.color;
 
-
-                
-
                 
                 float _FresnelF0 = 0.02;
 
@@ -314,17 +337,12 @@ Shader "Unlit/ScreenWSPos"
                 // 灯光矩阵
                 
 
-
-
                 bsdfScattering = FFRayMarchVolumeScattering(
                     ScreenWorldPos, rayDir, rmConfig.maxDistance,
                     extinctionCoeff, scatterAlbedo,
                     SunDir, -rd, SunColor,
                     _PhaseG, 0.0, rmConfig
                 );
-                
-                
-
                 
                 #ifdef _USE_TINDAL_SHADOW
                     float4x4 lightMatrix = _MainLightWorldToShadow[4];
@@ -359,11 +377,6 @@ Shader "Unlit/ScreenWSPos"
                     0.0
                 )*smoothstep(-0.02,0.00,SunDir.y);
 
-
-                //float t = _Time.y*0.5;
-                //float drop1 = Drops(ScreenUV,_Time.y,  0.1, 0.5, 0.1);
-                //float2 d = DropLayer2(ScreenUV*2.0, t,0.5);
-                //return float4(float3(1,1,1)*(d.x+d.y),1);
 
                 //bsdfScattering = -rd;
                 //return float4(float3(1,1,1)*shuixia,1);
@@ -427,15 +440,14 @@ Shader "Unlit/ScreenWSPos"
                 float2 zz = (touying.xy / touying.w)/2.0 + 0.5;
                 float height = SAMPLE_TEXTURE2D(_HeightTex, sampler_HeightTex, zz).r;
 
-                float3 rd = normalize(ScreenWorldPos - cameraPos);
 
-                float thickness = 0.005;float shixin = thickness - 0.0025;
-                float shuixia = step(ScreenWorldPos.y,height);
-                float waterline = smoothstep(height-thickness,height-shixin,ScreenWorldPos.y)*
-                    (1.0-smoothstep(height+shixin,height+thickness,ScreenWorldPos.y));
+                float waterlineSDF = ScreenWorldPos.y - height;
 
+                // 与上一帧混合相加，并对上一帧进行衰减
+                float lastFrame = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, ScreenUV).g;
+                float mixValue = step(waterlineSDF,0.0) + lastFrame*0.95; // 这里很奇怪，预览的结果是只有step(waterlineSDF,0.0) 的效果，但是哪怕没有衰减也是这样
 
-                return float4(waterline,shuixia,0,1);
+                return float4(waterlineSDF, mixValue, 0, 1);
             }
             ENDHLSL
         }
