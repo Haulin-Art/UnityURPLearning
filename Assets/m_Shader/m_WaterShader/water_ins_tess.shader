@@ -43,6 +43,14 @@ Shader "FluidFlux/water_ins_tess"
         _SineCount ("海浪扰动正弦波数量", Range(0.0,5.0)) = 2.0
         _sineScale ("海浪扰动正弦波幅度", Range(-1.0,1.0)) = 0.05  
 
+
+        [Space(15)]
+        _Tile22 ("================= 浅水模拟交互部分 ============================",Float) = 0.0
+        _SWETex ("浅水波纹纹理", 2D) = "black" {}
+        _SWEData ("浅水波纹数据", Vector) = (0,0,0,0) // x: 波纹中心x坐标，y: 波纹中心y坐标，z: 波纹强度，w: 波纹半径
+        _SWENorScale ("浅水波纹法线强度", Range(0.0, 5.0)) = 1.0
+        _SWENorIntensity ("浅水波纹法线混合强度", Range(0.0, 5.0)) = 1.0
+
         [Space(15)]
         _Tile05 ("================= 近岸浮沫部分 =======================",Float) = 0.0 
         _FoamTex ("泡沫贴图", 2D) = "black" {}
@@ -250,8 +258,14 @@ Shader "FluidFlux/water_ins_tess"
                 float _TessDistanceFalloff;
 
 
+                float4 _SWEData; // 浅水波纹数据，x: 波纹中心x坐标，y: 波纹中心y坐标，z: 波纹强度，w: 波纹半径
+                float _SWENorScale; // 浅水波纹法线强度
+                float _SWENorIntensity; // 浅水波纹法线强度
+
                 float2 CameraCenterPos; // 用于渲染正交水面高度场的相机中心位置
             CBUFFER_END
+
+            TEXTURE2D(_SWETex);SAMPLER(sampler_SWETex);
 
             // 自定义的带有Mipmap的屏幕不透明物体纹理
             TEXTURE2D(_ScreenMipMapRT);SAMPLER(sampler_ScreenMipMapRT); // 只用这个实现伪前向散射模糊效果
@@ -590,7 +604,15 @@ Shader "FluidFlux/water_ins_tess"
                 //o.ttt = newpos;
 
                 // 最终变换后的世界位置 = 原世界位置 + 矢量置换 + 水面起伏置换
-                float3 newPos = v.vertex.xyz + vdm*mask + (waterSurf.x*_SurfScale) * waveN;;
+                float3 newPos = v.vertex.xyz + vdm*mask + (waterSurf.x*_SurfScale) * waveN;
+                
+                // ==================== 浅水方程部分 ==========================================
+                float2 SWEUV = (o.worldPos.xz - _SWEData.xy)/_SWEData.w + 0.5;
+                SWEUV = 1.0 - SWEUV; // 根据我现在的UV映射方式，采样的时候需要反过来
+                float SWEMask = SWEUV.x > 0 && SWEUV.x < 1 && SWEUV.y > 0 && SWEUV.y < 1 ? 1.0 : 0.0;
+                newPos.y += SWEMask * SAMPLE_TEXTURE2D_LOD(_SWETex,sampler_SWETex, SWEUV, 0.0).r * _SWEData.z;
+
+
                 float3 deformWSPos = TransformObjectToWorld(newPos);
 
                 // 处理浪花上涌部分
@@ -722,8 +744,22 @@ Shader "FluidFlux/water_ins_tess"
                 Nor = normalize(float3(Nor.x,Nor.y,Nor.z)); // 根据贴图计算的法线，但是靠近海岸边的依旧用波浪的
                 Nor = lerp( i.norWS,Nor, i.norMask); // 修正法线，岸边的法线
             
+                // 浅水方程法线
+                // ==================== 浅水方程部分 ==========================================
+                float2 w = float2(0.001,0.0);
+                float2 SWEUV = (i.worldPos.xz - _SWEData.xy)/_SWEData.w + 0.5;
+                SWEUV = 1.0 - SWEUV; // 根据我现在的UV映射方式，采样的时候需要反过来
+                float SWEMask = SWEUV.x > 0 && SWEUV.x < 1 && SWEUV.y > 0 && SWEUV.y < 1 ? 1.0 : 0.0;
+                float swe = SWEMask * SAMPLE_TEXTURE2D_LOD(_SWETex,sampler_SWETex, SWEUV, 0.0).r * _SWEData.z;
+                float swe_l = SWEMask * SAMPLE_TEXTURE2D_LOD(_SWETex,sampler_SWETex, SWEUV-w.xy, 0.0).r * _SWEData.z;
+                float swe_r = SWEMask * SAMPLE_TEXTURE2D_LOD(_SWETex,sampler_SWETex, SWEUV+w.xy, 0.0).r * _SWEData.z;
+                float swe_u = SWEMask * SAMPLE_TEXTURE2D_LOD(_SWETex,sampler_SWETex, SWEUV+w.yx, 0.0).r * _SWEData.z;
+                float swe_d = SWEMask * SAMPLE_TEXTURE2D_LOD(_SWETex,sampler_SWETex, SWEUV-w.yx, 0.0).r * _SWEData.z;
+                float3 SWEGrad = float3(swe_r - swe_l,0,swe_u - swe_d) * 20.0 * _SWENorScale;
+                float3 SWENor = normalize(float3(-SWEGrad.x,1.0,-SWEGrad.z));
+                Nor = lerp(Nor,SWENor,saturate(SWEMask*swe*10.0*_SWENorIntensity)); // 根据浅水方程的结果调整法线，只有在有波纹的地方才调整，且根据波纹强度调整
 
-
+                //return float4(saturate(SWEMask*swe)*float3(1,1,1),1.0);
 
                 // 远处的海面粗糙度增加，且要让法线更平坦一些，这样看起来才像远处的海面
                 float dist = distance(i.worldPos, _WorldSpaceCameraPos);

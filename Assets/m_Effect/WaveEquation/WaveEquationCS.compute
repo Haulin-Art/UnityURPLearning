@@ -1,0 +1,76 @@
+#pragma kernel WaveKernel
+
+#include "UnityCG.cginc"
+
+float texSize;
+//float dt;
+float alpha;        // SWE constant (0-0.5)
+float beta;         // ViscosityConstant (推荐1)
+float damping;      // 阻尼 (0-1)
+float strength;     // 扰动强度
+float radius;       // 扰动半径
+float2 sourceUV;    // 扰动中心
+float2 movementDelta; // 目标移动增量
+
+RWTexture2D<float> CurrHeight;
+Texture2D<float> PrevHeight;
+Texture2D<float> PrevPrevHeight;
+
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+[numthreads(8,8,1)]
+void WaveKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 coord = id.xy;
+    float2 uv = (coord + 0.5) / texSize;
+    
+    // 边界处理
+    if (uv.x < 0.001 || uv.x > 0.999 || uv.y < 0.001 || uv.y > 0.999)
+        return;
+    
+    float2 orUV = uv; // 原始UV（不受目标移动影响）
+
+    //uv -= float2(0.001, 0); // 根据目标移动调整采样位置
+    //uv = clamp(uv-float2(0.001, 0), 0.001, 0.999);
+
+    float2 prevUV = uv - movementDelta*0 ;
+    //prevUV = clamp(prevUV, 0.001, 0.999);
+    //uv = prevUV; // 直接使用调整后的UV进行采样
+
+    float h_prev = PrevHeight.SampleLevel(samplerLinearClamp, prevUV, 0); // 双线性采样前一帧高度
+    float h_prevprev = PrevPrevHeight.SampleLevel(samplerLinearClamp, prevUV, 0); // 双线性采样前两帧高度
+    
+    // 采样四邻域
+    float2 inv = float2(1.0 / texSize, 0);
+    float h_left = PrevHeight.SampleLevel(samplerLinearClamp, uv - inv.xy, 0);
+    float h_right = PrevHeight.SampleLevel(samplerLinearClamp, uv + inv.xy, 0);
+    float h_up = PrevHeight.SampleLevel(samplerLinearClamp, uv - inv.yx , 0);
+    float h_down = PrevHeight.SampleLevel(samplerLinearClamp, uv + inv.yx, 0);
+    
+    // 计算 h_N (周围4个高度的和)
+    float h_N = h_left + h_right + h_up + h_down;
+    
+    // 核心公式
+    float h_new = damping * (h_prev + beta * (h_prev - h_prevprev) + alpha * (h_N - 4.0 * h_prev));
+    //h_new *= 0.995; // 稍微增加衰减，防止过度振荡
+    
+    // 添加扰动（移动物体）
+    float2 diff = orUV - sourceUV;
+    float dist = length(diff);
+    float ces = 0.0;
+
+    float falloff = 1.0 - dist / radius;
+    falloff = falloff * falloff;
+    falloff = smoothstep(radius, radius*0.8, dist);
+    h_new += falloff * strength;
+
+    h_new = clamp(h_new, -0.5, 2.0); // 确保高度在有效范围内
+    // 写入
+    CurrHeight[coord] = h_new;
+
+}

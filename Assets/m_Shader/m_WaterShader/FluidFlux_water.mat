@@ -66,6 +66,10 @@ Material:
         m_Texture: {fileID: 2800000, guid: 80d86dc3630c51a409d699a8474d917d, type: 2}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _SWETex:
+        m_Texture: {fileID: 8400000, guid: 4188a3c3cdb0a6c4d80571cdd9a027c4, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _VectorDisMap:
         m_Texture: {fileID: 2800000, guid: 041ce7f250649024c9e78b724dd4f9ce, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -104,6 +108,8 @@ Material:
     - _SSSDepthScale: 18
     - _SSSNormalSmoothness: 0
     - _SSSStrength: 1.99
+    - _SWENorIntensity: 3.64
+    - _SWENorScale: 1
     - _SineCount: 2
     - _SpecularIntensity: 1
     - _SpecularPower: 64
@@ -133,6 +139,7 @@ Material:
     - _Tile11: 0
     - _Tile12: 0
     - _Tile13: 0
+    - _Tile22: 0
     - _UsePerSamPosShadow: 1
     - _UseRayMarching: 1
     - _UseSSS: 1
@@ -155,6 +162,7 @@ Material:
     - _FoamColor: {r: 1, g: 1, b: 1, a: 1}
     - _SSSColor: {r: 0.4, g: 0.58970916, b: 0.6431373, a: 1}
     - _SSSFade: {r: 1, g: 1, b: 1, a: 1}
+    - _SWEData: {r: 0.62, g: -53.38, b: 0.05, a: 10}
     - _ScatterColor: {r: 0.28235298, g: 0.56441295, b: 0.89411765, a: 1}
     - _WaterCol: {r: 0.3187967, g: 0.509434, b: 0.47464615, a: 1}
   m_BuildTextureStacks: []
