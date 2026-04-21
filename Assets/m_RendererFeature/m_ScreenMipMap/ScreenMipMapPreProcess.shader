@@ -7,11 +7,24 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         _Contrast ("Contrast", Range(0, 2)) = 1.0
         _Saturation ("Saturation", Range(0, 2)) = 1.0
 
+
+        [Space(15)]
+        _CautionStartHeight ("焦散最高高度", Range(0, 5)) = 0.9
+        _CautionEndHeight ("焦散最低高度", Range(-5, 5)) = 0.0
+        [Space(15)]
         _SurfSpeed ("表面速度", Range(0, 1)) = 0.5
         _CautionTex ("焦散纹理", 3D) = "white" {}
         _CautionPow ("焦散强度", Range(0, 10)) = 4.0
         _CautionScale ("焦散缩放", Range(0.0, 2.0)) = 1.0
         _CautionIntensity ("焦散亮度", Range(0.0, 5.0)) = 1.0
+
+        [Space(15)]
+        _Tile22 ("================= 浅水模拟交互部分 ============================",Float) = 0.0
+        _SWETex ("浅水波纹纹理", 2D) = "black" {}
+        _SWEData ("浅水波纹数据", Vector) = (0,0,0,0) // x: 波纹中心x坐标，y: 波纹中心y坐标，z: 波纹强度，w: 波纹半径
+        _SWENorScale ("浅水波纹法线强度", Range(0.0, 5.0)) = 1.0
+        _SWENorIntensity ("浅水波纹法线混合强度", Range(0.0, 5.0)) = 1.0
+
     }
     
     HLSLINCLUDE
@@ -25,6 +38,9 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         SAMPLER(sampler_MainTex);
         float _SurfSpeed;
 
+        float _CautionStartHeight;
+        float _CautionEndHeight;
+
         float _Brightness;
         float _Contrast;
         float _Saturation;
@@ -34,7 +50,11 @@ Shader "Hidden/ScreenMipMap/PreProcess"
         
         TEXTURE3D(_CautionTex);
         SAMPLER(sampler_CautionTex);
-        
+
+        TEXTURE2D(_SWETex);
+        SAMPLER(sampler_SWETex);
+        float4 _SWEData; // x: 波纹中心x坐标，y: 波纹中心y坐标，z: 波纹强度，w: 波纹半径
+
         struct Attributes
         {
             float4 positionOS : POSITION;
@@ -126,24 +146,23 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             
             // ================================= 灯光空间转换 ==================================
             float3 lightSpacePos = WorldToLightSpace(worldPos, lightDir);
-            //lightSpacePos = frac(lightSpacePos);
-            //lightSpacePos =TransformWorldToShadowCoord(float4(worldPos, 1.0)).xyz;
-            //return float4(lightSpacePos, 1);
+
             // ================================= 焦散 ==================================
             float mask = smoothstep(30.0, 15.0, linerDep);
-            
-            //return float4(lightSpacePos.xy, 0, 1);
+            float heightFade = 1.0-smoothstep(_CautionEndHeight, _CautionStartHeight, worldPos.y); 
+
 
             // 使用灯光空间的XY坐标（垂直于光源方向的平面）
+            float2 w = float2(0.03, 0.0); // 控制焦散纹理的缩放
             float2 lightUV = frac(lightSpacePos.xy / 2.0) * mask;
             
             float2 cautionTex = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV, frac(_Time.y * _SurfSpeed))).rg;
             float caution = pow((cautionTex.x + cautionTex.y * 1.0) / 1.8, _CautionPow) * 1.0;
             
-            float2 cautionTexR = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV+float2(caution*0.02, 0.0), frac(_Time.y * _SurfSpeed))).rg;
+            float2 cautionTexR = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV+float2(caution*w.x, 0.0), frac(_Time.y * _SurfSpeed))).rg;
             float cautionR = pow((cautionTexR.x + cautionTexR.y * 1.0) / 1.8, _CautionPow) * 1.0;
             
-            float2 cautionTexU = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV-float2(caution*0.02,0.0), frac(_Time.y * _SurfSpeed))).rg;
+            float2 cautionTexU = SAMPLE_TEXTURE3D(_CautionTex, sampler_CautionTex, float3(lightUV-float2(caution*w.x,0.0), frac(_Time.y * _SurfSpeed))).rg;
             float cautionU = pow((cautionTexU.x + cautionTexU.y * 1.0) / 1.8, _CautionPow) * 1.0;
 
             float3 cautionTotal = float3(cautionR, cautionU, caution) * mask * notInShadow;
@@ -151,9 +170,29 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             cautionTotal *= notInShadow;
             cautionTotal *= _CautionScale;
             cautionTotal *= _CautionIntensity;
+            cautionTotal *= heightFade;
+
+
+            // ============ 浅水方程部分 ==========================================
+            float2 SWEUV = ((worldPos.xz + lightDir.xz * (0.97/lightDir.y)) - _SWEData.xy)/_SWEData.w + 0.5;
+            SWEUV = 1.0 - SWEUV; // 根据我现在的UV映射方式，采样的时候需要反过来
+            float SWEHeight = SAMPLE_TEXTURE2D(_SWETex, sampler_SWETex, SWEUV).r ;
+            float SWEHeight_R = SAMPLE_TEXTURE2D(_SWETex, sampler_SWETex, SWEUV + float2(0.003, 0)).r ;
+            float SWEHeight_U = SAMPLE_TEXTURE2D(_SWETex, sampler_SWETex, SWEUV + float2(0, 0.003)).r ;
+            float SWEMask = SWEUV.x > 0 && SWEUV.x < 1 && SWEUV.y > 0 && SWEUV.y < 1 ? 1.0 : 0.0;
+            float dd = ddx(SWEHeight + cautionTex.x + cautionTex.y) + ddy(SWEHeight + cautionTex.x + cautionTex.y);
+            float dd_r = ddx(SWEHeight_R ) + ddy(SWEHeight_R );
+            float dd_u = ddx(SWEHeight_U ) + ddy(SWEHeight_U );
+            float3 SWECaution = float3(dd, dd_r, dd_u) * SWEMask * notInShadow;
+            SWECaution *= mask;
+            SWECaution *= heightFade;
+            
+            
+            //return float4(color.xyz + lightColor * float3(1,1,1)*float3(dd, dd_r, dd_u),1.0);
+
 
             //return float4(float3(1,1,1)*0,1.0);
-            return float4(color.xyz + cautionTotal * lightColor, 1);
+            return float4(color.xyz + cautionTotal * lightColor + 2.0*SWECaution*lightColor , 1);
         }
         
         float4 FragCopy(Varyings input) : SV_Target

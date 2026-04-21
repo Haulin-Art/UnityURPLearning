@@ -739,6 +739,13 @@ Shader "FluidFlux/water_ins_tess"
                 float3 Nor = float3((WaveNor.y*2.0-1.0)*_SurfNorScale,(WaveNor.z*2.0-1.0)*_SurfNorScale,0.0);
                 Nor.z = sqrt(1-pow(Nor.x,2)-pow(Nor.y,2));
                 Nor =float3(-Nor.y,Nor.x,Nor.z);
+
+                float3 WaveNor_detail = SAMPLE_TEXTURE3D(_3DDisMap, sampler_3DDisMap, float3(1.0-frac(i.worldPos.xz*_SurfTiling*5.0) ,frac(_Time.y*_SurfSpeed*2.0))).xyz;
+                float3 Nor_detail = float3((WaveNor_detail.y*2.0-1.0)*_SurfNorScale,(WaveNor_detail.z*2.0-1.0)*_SurfNorScale,0.0);
+                Nor_detail.z = sqrt(1-pow(Nor_detail.x,2)-pow(Nor_detail.y,2));
+                Nor_detail =float3(-Nor_detail.y,Nor_detail.x,Nor_detail.z);
+                Nor = normalize(Nor + Nor_detail*0.33); // 先把大范围的波浪法线和小范围的波浪法线叠加起来，这样可以得到更丰富的法线细节
+
                 float3x3 waveTBN = float3x3(i.tanWave,i.bitWave,i.norWS);
                 Nor = mul(Nor,waveTBN);
                 Nor = normalize(float3(Nor.x,Nor.y,Nor.z)); // 根据贴图计算的法线，但是靠近海岸边的依旧用波浪的

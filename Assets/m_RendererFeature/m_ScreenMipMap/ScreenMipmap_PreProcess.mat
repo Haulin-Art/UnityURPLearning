@@ -31,14 +31,24 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _SWETex:
+        m_Texture: {fileID: 8400000, guid: 4188a3c3cdb0a6c4d80571cdd9a027c4, type: 2}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
     - _Brightness: 1
+    - _CautionEndHeight: 0
     - _CautionIntensity: 2
     - _CautionPow: 4
     - _CautionScale: 0.3
+    - _CautionStartHeight: 0.9
     - _Contrast: 1
+    - _SWENorIntensity: 1
+    - _SWENorScale: 1
     - _Saturation: 1
     - _SurfSpeed: 0.5
-    m_Colors: []
+    - _Tile22: 0
+    m_Colors:
+    - _SWEData: {r: 0.62, g: -53.38, b: 1, a: 10}
   m_BuildTextureStacks: []

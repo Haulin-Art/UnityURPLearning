@@ -171,6 +171,8 @@ public class ScreenMipMapPass : ScriptableRenderPass
             cmd.SetGlobalTexture("_ScreenMipMapRT", screenMipMapRT);
         }
         
+        //cmd.Blit(screenMipMapRT, cameraTarget);
+
         context.ExecuteCommandBuffer(cmd);
         CommandBufferPool.Release(cmd);
     }

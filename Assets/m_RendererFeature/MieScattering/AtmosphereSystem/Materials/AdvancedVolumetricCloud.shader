@@ -420,11 +420,12 @@ Shader "Custom/AdvancedVolumetricCloud"
                 
                 // 采样3D噪声纹理
                 // 缩放因子很重要：控制云朵的大小和平铺
-                float3 TexCoord = (WorldPos + WindOffset*100) * _CloudDensityScale;
+                float3 TexCoord = (WorldPos + WindOffset*100 + float3(0,300*_Time.y,0)) * _CloudDensityScale;
+                float3 TexCoord_detail = (WorldPos + WindOffset*100) * _CloudDensityScale;
                 float4 Noise3D = SAMPLE_TEXTURE3D_LOD(_CloudTex, sampler_CloudTex, TexCoord.xzy*_CloudAxisScale/(20.0*_CloudTiling), 0);
                 float4 Noise2D = SAMPLE_TEXTURE2D_LOD(_CloudTex2D, sampler_CloudTex2D, TexCoord.xz/20.0, 0);
                 
-                float4 NoiseDetail = SAMPLE_TEXTURE3D_LOD(_CloudDetailTex, sampler_CloudDetailTex, TexCoord/(2.5*_CloudDetailTiling), 0);
+                float4 NoiseDetail = SAMPLE_TEXTURE3D_LOD(_CloudDetailTex, sampler_CloudDetailTex, TexCoord_detail/(2.5*_CloudDetailTiling), 0);
                 
                 // 组合噪声通道
                 // 使用大尺度和小尺度噪声组合

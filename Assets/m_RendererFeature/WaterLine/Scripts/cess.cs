@@ -7,6 +7,7 @@ public class CameraWaterFollower : MonoBehaviour
 {
     [Header("水面跟随设置")]
     public Transform waterObj;                // 要跟随的水面物体
+    public Transform targetYAxisObj;           // 可选：用于跟随相机旋转的物体（如果需要水面旋转）
     public float heightOffset = 0.97f;       // 水线高度偏移
     public float smoothTime = 0.1f;         // 平滑移动时间（0表示立即移动）
     
@@ -89,7 +90,13 @@ public class CameraWaterFollower : MonoBehaviour
     private void FollowCamera()
     {
         if (waterObj == null) return;
-        
+        if (targetYAxisObj != null)
+        {
+            // 如果指定了旋转对象，跟随其Y轴
+            heightOffset = targetYAxisObj.position.y;
+        }
+
+
         // 获取当前活动的相机
         Camera currentCamera = GetCurrentCamera();
         if (currentCamera == null) return;

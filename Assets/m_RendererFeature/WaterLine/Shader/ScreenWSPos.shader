@@ -283,6 +283,7 @@ Shader "Unlit/ScreenWSPos"
 
                 // 采样场景颜色
                 float3 sceneColor = SAMPLE_TEXTURE2D_LOD(_MainTex, sampler_MainTex, ScreenUV,5.0);
+                //sceneColor  = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT2,sampler_ScreenMipMapRT2, ScreenUV,1.0);
                 //float3 sceneColor = SAMPLE_TEXTURE2D_LOD(_ScreenMipMapRT2,sampler_ScreenMipMapRT2, ScreenUV,0);
                 //sceneColor = lerp(sceneColor,sceneColorMip,edgeMask);
 
