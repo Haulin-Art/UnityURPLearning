@@ -39,11 +39,11 @@ Material:
         m_Offset: {x: 0, y: 0}
     - _FoamTex:
         m_Texture: {fileID: 2800000, guid: 19945c7d2da13b44fb456d00ea82c01d, type: 3}
-        m_Scale: {x: 10, y: 10}
+        m_Scale: {x: 2, y: 2}
         m_Offset: {x: 0, y: 0}
     - _FoamTex_2:
         m_Texture: {fileID: 2800000, guid: 77e989aa0611b4347a8456baf458b849, type: 3}
-        m_Scale: {x: 30, y: 30}
+        m_Scale: {x: 10, y: 10}
         m_Offset: {x: 0, y: 0}
     - _GradientTex:
         m_Texture: {fileID: 2800000, guid: 5a5494e617e6572478c04e83788175a0, type: 2}
@@ -90,8 +90,8 @@ Material:
     - _DebugView: 0
     - _DepthScale: 1
     - _EnvReflectionStrength: 1
-    - _FoamIntensity: 0
-    - _FoamNorScale: 0.33
+    - _FoamIntensity: 1
+    - _FoamNorScale: 0.27
     - _FresnelF0: 0.1
     - _FresnelPower: 2.36
     - _PanoramicRotation: 0.786
@@ -143,22 +143,22 @@ Material:
     - _UseRayMarching: 1
     - _UseSSS: 0
     - _VDMXOffset: 0
-    - _VDMXScale: -0.55
+    - _VDMXScale: -0.8
     - _VDMYOffset: 0
-    - _VDMYScale: 0.12
-    - _VectorDisMapScale: 8
+    - _VDMYScale: 0.3
+    - _VectorDisMapScale: 1
     - _WaveAngle: 1.48
     - _WavePos: 1.94
     - _WaveScale: 0.75
-    - _WaveTilingX: 10
+    - _WaveTilingX: 5
     - _WaveTilingY: 10.3
     - _sineScale: 0.04
-    - _waveUpwellingIntensity: 1
+    - _waveUpwellingIntensity: 0.1
     m_Colors:
     - _AbsorptionColor: {r: 1, g: 0.7012578, b: 0.7012578, a: 1}
     - _BSDFAbsorptionColor: {r: 0.7058824, g: 0.5764706, b: 0.5991496, a: 1}
     - _DeepWaterCol: {r: 0.25490198, g: 0.48235294, b: 0.52156866, a: 1}
-    - _FoamColor: {r: 1, g: 1, b: 1, a: 1}
+    - _FoamColor: {r: 0.8836478, g: 0.9719779, b: 1, a: 1}
     - _SSSColor: {r: 0.4, g: 0.58970916, b: 0.6431373, a: 1}
     - _SSSFade: {r: 1, g: 1, b: 1, a: 1}
     - _SWEData: {r: 0.62, g: -53.38, b: 0.05, a: 10}

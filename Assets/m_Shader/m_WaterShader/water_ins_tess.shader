@@ -178,6 +178,8 @@ Shader "FluidFlux/water_ins_tess"
             #pragma hull hull
             #pragma domain domain
             #pragma fragment frag
+
+            #define SDF_SCALE 20.0
             
             // 材质属性缓冲区
             CBUFFER_START(UnityPerMaterial)
@@ -419,7 +421,7 @@ Shader "FluidFlux/water_ins_tess"
                 return clamp(float2(u,v),0.01,0.99);
             }
             
-            float3 getVdm(float2 UV)
+            float3 getVdm(float2 UV,out float2 finalUV,out float foamMask)
             {
                 // ================================= 获取世界位置偏移 ==================================
                 // 根据梯度或者TS空间的向前轴
@@ -430,9 +432,15 @@ Shader "FluidFlux/water_ins_tess"
                 float dis = -sdf*15.0;
                 float3 dir = forward;
                 float2 UUVV = waveUV(UV.x*5.0,3.0,2.0,-1.5*UV.y);
-                UUVV = 1-waveUV( dis , 2.0  , 2.0 , 0.2*gradient.y - 0.2*gradient.x) ;
+                UUVV = 1-waveUV( dis , 3.0  , 2.0 , 0.3*gradient.y - 0.3*gradient.x) ;
+
+                finalUV = UUVV;
+
                 float3 ddisp = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,UUVV,0.0).xyz;
                 float3 vdm = decodeDisp(ddisp).x*dir + decodeDisp(ddisp).z*float3(0,1,0);
+
+                foamMask = ddisp.z;
+
                 return vdm;
             }
             
@@ -561,7 +569,7 @@ Shader "FluidFlux/water_ins_tess"
 
                 o.worldPos = vertexInput.positionWS;
                 o.uv = v.uv;
-                float scale = 100.0;
+                float scale = SDF_SCALE;
                 float2 worldUV=1.0- (o.worldPos/scale + 0.5).xz;
                 float2 UV = saturate(worldUV);
 
@@ -569,12 +577,12 @@ Shader "FluidFlux/water_ins_tess"
                 float sdf = SAMPLE_TEXTURE2D_LOD(_SDFTex,sampler_SDFTex,UV,0.0).x;
 
                 float2 finalUV;float foamMask;
-                float3 vdmR = getVdm(UV+float2(0.01,0.0));
-                vdmR = getVdmSelf(UV+float2(0.01,0.0), finalUV, foamMask);
-                float3 vdmU = getVdm(UV+float2(0.0,0.01));
-                vdmU = getVdmSelf(UV+float2(0.0,0.01), finalUV, foamMask);
-                float3 vdm = getVdm(UV);
-                vdm = getVdmSelf(UV, finalUV, foamMask);
+                float3 vdmR = getVdm(UV+float2(0.01,0.0), finalUV, foamMask);
+                //vdmR = getVdmSelf(UV+float2(0.01,0.0), finalUV, foamMask);
+                float3 vdmU = getVdm(UV+float2(0.0,0.01), finalUV, foamMask);
+                //vdmU = getVdmSelf(UV+float2(0.0,0.01), finalUV, foamMask);
+                float3 vdm = getVdm(UV, finalUV, foamMask );
+                //vdm = getVdmSelf(UV, finalUV, foamMask);
                 o.newUV = finalUV;o.foamMask = foamMask;
                 // 计算法线，这里需要注意的是，计算法线用的是世界坐标采样，因此，用这个映射过的世界坐标采样后
                 // 得到的矢量位移信息转换到世界空间后，得在加上偏移后的世界位置，这样差分得到的法向才是对的
@@ -625,7 +633,7 @@ Shader "FluidFlux/water_ins_tess"
                 deformWSPos.xz += mmm*(-gradient*4.0) * _waveUpwellingIntensity;
                 deformWSPos.y += (pow(mmm,2.0)*1.0 - langqian*1.0) * _waveUpwellingIntensity;
                 //deformWSPos.y += upwell;
-                deformWSPos.y = lerp(-1,deformWSPos.y,sdfMask); // 只有在近岸范围内才有浪花上涌的效果，远处的海面就没有了
+                deformWSPos.y = lerp(-10,deformWSPos.y,sdfMask); // 只有在近岸范围内才有浪花上涌的效果，远处的海面就没有了
 
                 
 
@@ -727,7 +735,7 @@ Shader "FluidFlux/water_ins_tess"
                 UNITY_SETUP_INSTANCE_ID(i);
                 //float2 newUV = animUV(i.uv,1, _Time.y, _VectorDisMap_ST);
                 float2 newUV = i.newUV;
-                float scale = 100.0;
+                float scale = SDF_SCALE;
                 float2 worldUV=1.0- (i.worldPos/scale + 0.5).xz;
                 bool infanwei = worldUV.x < 1.0 && worldUV.y < 1.0 &&
                                 worldUV.x > 0.0 && worldUV.y > 0.0; // 处于SDF贴图范围内
@@ -744,7 +752,7 @@ Shader "FluidFlux/water_ins_tess"
                 float3 Nor_detail = float3((WaveNor_detail.y*2.0-1.0)*_SurfNorScale,(WaveNor_detail.z*2.0-1.0)*_SurfNorScale,0.0);
                 Nor_detail.z = sqrt(1-pow(Nor_detail.x,2)-pow(Nor_detail.y,2));
                 Nor_detail =float3(-Nor_detail.y,Nor_detail.x,Nor_detail.z);
-                Nor = normalize(Nor + Nor_detail*0.33); // 先把大范围的波浪法线和小范围的波浪法线叠加起来，这样可以得到更丰富的法线细节
+                Nor = normalize(Nor + Nor_detail*0.2); // 先把大范围的波浪法线和小范围的波浪法线叠加起来，这样可以得到更丰富的法线细节
 
                 float3x3 waveTBN = float3x3(i.tanWave,i.bitWave,i.norWS);
                 Nor = mul(Nor,waveTBN);
@@ -985,10 +993,12 @@ Shader "FluidFlux/water_ins_tess"
                 float3 foaml =  SAMPLE_TEXTURE2D(_FoamTex,sampler_FoamTex, worldUV * _FoamTex_ST.xy + _FoamTex_ST.zw);
                 float3 foaml2 =  SAMPLE_TEXTURE2D(_FoamTex_2,sampler_FoamTex_2, worldUV * _FoamTex_2_ST.xy + _FoamTex_2_ST.zw);
                 // 计算三层浮沫的权重，第一层是基于SDF的，第二层是基于矢量置换贴图的，第三层是基于SDF和foamMask的综合权重，这样可以让浮沫在岸边更自然地过渡，同时在远处也有一定的浮沫效果
-                float fMask_1 = (smoothstep(0.1,0.05,-sdf) + i.foamMask)*infanwei; // 在靠近海岸的地方
+                float fMask_1 = (smoothstep(0.2,0.01,-sdf) + i.foamMask)*infanwei; // 在靠近海岸的地方
                 fMask_1 = i.foamMask;
                 float fMask_2 = i.foamMask; // 在矢量置换图的浪尖
-                float fMask_3 = 0.2*(smoothstep(0.2,0.05,-sdf)*i.newUV.x*3.0 + i.foamMask)*infanwei; // 在每层浪的前面
+                float fMask_3 = 0.7*(smoothstep(0.2,0.05,-sdf)*i.newUV.x*3.0 + i.foamMask)*infanwei; // 在每层浪的前面
+
+                //return float4(float3(1,1,1)*fMask_3,1);
 
                 // 计算每一层浮沫
                 float fff = fMask_1*foaml.z;
@@ -1010,7 +1020,7 @@ Shader "FluidFlux/water_ins_tess"
                 float fffDiff = max(0, dot(fffnor, lightDir));
                 fffDiff = lerp(fffDiff,1.0,0.3);
                 fffDiff *= clamp(totalFoam* _FoamIntensity,0.0,1.0)  ;
-                float3 foamCol = _FoamColor*fffDiff;
+                float3 foamCol = _FoamColor*fffDiff*lightColor;
 
                 
                 if(_DebugView == 0) // 最终结果

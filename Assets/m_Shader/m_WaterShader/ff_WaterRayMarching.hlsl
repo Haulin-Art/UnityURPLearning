@@ -532,7 +532,7 @@ float3 FFRayMarchVolumeScattering(
         //tindalPos = currentWorldPos;
         float tindalShadow = SAMPLE_TEXTURE3D(tindalShadowTex, sampler_tindalShadowTex, float3(tindalPos.xy/2.0,frac(_Time.y * tindalShadowData.speed))).r;
         tindalShadow = tindalShadowData.valueFlip ? (1.0 - tindalShadow) : tindalShadow;
-        tindalShadow = 1.0-lerp(1.0, smoothstep(0.2,0.5,tindalShadow), tindalShadowData.tindalShadowStrength);
+        tindalShadow = 1.0-lerp(1.0, smoothstep(0.5,0.7,tindalShadow), tindalShadowData.tindalShadowStrength);
         
         // 混合传统阴影和丁达尔阴影，取较暗的值
         currentShadow = max(currentShadow, tindalShadow);

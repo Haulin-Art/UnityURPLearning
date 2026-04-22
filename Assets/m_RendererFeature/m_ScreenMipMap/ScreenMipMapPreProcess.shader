@@ -144,6 +144,12 @@ Shader "Hidden/ScreenMipMap/PreProcess"
                 return float4(1, 0, 0, 1);
             #endif
             
+            // ================================= 法向 =========================================
+            float3 dx = ddx(worldPos);
+            float3 dy = ddy(worldPos);
+            float3 normal = -normalize(cross(dx, dy));
+            float NdotL = saturate(dot(normal, lightDir));
+
             // ================================= 灯光空间转换 ==================================
             float3 lightSpacePos = WorldToLightSpace(worldPos, lightDir);
 
@@ -171,6 +177,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             cautionTotal *= _CautionScale;
             cautionTotal *= _CautionIntensity;
             cautionTotal *= heightFade;
+            cautionTotal *= NdotL;
 
 
             // ============ 浅水方程部分 ==========================================
@@ -186,6 +193,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             float3 SWECaution = float3(dd, dd_r, dd_u) * SWEMask * notInShadow;
             SWECaution *= mask;
             SWECaution *= heightFade;
+            SWECaution *= NdotL;
             
             
             //return float4(color.xyz + lightColor * float3(1,1,1)*float3(dd, dd_r, dd_u),1.0);

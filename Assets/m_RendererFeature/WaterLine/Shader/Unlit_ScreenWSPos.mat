@@ -42,7 +42,7 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _AbsorptionScale: 5.78
+    - _AbsorptionScale: 4.5
     - _DepthScale: 39.4
     - _PhaseG: 0.7
     - _RayMarchIntensity: 2.72
