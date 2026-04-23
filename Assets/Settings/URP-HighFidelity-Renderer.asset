@@ -118,6 +118,27 @@ MonoBehaviour:
   filterMode: 2
   enablePreProcess: 1
   preProcessMaterial: {fileID: 2100000, guid: c786bdecd4e74ce479d6e12aff9e9ee5, type: 2}
+--- !u!114 &-1940797214686177420
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3051463dc50069419e6e587580fc859, type: 3}
+  m_Name: AdvCloudFeature
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  settings:
+    layerMask:
+      serializedVersion: 2
+      m_Bits: 4294967295
+    renderPassEvent: 550
+    passName: PlanarReflection Render Pass
+    AdvanceCloudRFVersionMat: {fileID: 2100000, guid: d8143dd620b4bbc4f95596a748cde014,
+      type: 2}
 --- !u!114 &-1341785516918380094
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -160,9 +181,10 @@ MonoBehaviour:
   - {fileID: -2947568646573396506}
   - {fileID: 5276956939491072028}
   - {fileID: 179033236966121960}
+  - {fileID: 6518027610488459240}
   - {fileID: -8353285721275133182}
-  - {fileID: 6589773345064676621}
-  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d290455d6f9298c08e29dab9c5501896bb8fa93e6ede9cdee2118d71cd865c160843b49e8a15accc70d7c0202930de4e42a138c0dedea76f193735b
+  - {fileID: -1940797214686177420}
+  m_RendererFeatureMap: 7f99f93459f1570fc2e950732e0561ed008f98157f5b34851226731c165eada8b7da0ee63d290455d6f9298c08e29dab9c5501896bb8fa93e6ede9cdee2118d71cd865c160843b49e8a15accc70d7c02e84f5ae793af745a02930de4e42a138c7417904d37e710e5
   m_UseNativeRenderPass: 1
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
@@ -284,7 +306,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 835781b1e9b0341468aad37328082f39, type: 3}
   m_Name: FrequencyHighlightFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   settings:
     resolution: 512
     threshold: 0.9995
@@ -294,7 +316,7 @@ MonoBehaviour:
     highlightShapeSource: {fileID: 2800000, guid: 9d38f2888107b6a42a046d54d0077d5d,
       type: 3}
     highlightShapeScale: {x: 3, y: 3}
-    aspectRatio: 1.5431966
+    aspectRatio: 1.7777778
     highlightKernelFrequencyRT: {fileID: 0}
     needUpdateHighlightKernel: 0
     intensity: 0.33
@@ -316,6 +338,30 @@ MonoBehaviour:
   m_Name: Params
   m_EditorClassIdentifier: 
   m_Active: 0
+--- !u!114 &6518027610488459240
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a7697d4997ebfa478dcdad1aa4f143a, type: 3}
+  m_Name: PlanarReflectionRenderFeature
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  settings:
+    reflectLayers:
+      serializedVersion: 2
+      m_Bits: 4294967295
+    renderPassEvent: 250
+    passName: Planar Reflection Pass
+    resolutionMultiplier: 2
+    clipPlaneOffset: 0.02
+    renderShadows: 0
+    waterHeight: 1
+    planeOffset: 0.005
 --- !u!114 &6589773345064676621
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -293,7 +293,11 @@ Shader "FluidFlux/water_ins_tess"
 
             TEXTURE2D(_CameraOpaqueTexture);SAMPLER(sampler_CameraOpaqueTexture);
             
+            // 来自平面反射 Renderer Feature 的平面反射纹理
+            TEXTURE2D(_PlanarReflectionTexture);SAMPLER(sampler_PlanarReflectionTexture);
 
+            // 来自另一个RF的体积云的信息
+            TEXTURE2D(_AtmosRFCloudTex);SAMPLER(sampler_AtmosRFCloudTex);
 
             // 顶点着色器输入结构
             struct appdata
@@ -951,10 +955,29 @@ Shader "FluidFlux/water_ins_tess"
                 //envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
                 //envReflection = _EnvReflectionStrength*GlossyEnvironmentReflection(reflectDir, _Roughness, 1.0);
                 envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz;
-                envReflection *= _EnvReflectionStrength;
+                
 
+                // =================== 体积云环境反射 =======================================
+                float4 cloudRFData = SAMPLE_TEXTURE2D(_AtmosRFCloudTex, sampler_AtmosRFCloudTex, screenUV+ normal.xz * 0.1);
+                envReflection = lerp(saturate(cloudRFData.xyz),envReflection,saturate(cloudRFData.w+smoothstep(1,20,selfDepthLinear)));
+
+
+                // ================ 来自平面反射Renderer Feature的平面反射纹理 =======================================
+                float2 screenUV_flipY = float2(screenUV.x,1.0-screenUV.y);
+                float2 planarRef_UV = screenUV_flipY - normal.xz * 0.1 ;
+                float3 planarReflection = SAMPLE_TEXTURE2D(_PlanarReflectionTexture,sampler_PlanarReflectionTexture,planarRef_UV);
+                //return float4(planarReflection,1.0);
+                envReflection = lerp(envReflection,planarReflection,step(0.0001,length(planarReflection)));
+                //return float4(float3(1,1,1)*smoothstep(0.1,0.2,viewDirWS.y),1.0);
+                
+                //return float4(float3(1,1,1)*cloudRFData.w,1);
+                //return float4(float3(1,1,1)*smoothstep(20,1,selfDepthLinear),1);
+
+                // 应用环境反射
+                envReflection *= _EnvReflectionStrength;
                 float3 reflectionColor = FFBlendReflection(albedo, envReflection, fresnel, 1.0);
-                reflectionColor *= lerp(shadowMask,1.0,0.5); // 将环境反射与阴影遮罩相乘，使得在阴影区域环境反射变暗
+                //reflectionColor *= lerp(shadowMask,1.0,0.5); // 将环境反射与阴影遮罩相乘，使得在阴影区域环境反射变暗
+
 
                 // ==================== 最终颜色合成 ====================
                 // 将BSDF散射与反射混合

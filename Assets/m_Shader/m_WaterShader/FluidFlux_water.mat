@@ -92,8 +92,8 @@ Material:
     - _EnvReflectionStrength: 1
     - _FoamIntensity: 1
     - _FoamNorScale: 0.27
-    - _FresnelF0: 0.1
-    - _FresnelPower: 2.36
+    - _FresnelF0: 0.0239
+    - _FresnelPower: 1
     - _PanoramicRotation: 0.786
     - _PhaseG: 0.49
     - _RayMarchIntensity: 2.8

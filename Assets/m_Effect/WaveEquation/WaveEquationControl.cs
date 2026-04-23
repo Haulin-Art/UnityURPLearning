@@ -80,7 +80,7 @@ public class SimpleWaveController : MonoBehaviour
                 target.position.z
             );
         }
-        Debug.Log("Movement Delta: " + movementDelta + " | Length: " + movementDelta.magnitude);
+        //Debug.Log("Movement Delta: " + movementDelta + " | Length: " + movementDelta.magnitude);
         
         // 仅仅当目标存在且位置发生变化时才增加扰动
         float finalStrength =  movementDelta.magnitude > 0.001f ? strength : 0f;
