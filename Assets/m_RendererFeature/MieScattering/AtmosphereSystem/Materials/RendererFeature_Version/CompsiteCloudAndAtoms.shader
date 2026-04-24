@@ -1,4 +1,4 @@
-Shader "Custom/AdvancedVolumetricCloud_RF"
+Shader "Custom/CompsiteCloudAndAtoms"
 {
     Properties
     {
@@ -132,7 +132,7 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
         
         Pass
         {
-            Name "VolumetricCloudSkybox_RF"
+            Name "VolumetricCloudSkybox"
             
             HLSLPROGRAM
             #pragma vertex vert
@@ -147,7 +147,7 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
             // ========== 常量定义 ==========
             //#define PI 3.14159265359
             #define MAX_FLOAT 3.402823466e+38
-            //#define IS_SKYBOX // 是否为天空盒
+            #define IS_SKYBOX // 是否为天空盒
             //#define USE_TYNDALL_EFFECT
             #define USE_STARS_EFFECT
             
@@ -165,6 +165,9 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
             TEXTURE2D(_CloudHeightGradient);
             SAMPLER(sampler_CloudHeightGradient);
             
+            // 来自 Renderer Feature 的体积云渲染的纹理
+            TEXTURE2D(_AtmosRFCloudTex);SAMPLER(sampler_AtmosRFCloudTex);
+
             // ========== 属性变量 ==========
             CBUFFER_START(UnityPerMaterial)
                 float _PanoramicRotation;
@@ -608,7 +611,6 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
                 float3 RayOrigin = _WorldSpaceCameraPos;
                 float3 RayDir = normalize(i.viewDir);
                 
-                
                 // 如果不是天空盒，才计算视线方向
                 #ifndef IS_SKYBOX
                     // 非skybox的话用这个
@@ -621,12 +623,8 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
                     // 3. 计算光线方向并单位化
                     float3 rd = normalize(worldPos.xyz - RayOrigin);
                     RayDir = rd;
-
-                    RayDir.y = abs(RayDir.y);
-                    SunDir.y = abs(SunDir.y);
                 #endif
-                //return float4(float3(1,1,1)*RayDir,1);
-                //return float4(float3(1,1,1)*RayDir,1);
+
                 // 以下用于测试
                 #if defined(_IS_SKYBOX)
                     return float4(0, 0, 0, 1);
@@ -641,208 +639,27 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
                 float3 EnvColor = SAMPLE_TEXTURE2D_LOD(_EnvPanoramic,sampler_EnvPanoramic, DirToPanoramicUV(RotateAroundY(-RayDir, _PanoramicRotation)), 0.0).rgb;
                 float sun = dot(RayDir, SunDir);
                 sun = step(1.0-_SunSize, sun);
-                //EnvColor += sun*EnvColor;
+                EnvColor += sun*EnvColor;
                 // 云层参数
                 CloudLayerParams CloudParams = GetCloudLayerParams();
                 
-                // 计算射线与云层的交点
-                float2 InnerIntersect = RaySphereIntersect(RayOrigin, RayDir, 
-                                                          CloudParams.Center, CloudParams.InnerRadius); // 云的内层边界
-                float2 OuterIntersect = RaySphereIntersect(RayOrigin, RayDir, 
-                                                          CloudParams.Center, CloudParams.OuterRadius); // 云的外层边界
-                
-                
-                //// 判断射线起点位置，以及射线长度
-                // 这个云的话，要是x大于0说明在球的外部，要是小于0说明在球的内部
-                
-
-                float ces =0.0;
-                int state = 0; // 0=在云层下，1=在云层内，2=在云层外
-                // 确定步进范围
-                float EntryDist = 0.0;
-                float ExitDist = 0.0;
-                // 要是在云层下
-                if ( InnerIntersect.x < 0.0 && OuterIntersect.x < 0.0)
-                {
-                    state = 0;
-                    EntryDist = max(0.0, InnerIntersect.y);
-                    ExitDist = OuterIntersect.y;
-                    ces = OuterIntersect.y-InnerIntersect.y;
-                }
-                // 要是在云层内
-                if ( InnerIntersect.x > 0.0 && OuterIntersect.x < 0.0)
-                {
-                    state = 1;
-                    EntryDist = 0.0;
-                    ExitDist = min(InnerIntersect.x,OuterIntersect.y);
-                    sunHeight = 1.0; // 不然的话，地平线下的会被清除掉
-                    ces = min(InnerIntersect.x,OuterIntersect.y);
-                }
-                // 要是在云层上
-                if ( InnerIntersect.x > 0.0 && OuterIntersect.x < 0.0)
-                {
-                    state = 2;
-                    EntryDist = OuterIntersect.x;
-                    ExitDist = InnerIntersect.x;
-                }
-                //return float4((OuterIntersect.x-0*InnerIntersect.x)/200*float3(1,1,1), 1);
-
-                //return float4(ces/10000 * float3(1,1,1), 1);
-                // 确定步进范围
-                //float EntryDist = max(0.0, InnerIntersect.y);
-                //float ExitDist = OuterIntersect.y;
-                
-
-                //if (EntryDist <= 0.0 || ExitDist <= EntryDist)
-                //{
-                    // 无云，返回透明
-                    //return float4(0, 0, 0, 0);
-                //}
-                
 
 
-                float RayLength = ExitDist - EntryDist;
-                //return float4(RayLength/100000 * float3(1,1,1), 1);
-
-
-                // 蓝噪声抖动
-                float BlueNoise = SAMPLE_TEXTURE2D(_BlueNoise, sampler_BlueNoise, (i.screenUV.xy/i.screenUV.w) * 3.0).r;
-                float Dither = (BlueNoise - 0.5) * 2.0;
-                //return float4(Dither, 0, 0, 0);
-                // 步进设置
-                int NumSamples = int(_NumViewSamples);
-                float StepSize = RayLength / float(NumSamples) * _StepSizeMultiplier;
-
-                if (state == 1)
-                {
-                    StepSize = min(StepSize*0.0001, 10.0);
-                }
-                
-                // 初始化相位函数
-                float CosTheta = dot(RayDir, SunDir);
-                float BasePhase = BlendPhaseFunction(CosTheta, _PhaseG, _PhaseG2, _PhaseBlend);
-                PhaseContext PhaseCtx = SetupPhaseContext(BasePhase, _MsPhaseFactor, _MaxScatteringOrder);
-                
-                // 初始化累加变量
-                float3 TotalLuminance = float3(0, 0, 0);
-                float TotalTransmittance = 1.0;
-                float TotalDensity = 0.0;
-                
-                // 光线步进循环
-                float CurrentDist = EntryDist + StepSize * 0.5;  // 从中间开始
-                CurrentDist += StepSize * Dither * 0.2;  // 应用抖动
-                
-
-                // 丁达尔光采样开始位置
-                float3 RayStart = RayOrigin + RayDir * (CurrentDist+StepSize*10);
-                float2 touying = SunDir.xz * StepSize ; // 太阳光在平面上的投影
-                float TyndallEffect = 0.0;
-
-                //RayStart.xz += touying;
-                //float hereDens = CalculateCloudDensity(RayStart, sunHeight, CloudParams);
-                //hereDens = 1.0-saturate(hereDens*500.0);
-
-                
-                [unroll(6)]
-                for (int step = 0; step < NumSamples; step++)
-                {
-                    #ifdef USE_TYNDALL_EFFECT
-                        float3 tyndallSamplePos = RayStart ;
-                        tyndallSamplePos.xz += touying * step;
-                        float tyndallDensity = CalculateCloudDensity(tyndallSamplePos, sunHeight, CloudParams);
-                        TyndallEffect += 1.0 - tyndallDensity*StepSize;
-                    #endif
-
-                    // 当前位置
-                    float3 SamplePos = RayOrigin + RayDir * CurrentDist;
-                    // 计算云密度
-                    float Density = CalculateCloudDensity(SamplePos, sunHeight, CloudParams);
-                    
-                    if (Density > 0.0)
-                    {
-                        // 计算阴影
-                        float Shadow = CalculateCloudShadow(SamplePos, SunDir, sunHeight, CloudParams, 
-                                                           int(_NumLightSamples), StepSize * 1.0);
-                        
-                        // 计算消光和散射
-                        float Extinction = Density * _ExtinctionCoefficient;
-                        float Scattering = Density * _ScatteringCoefficient;
-                        
-                        // 计算光照贡献
-                        float3 LightContrib = SunColor * Shadow;
-                        float3 ScatterContrib = CalculateMultipleScattering(
-                            float3(Scattering, Scattering, Scattering),
-                            TotalTransmittance,
-                            PhaseCtx,
-                            LightContrib,
-                            EnvColor*0.5*_Albedo,  // 天光颜色
-                            _MsScattFactor
-                        );
-                        
-                        // 累加贡献
-                        TotalLuminance += ScatterContrib * StepSize;
-                        
-                        // 更新透射率
-                        float StepTransmittance = exp(-Extinction * StepSize);
-                        TotalTransmittance *= StepTransmittance;
-                        
-                        // 累加密度（用于调试）
-                        TotalDensity += Density;
-                    }
-                    
-                    // 自适应步长
-                    StepSize = lerp(StepSize*1.0, StepSize * 0.05, Density);
-                    // 步进
-                    CurrentDist += StepSize ;//+ StepSize * Dither * 0.2;
-                    
-                    // 提前终止
-                    if (TotalTransmittance < 0.01)
-                        break;
-                    
-                    if (CurrentDist > ExitDist)
-                        break;
-                }
-                // 当前点的大气散射光照
-                float3 atmosDir = normalize(RayDir + SunDir);
-                float3 AtmosColor = SAMPLE_TEXTURE2D_LOD(_EnvPanoramic,sampler_EnvPanoramic, DirToPanoramicUV(RotateAroundY(-atmosDir, _PanoramicRotation)), 0.0).rgb;
-                //return float4(AtmosColor, 1.0);
-                // 最终颜色合成
-                float3 FinalColor = TotalLuminance * _CloudColor.rgb * SunColor + _CloudEmission.rgb;
-                
+                float4 RFCloudData = SAMPLE_TEXTURE2D(_AtmosRFCloudTex,sampler_AtmosRFCloudTex, (i.screenUV.xy/i.screenUV.w));
+                float3 FinalColor = RFCloudData.rgb;
+                float TotalTransmittance = lerp(1.0,RFCloudData.a,smoothstep(0.01,0.03,RayDir.y));
                 //return float4(float3(1,1,1)*TyndallEffect/float(NumSamples),1);
-                
 
-                /*
                 #ifndef IS_SKYBOX
                     FinalColor = TotalLuminance * _CloudColor.rgb  + _CloudEmission.rgb;
                 #endif
-                */
+                
                 FinalColor = clamp(FinalColor, 0.0, 10.0);
                 
-                //return float4(FinalColor,1.0); 
-
-                // 调试模式
-                if (_DebugMode == 1)
-                {
-                    // 显示密度
-                    float NormalizedDensity = TotalDensity / float(NumSamples);
-                    return float4(NormalizedDensity, NormalizedDensity, NormalizedDensity, 1.0);
-                }
-                else if (_DebugMode == 2)
-                {
-                    // 显示步进距离
-                    float NormDist = RayLength / 10000.0;
-                    return float4(NormDist, NormDist, NormDist, 1.0);
-                }
-                else if (_DebugMode == 3)
-                {
-                    // 显示透射率
-                    return float4(TotalTransmittance, TotalTransmittance, TotalTransmittance, 1.0);
-                }
                 
-
                 // 混合颜色
                 float3 nightColor = _NightBrightness * lerp( _NightSkyLineColor.rgb,_NightColor.rgb,pow(abs(RayDir.y),0.5));
+
 
                 // 混合夜色
                 float3 mixColor = EnvColor ;//+ nightColor;//*smoothstep(0.0,0.1,saturate(SunDir.y));
@@ -865,14 +682,17 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
                 // 混合云
                 float3 cloudColor = lerp(FinalColor, EnvColor, _CloudAlpha);
                 mixColor = lerp(cloudColor, mixColor, TotalTransmittance);
-
-
-                return float4(cloudColor,TotalTransmittance);
                 
                 #ifdef USE_TYNDALL_EFFECT
                     mixColor +=_CES*20.0*TyndallEffect/float(NumSamples)*0.5*SunColor;
                 #endif
 
+                
+
+
+
+                //return float4(float3(1,1,1)*nightAlpha,1);
+                //return float4(float3(1,1,1)*lerp(nightColor,mixColor,nightAlpha),1);  
                 return float4(mixColor,1.0);
             }
             

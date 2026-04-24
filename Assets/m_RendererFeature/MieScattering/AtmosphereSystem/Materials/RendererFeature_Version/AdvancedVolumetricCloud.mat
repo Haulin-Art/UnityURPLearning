@@ -74,7 +74,7 @@ Material:
     - _CloudDensityMultiplier: 0.03
     - _CloudDensityOffset: 0
     - _CloudDensityScale: 0.001
-    - _CloudDensityThreshold: 0.477
+    - _CloudDensityThreshold: 0.398
     - _CloudDetailMix: 1
     - _CloudDetailSharpness: 0.494
     - _CloudDetailThreshold: 0
@@ -106,7 +106,7 @@ Material:
     - _NumLightSamples: 8
     - _NumSamples: 32
     - _NumSamplesLight: 8
-    - _NumViewSamples: 24
+    - _NumViewSamples: 48
     - _OnlyOnEdgeErosion: 0
     - _PanoramicRotation: 0.2257
     - _PhaseBlend: 0.196

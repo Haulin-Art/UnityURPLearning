@@ -39,9 +39,9 @@ Material:
     m_Floats:
     - _Brightness: 1
     - _CautionEndHeight: 0
-    - _CautionIntensity: 2
+    - _CautionIntensity: 1
     - _CautionPow: 4
-    - _CautionScale: 0.3
+    - _CautionScale: 1.5
     - _CautionStartHeight: 0.9
     - _Contrast: 1
     - _SWENorIntensity: 1

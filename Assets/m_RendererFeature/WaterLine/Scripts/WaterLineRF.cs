@@ -301,8 +301,12 @@ public class WaterLineFeature : ScriptableRendererFeature
             if (cmd != null)
             {
                 cmd.ReleaseTemporaryRT(shaderID);
-                //_cameraColorTgt?.Release();
-                //_cameraDepthTgt?.Release();
+                //_waterSurfaceHeightRT?.Release();
+                //_tempDepthRT?.Release();
+                //_dropProcessRT?.Release();
+                //_mipmapSceneRT?.Release();
+                //_waterLineMaskRT?.Release();
+                //_waterLineMaskRT_Read?.Release();
             }
         }
         public void SwapRT(ref RTHandle rt1, ref RTHandle rt2)

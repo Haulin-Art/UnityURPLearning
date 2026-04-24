@@ -53,8 +53,8 @@ public class AdvCloudFeature : ScriptableRendererFeature
             if (m_Settings.AdvanceCloudRFVersionMat == null) return;
 
             // 可选：设置RTHandle
-            int width = renderingData.cameraData.camera.pixelWidth/1;
-            int height = renderingData.cameraData.camera.pixelHeight/1;
+            int width = renderingData.cameraData.camera.pixelWidth/2;
+            int height = renderingData.cameraData.camera.pixelHeight/2;
             RenderingUtils.ReAllocateIfNeeded(ref _AtmosRFCloudTex,new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGBFloat, 0),FilterMode.Bilinear);
 
             // 在这里给材质传入数据，好进行计算

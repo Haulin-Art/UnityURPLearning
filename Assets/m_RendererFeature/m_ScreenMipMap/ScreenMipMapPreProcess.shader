@@ -190,10 +190,12 @@ Shader "Hidden/ScreenMipMap/PreProcess"
             float dd = ddx(SWEHeight + cautionTex.x + cautionTex.y) + ddy(SWEHeight + cautionTex.x + cautionTex.y);
             float dd_r = ddx(SWEHeight_R ) + ddy(SWEHeight_R );
             float dd_u = ddx(SWEHeight_U ) + ddy(SWEHeight_U );
-            float3 SWECaution = float3(dd, dd_r, dd_u) * SWEMask * notInShadow;
+            float3 SWECaution = float3(dd, dd_r, dd_u) * SWEMask * notInShadow * 2.0;
+            SWECaution = clamp(SWECaution,-0.1,5.0);
             SWECaution *= mask;
             SWECaution *= heightFade;
             SWECaution *= NdotL;
+            SWECaution *= _CautionScale;
             
             
             //return float4(color.xyz + lightColor * float3(1,1,1)*float3(dd, dd_r, dd_u),1.0);

@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: AdvancedVolumetricCloud
-  m_Shader: {fileID: 4800000, guid: ad21fb2ffc3439b449a78aece7391c7b, type: 3}
+  m_Name: Compsite
+  m_Shader: {fileID: 4800000, guid: f4675a9bd4597064594d72f5969fe106, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -68,13 +68,13 @@ Material:
     - _2Dor3DCloudTexMix: 0
     - _Altitude: 0
     - _CES: 0.034
-    - _CloudAlpha: 0.5
+    - _CloudAlpha: 0.099
     - _CloudBaseHeight: 2000
     - _CloudBottomRadius: 6361000
     - _CloudDensityMultiplier: 0.03
     - _CloudDensityOffset: 0
     - _CloudDensityScale: 0.001
-    - _CloudDensityThreshold: 0.413
+    - _CloudDensityThreshold: 0.477
     - _CloudDetailMix: 1
     - _CloudDetailSharpness: 0.494
     - _CloudDetailThreshold: 0
@@ -83,7 +83,7 @@ Material:
     - _CloudExtinctionCoeff: 0.05
     - _CloudPhaseG: 0.8
     - _CloudScatterCoeff: 1
-    - _CloudThickness: 2000
+    - _CloudThickness: 200
     - _CloudTiling: 5
     - _CloudTopRadius: 6363000
     - _DebugMode: 0
@@ -106,7 +106,7 @@ Material:
     - _NumLightSamples: 8
     - _NumSamples: 32
     - _NumSamplesLight: 8
-    - _NumViewSamples: 36
+    - _NumViewSamples: 24
     - _OnlyOnEdgeErosion: 0
     - _PanoramicRotation: 0.2257
     - _PhaseBlend: 0.196

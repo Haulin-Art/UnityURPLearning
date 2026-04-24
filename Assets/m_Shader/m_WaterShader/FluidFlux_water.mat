@@ -88,22 +88,22 @@ Material:
     - _AbsorptionScale: 1.44
     - _CES: 3.03
     - _DebugView: 0
-    - _DepthScale: 1
+    - _DepthScale: 0.4
     - _EnvReflectionStrength: 1
     - _FoamIntensity: 1
     - _FoamNorScale: 0.27
-    - _FresnelF0: 0.0239
-    - _FresnelPower: 1
+    - _FresnelF0: 0.0571
+    - _FresnelPower: 1.06
     - _PanoramicRotation: 0.786
     - _PhaseG: 0.49
-    - _RayMarchIntensity: 2.8
-    - _RayMarchMaxDistance: 5
+    - _RayMarchIntensity: 3
+    - _RayMarchMaxDistance: 2
     - _RayMarchSteps: 6
     - _RefractionBlurEnd: 5
     - _RefractionBlurStart: 0.3
     - _RefractionBlurStrength: 6.9
-    - _RefractionStrength: 0.0694
-    - _Roughness: 0.186
+    - _RefractionStrength: 0.0269
+    - _Roughness: 0.107
     - _SSSDepthScale: 18
     - _SSSNormalSmoothness: 0
     - _SSSStrength: 1.99
@@ -115,7 +115,7 @@ Material:
     - _Speed: -0.5
     - _SunGlitterIntensity: 0.15
     - _SunGlitterSpeed: 2
-    - _SurfNorScale: 1.33
+    - _SurfNorScale: 5
     - _SurfScale: 0.14
     - _SurfScale01: 0.09
     - _SurfScale02: 0.025

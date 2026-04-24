@@ -782,7 +782,7 @@ Shader "FluidFlux/water_ins_tess"
 
                 // 远处的海面粗糙度增加，且要让法线更平坦一些，这样看起来才像远处的海面
                 float dist = distance(i.worldPos, _WorldSpaceCameraPos);
-                float roughnessRamp = smoothstep(10.0,70.0,dist);
+                float roughnessRamp = saturate(smoothstep(5.0,50.0,dist)-0.1);
                 Nor = lerp(Nor, float3(0,1,0), roughnessRamp);
                 _Roughness = lerp(_Roughness, 0.5, roughnessRamp);
                 //return float4(float3(Nor.z,Nor.y,-Nor.x)*float3(1,1,1),1.0);
@@ -858,7 +858,7 @@ Shader "FluidFlux/water_ins_tess"
                 
                 thickness = pow(1.0-fresnel,1.0)*1;
                 //return float4(float3(1,1,1)*waterDepth/30 *thicknessTex , 1.0);
-                
+
 
                 //float thinDepth = smoothstep(0.45,0.7,i.deformWSPos.y)*thickness*infanwei;
                 //thickness = lerp(waterDepth, thinDepth, infanwei*smoothstep(0.45,0.7,i.deformWSPos.y));
@@ -955,7 +955,7 @@ Shader "FluidFlux/water_ins_tess"
                 //envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
                 //envReflection = _EnvReflectionStrength*GlossyEnvironmentReflection(reflectDir, _Roughness, 1.0);
                 envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz;
-                
+                envReflection = clamp(envReflection,0,lerp(30.0,1,smoothstep(0.0,0.1,saturate(viewDirWS.y))));
 
                 // =================== 体积云环境反射 =======================================
                 float4 cloudRFData = SAMPLE_TEXTURE2D(_AtmosRFCloudTex, sampler_AtmosRFCloudTex, screenUV+ normal.xz * 0.1);
@@ -964,7 +964,7 @@ Shader "FluidFlux/water_ins_tess"
 
                 // ================ 来自平面反射Renderer Feature的平面反射纹理 =======================================
                 float2 screenUV_flipY = float2(screenUV.x,1.0-screenUV.y);
-                float2 planarRef_UV = screenUV_flipY - normal.xz * 0.1 ;
+                float2 planarRef_UV = screenUV_flipY + normal.xz * 0.1 ;
                 float3 planarReflection = SAMPLE_TEXTURE2D(_PlanarReflectionTexture,sampler_PlanarReflectionTexture,planarRef_UV);
                 //return float4(planarReflection,1.0);
                 envReflection = lerp(envReflection,planarReflection,step(0.0001,length(planarReflection)));
