@@ -4,6 +4,9 @@ Shader "Unlit/S_Ground"
     {
         _MainTex ("Texture", 2D) = "white" {}
         _MainCol ("主颜色",Color) = (0.23,0.33,0.0,0.0)
+
+        [Space(10)]
+        _Rain ("是否下雨", Float) = 0.0
     }
     SubShader
     {
@@ -42,6 +45,8 @@ Shader "Unlit/S_Ground"
             TEXTURE2D(_CSShadow);SAMPLER(sampler_CSShadow);
             TEXTURE2D(_POSpcf);
             SAMPLER(sampler_POSpcf);
+
+            float _Rain;
 
             v2f vert (appdata v)
             {
@@ -106,8 +111,10 @@ Shader "Unlit/S_Ground"
                 float t = T*2;
                 float drop = StaticDrops(i.uv*3.0,t/3.0,0.8);
 
+                shadow = min(shadow,0.6)*(10.0/6.0);
+                drop *= _Rain;
 
-                //return float4(lerp(1.0,0.5,drop) * float3(1,1,1) ,1.0 );
+                //return float4(shadow*float3(1,1,1) ,1.0 );
                 return float4(color*lerp(shadow,1.0,0.5) * lerp(1.0,0.5,drop)* float3(1,1,1) ,1.0 );
             }
             ENDHLSL

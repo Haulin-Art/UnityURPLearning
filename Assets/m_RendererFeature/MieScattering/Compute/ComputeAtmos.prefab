@@ -1,0 +1,74 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4754827632092312542
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4907311891589254245}
+  - component: {fileID: 8158047190945080649}
+  m_Layer: 0
+  m_Name: ComputeAtmos
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4907311891589254245
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4754827632092312542}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -23.28556, y: -1.5799341, z: -31.703537}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8158047190945080649
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4754827632092312542}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6a5c2dbb7fce39d47b41c0420c18d6d8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  outputTexture: {fileID: 8400000, guid: f4f1718612fdb9947a15a9eae2aad0b7, type: 2}
+  atmosComputeShader: {fileID: 7200000, guid: cc6a308f07b137c47a4e1a1fba23a56c, type: 3}
+  totalScale: 1
+  planetRadius: 6371000
+  atmosphereHeight: 100000
+  altitude: 1
+  rayleighScaleHeight: 8000
+  mieScaleHeight: 1200
+  ozoneScaleHeight: 25000
+  ozoneCenterHeight: 25000
+  atmosIntensity: 1
+  scatterScale: {x: 1, y: 1}
+  mieExtinction: 0.0000025
+  mieG: 0.76
+  sunMieG: 0.992
+  sunMieIntensity: 1
+  sunSize: 0.001
+  sunColor: {r: 1, g: 1, b: 1, a: 1}
+  sunBrightness: 10
+  sunDirection: {x: -0, y: 0.09237063, z: -0.9957247}
+  autoSunDirection: 1
+  numSamples: 48
+  numSamplesLight: 12
+  nightBrightness: 4
+  nightSkyLineColor: {r: 0.050980393, g: 0.078431375, b: 0.16862746, a: 1}
+  nightZenithColor: {r: 0.18431373, g: 0.16470589, b: 0.16470589, a: 1}
+  updateEveryFrame: 1
+  generateOnStart: 1

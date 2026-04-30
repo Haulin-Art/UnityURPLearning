@@ -3,6 +3,9 @@ Shader "Unlit/S_Actor_Shadow_Eye"
     Properties
     {
         _ShadowCol ("阴影颜色",Color) = (1.0,1.0,1.0,1.0)
+        [Space(15)]
+        _DebugMode ("测试模式",Float) = 0
+        // 1 是阴影
     }
     SubShader
     {
@@ -20,6 +23,7 @@ Shader "Unlit/S_Actor_Shadow_Eye"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             
             float3 _ShadowCol;
+            float _DebugMode;
             
             struct appdata
             {
@@ -47,6 +51,10 @@ Shader "Unlit/S_Actor_Shadow_Eye"
                 float gradient = saturate(1.0 - i.uv.y*1.5);
                 gradient = saturate(gradient);
                 //gradient = pow(saturate(gradient),2.0);
+                if(_DebugMode == 1.0)
+                {
+                    return float4( float3(1,1,1)*gradient,1.0);
+                }
                 return float4(_ShadowCol*gradient,1.0);
             }
             ENDHLSL

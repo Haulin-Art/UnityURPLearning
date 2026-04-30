@@ -26,7 +26,7 @@ public class PerObjectShadowRF : ScriptableRendererFeature
     [SerializeField] private int UnsampleInt = 2;
     [Range(1,16)]
     [SerializeField] private int PoissonCount = 5;
-    [Range(0.0001f,0.001f)]
+    [Range(0.0001f,0.003f)]
     [SerializeField] private float _initPCSS = 0.0005f; // PCSS默认模糊
     [Range(0.001f,0.02f)]
     [SerializeField] private float _distancePCSS = 0.015f; // 距离PCSS模糊强度

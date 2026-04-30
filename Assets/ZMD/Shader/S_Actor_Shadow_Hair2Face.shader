@@ -3,6 +3,9 @@ Shader "Unlit/S_Actor_Shadow_Hair2Face"
     Properties
     {
         _ShadowCol ("阴影颜色",Color) = (0.5,0.5,0.5,0.5)
+        [Space(15)]
+        _DebugMode ("测试模式",Float) = 0
+        // 1 是阴影
     }
     SubShader
     {
@@ -31,6 +34,7 @@ Shader "Unlit/S_Actor_Shadow_Hair2Face"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             
             float3 _ShadowCol;
+            float _DebugMode;
             
             struct appdata
             {
@@ -56,6 +60,10 @@ Shader "Unlit/S_Actor_Shadow_Hair2Face"
             float4 frag (v2f i) : SV_Target
             {
                 //float4 col = tex2D(_MainTex, i.uv);
+                if(_DebugMode == 1.0)
+                {
+                    return float4( float3(1,1,1)*0,1.0);
+                }
                 return float4(_ShadowCol,1.0);
             }
             ENDHLSL

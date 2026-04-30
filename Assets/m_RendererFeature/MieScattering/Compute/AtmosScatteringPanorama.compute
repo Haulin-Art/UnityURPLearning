@@ -235,7 +235,7 @@ float3 ComputeAtmosScattering(float3 rayOrigin, float3 rayDir, float rayLength,
     outViewTransmittance = exp(-viewTau);
     
     // 返回所有散射的总和（瑞利 + 米氏 + 太阳米氏）
-    return accumRayleigh + accumMie + accumSunMie;
+    return accumRayleigh + accumMie + accumSunMie * smoothstep(0.15,0.4,sunDir.y);
 }
 
 // 将UV坐标转换为世界空间方向向量（等距圆柱投影）
@@ -357,7 +357,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     float3 finalCol = _SunBrightness * _SunColor * scatter;
     //finalCol += sun*0;
     float3 nightColor = _NightBrightness * lerp(pow(_NightZenithColor.rgb,2.2),pow(_NightSkyLineColor.rgb,2.2),pow(abs(rd.y),0.5));
-    finalCol += nightColor;
+    finalCol += nightColor * smoothstep(0.3,0.1,sunDir.y);
     // 确保颜色值范围正确
     finalCol = max(finalCol, 0.0);
     finalCol = min(finalCol, 10.0);  // 限制最大值，避免过度曝光

@@ -310,17 +310,19 @@ Shader "PostProcessing/AtmosScattering_Improved"
 
             // 计算视线与大气层的交点
             float2 inter = RaySphereIntersect(ro, rd, planetCenter, planetR + atmosH);
-            
+
             float rayLen = 0.0;
             float3 rayStart = ro;
             
             if (inter.x > 0.0 || inter.y > 0.0)
-            {
+            {   
+                // 此时位于大气层内部
                 if (inter.x < 0.0)
                 {
                     rayStart = ro;
                     rayLen = inter.y;
                 }
+                // 此时位于大气层外部
                 else
                 {
                     rayStart = ro + rd * inter.x;
@@ -389,12 +391,12 @@ Shader "PostProcessing/AtmosScattering_Improved"
             }
 
             float sunArea = ( 1.0 - smoothstep(1.0-_SunSize+0.0001,1.0-_SunSize,dot(rd,sunDir)));
-            float3 sun = _Brightness * _SunColor * sunArea;  
+            float3 sun = _Brightness * _SunColor * sunArea * smoothstep(-0.01,0.05,rd.y);  
             //return float4(*float3(1,1,1),1);
 
 
             // 最终颜色 = 散射光 + 太阳 + 原始场景 × 透射率
-            float3 finalCol = _Brightness * _SunColor * (scatter + sunScatter) ;
+            float3 finalCol = _Brightness * _SunColor * (scatter + sunScatter * smoothstep(0.05,0.3,sunDir.y)) ;
             
             // 计算视线方向的透射率
             float3 viewOpticalDepth = ComputeOpticalDepth(rayStart, rd, rayLen, 4,

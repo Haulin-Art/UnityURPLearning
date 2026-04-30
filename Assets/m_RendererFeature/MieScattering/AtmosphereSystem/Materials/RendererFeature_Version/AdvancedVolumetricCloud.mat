@@ -71,7 +71,7 @@ Material:
     - _CloudAlpha: 0.5
     - _CloudBaseHeight: 2000
     - _CloudBottomRadius: 6361000
-    - _CloudDensityMultiplier: 0.03
+    - _CloudDensityMultiplier: 0.015
     - _CloudDensityOffset: 0
     - _CloudDensityScale: 0.001
     - _CloudDensityThreshold: 0.398

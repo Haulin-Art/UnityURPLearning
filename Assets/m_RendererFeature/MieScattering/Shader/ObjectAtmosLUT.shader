@@ -4,11 +4,12 @@ Shader "Unlit/ObjectAtmosLUT"
     {
         [NoScaleOffset]_AtmosLUT ("大气LUT",2D) = "black"{}
         _PlanetRadius ("星球半径",Float) = 5.0
-        _AtmosphereHeight ("大气层厚度",Float) = 3.0
+        _AtmosphereHeight ("大气层厚度",Range(0.0,3.0)) = 1.0
         [Space(10.0)]
-        _Saturation ("饱和度",Float) = 1.0
-        _Brightness ("亮度",Float) = 1.0
-        _Transparence ("透明度",Float) = 10.0
+        _Dyeing ("大气层染色",Color) = (1,1,1,1)
+        _Saturation ("大气饱和度",Range(0.0,5.0)) = 1.0
+        _Brightness ("亮度",Range(0.0,5.0)) = 1.0
+        _Transparence ("大气密度",Range(0.0,20.0)) = 10.0
         [Space(10.0)]
         _TwilightLine ("黄昏线-起始-强度-形状",Vector) = (0.6,0.2,0.4,2.0)
     }
@@ -50,11 +51,17 @@ Shader "Unlit/ObjectAtmosLUT"
             CBUFFER_START(UnityPerMaterial)
                 float3 _PlanetCenter;
                 float _PlanetRadius;
+                float3 _Dyeing;
                 float _AtmosphereHeight;
                 float _Saturation;
                 float _Brightness;
                 float _Transparence;
                 float4 _TwilightLine;
+
+                // 仅在为后处理时候使用
+                float3 _CameraWorldPos;
+                float4x4 _InvViewProj;
+
             CBUFFER_END
 
             // 自定义函数区域开始
@@ -151,20 +158,36 @@ Shader "Unlit/ObjectAtmosLUT"
                 float3 sunDir = normalize(ld.direction);
                 float3 ro = _WorldSpaceCameraPos; // 摄像机原点
                 float3 rd = normalize(i.positionWS-ro); // 摄像机向量
-                
+
                 // 采样大气LUT的UV，x是视线与球交线弦的中点的海拔，y是射线起点处法向与光线的dot
                 float3 planetCenter = objectOrig;
                 float planetRadius = _PlanetRadius;
                 float atmosHeight = _AtmosphereHeight;
+
+                // 如果是后处理的话，这么做
+                #ifdef IS_POSTPROCESSING
+                    // 相机位置作为射线起点
+                    ro = _CameraWorldPos;
+                    // 重建世界空间射线方向
+                    float4 clipPos = float4(screenUV * 2.0 - 1.0, 1.0, 1.0);
+                    float4 worldPos = mul(_InvViewProj, clipPos);
+                    worldPos /= worldPos.w;
+                    rd = normalize(worldPos.xyz - ro);
+                    planetCenter = float3(0,0,0);
+                #endif
+                
+                //return float4(rd,1.0);
+
+
 
                 // inter是摄像机向量与大气层的交点，inter2是与星球的交点
                 float2 inter = RaySphereIntersect(ro,rd,planetCenter,planetRadius+atmosHeight);
                 float2 inter2 = RaySphereIntersect(ro,rd,planetCenter,planetRadius);
                 bool inAtmos = length(ro-planetCenter)<planetRadius+atmosHeight ? true : false;
                 float rayLength = inAtmos ? 
-                    lerp( inter.y , inter2.x , step(0.0,inter2.x)) 
+                    lerp( inter.y , inter2.x , step(0.0,inter2.x))  // 如果在大气层内，在看得见行星的地方，深度就是距离行星表面距离，另外就是距离大气层表面距离
                     //inter.y
-                    : lerp(inter.y- inter.x,inter2.x-inter.x,step(0.0,inter2.x)) ;
+                    : lerp(inter.y- inter.x,inter2.x-inter.x,step(0.0,inter2.x)) ; // 要是在大气层外，则
                 
                 //rayLength = inAtmos ? inter.y :inter.y- inter.x;
                 float3 hitPos = ro + rd * inter.x; // 摄像机向量击中球体的表面位置
@@ -173,6 +196,7 @@ Shader "Unlit/ObjectAtmosLUT"
                 float disSurf = inAtmos ? 0.0 : inter.x; // 距离表面的距离，当在大气层内部的时候是0
                 // 计算视线弦中点处的海拔
                 float3 xianZhongDian = ro + rd*disSurf + rd*rayLength*0.5;
+                //xianZhongDian = inAtmos ? ((ro + rd*inter.x) + (ro + rd*inter.y))/2.0 : xianZhongDian;
                 float xiangao = (length((ro + rd*disSurf + rd*rayLength*0.5)-planetCenter)-planetRadius)/atmosHeight*1.0;
                 // 需要注意的是，当我们位于大气层，此时的视线弦应该是反着来的，海拔越低越薄
                 xiangao = inAtmos && step(0.0,inter2.x) ? 1.0-xiangao : xiangao;
@@ -199,7 +223,7 @@ Shader "Unlit/ObjectAtmosLUT"
                 trans = saturate(trans*_Transparence);
 
                 //return float4(depth*float3(1,1,1),1);
-                return float4(AtmosLUT*_Brightness,trans);
+                return float4(AtmosLUT*_Brightness*_Dyeing,trans);
             }
             ENDHLSL
         }

@@ -15,6 +15,12 @@ public class DynamicLightColor : MonoBehaviour
     [Header("调试信息")]
     [SerializeField] private float currentSunHeight = 0.5f;
     [SerializeField] private float currentIntensity = 1f;
+
+
+    [Header("Debug动画")]
+    public bool resetAnimation = false;
+    public bool startAnimation = false;
+    public float animationSpeed = 0.05f ;
     
     private Light _light;
     
@@ -52,6 +58,34 @@ public class DynamicLightColor : MonoBehaviour
         {
             _light.intensity = 0.01f;
         }
+
+
+        // 灯光高度的键盘控制
+        if (Input.GetKey(KeyCode.P))
+        {
+            RotateAroundX(0.04f);
+        }
+        if (Input.GetKey(KeyCode.O))
+        {
+            RotateAroundX(-0.04f);
+        }
+
+        // 重置动画
+        if (resetAnimation)
+        {
+            // 获取当前旋转
+            Vector3 currentRotation = transform.eulerAngles;
+            // 计算新的X轴旋转值（确保在0-360范围内）
+            float newX = -1.87f;
+            // 应用新旋转
+            transform.eulerAngles = new Vector3(newX, currentRotation.y, currentRotation.z);
+            resetAnimation = false;
+        }
+        if (startAnimation)
+        {
+            RotateAroundX(animationSpeed);
+        }
+
     }
     
     private float CalculateSunHeightFromDotProduct()
@@ -127,5 +161,18 @@ public class DynamicLightColor : MonoBehaviour
             // 可以在这里添加对曲线的验证
         }
     }
+
     #endif
+    void RotateAroundX(float angle)
+    {
+        // 获取当前旋转
+        Vector3 currentRotation = transform.eulerAngles;
+        
+        // 计算新的X轴旋转值（确保在0-360范围内）
+        float newX = currentRotation.x + angle;
+        
+        // 应用新旋转
+        transform.eulerAngles = new Vector3(newX, currentRotation.y, currentRotation.z);
+    }
+
 }

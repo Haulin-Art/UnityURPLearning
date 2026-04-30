@@ -10,6 +10,11 @@ Shader "Unlit/S_Actor_Brow"
         _RoughnessScale ("粗糙度控制",Vector) = (1.0,0.1,0.0,0.0)
         _AOScale ("AO控制",Vector) = (0.0,1.0,0.0,0.0)
         _RMAOTex ("粗糙度金属度AO贴图", 2D) = "write" {}
+
+        [Space(15)]
+        _DebugMode ("测试模式",Float) = 0
+        // 1 是阴影
+
     }
     SubShader
     {
@@ -48,6 +53,7 @@ Shader "Unlit/S_Actor_Brow"
             TEXTURE2D(_POSpcf);
             SAMPLER(sampler_POSpcf);
             //SAMPLER(sampler_POSMap_LinearClamp); 
+            float _DebugMode;
 
             struct appdata
             {
@@ -209,6 +215,13 @@ Shader "Unlit/S_Actor_Brow"
                 {
                     ramp = 3.0*brdfResult.radiance.x*shadow;
                 }
+
+                if(_DebugMode == 1.0)
+                {
+                    return float4(shadow * saturate(lambert) * float3(1,1,1),1.0);
+                }
+
+
 
 
 

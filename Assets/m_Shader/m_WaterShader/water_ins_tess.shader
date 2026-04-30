@@ -2,7 +2,7 @@ Shader "FluidFlux/water_ins_tess"
 {
     Properties
     {
-        [Enum(Final,0,Scattering1,1,Scattering2,2,Reflection,3,Foam,4,vNormal,5,fresnel,6)]
+        [Enum(Final,0,Scattering1,1,ces,2,Reflection,3,Foam,4,vNormal,5,fresnel,6)]
         _DebugView ("显示结果", Float) = 0
         // 这个3D纹理是用于正常水面起伏的，x是Voronoi分形的海面高度，yz是法向
         _Tile01 ("================= 这个3D纹理是用于正常水面起伏的 ===============",Float) = 0.0 
@@ -76,21 +76,21 @@ Shader "FluidFlux/water_ins_tess"
         _AbsorptionScale ("折射吸收强度", Range(0.0, 10.0)) = 1.0
         _RefractionBlurStart ("折射模糊开始深度", Range(0.0, 10.0)) = 0.3
         _RefractionBlurEnd ("折射模糊结束深度", Range(0.1, 50.0)) = 5.0
-        _RefractionBlurStrength ("折射模糊强度", Range(0.0,10.0)) = 2.0
+        _RefractionBlurStrength ("折射模糊强度", Range(0.0,20.0)) = 2.0
         
         //[Header("反射设置")]
         [Space(15)]
         _Tile12 ("================= 环境反射设置 ========================",Float) = 0.0 
-        _EnvCubeMap ("环境反射贴图",Cube ) = "white" {}
+        //_EnvCubeMap ("环境反射贴图",Cube ) = "white" {}
         _EnvPanoramic ("环境反射全景贴图",2D ) = "white" {}
-        _PanoramicRotation ("全景贴图旋转角度", Range(0.0, 1.0)) = 0.0
+        _PanoramicRotation ("全景贴图旋转角度", Range(0.0, 1.0)) = 0.7845
         _EnvReflectionStrength ("环境反射强度", Range(0.0, 10.0)) = 1.2
         _Roughness ("粗糙度", Range(0.0, 1.0)) = 0.18
         
         //[Header("高光设置")]
         [Space(15)]
         _Tile11 ("================= 高光设置(默认使用 GGX) ========================",Float) = 0.0 
-        _SpecularPower ("高光锐度", Range(8.0, 256.0)) = 64.0
+        //_SpecularPower ("高光锐度", Range(8.0, 256.0)) = 64.0
         _SpecularIntensity ("高光强度", Range(0.0, 3.0)) = 1.0
         
         //[Header("BSDF设置")]
@@ -115,7 +115,7 @@ Shader "FluidFlux/water_ins_tess"
         //[Header("次表面散射设置")]
         [Space(15)]
         _Tile08 ("================= 伪散射增强 ========================",Float) = 0.0 
-        [Toggle(_USE_SSS)] _UseSSS ("启用次表面散射", Float) = 1
+        [Toggle(_USE_SSS)] _UseSSS ("启用伪散射", Float) = 1
         _SSSColor ("次表面散射颜色", Color) = (0.53, 0.52, 0.5, 1.0)
         _SSSStrength ("次表面散射强度", Range(0.0, 5.0)) = 3.72
         _SSSDepthScale ("次表面散射深度缩放", Range(0.1, 50.0)) = 5.0
@@ -436,9 +436,10 @@ Shader "FluidFlux/water_ins_tess"
                 float dis = -sdf*15.0;
                 float3 dir = forward;
                 float2 UUVV = waveUV(UV.x*5.0,3.0,2.0,-1.5*UV.y);
-                UUVV = 1-waveUV( dis , 3.0  , 2.0 , 0.3*gradient.y - 0.3*gradient.x) ;
+                UUVV = 1-waveUV( dis , 3.0  , 2.5 , 0.6*gradient.y - 0.0*gradient.x) ;
 
                 finalUV = UUVV;
+                //finalUV.x += 0.5*sin(5.0*(gradient.y - gradient.x + 10*_Time.x));
 
                 float3 ddisp = SAMPLE_TEXTURE2D_LOD(_VectorDisMap,sampler_VectorDisMap,UUVV,0.0).xyz;
                 float3 vdm = decodeDisp(ddisp).x*dir + decodeDisp(ddisp).z*float3(0,1,0);
@@ -582,10 +583,8 @@ Shader "FluidFlux/water_ins_tess"
 
                 float2 finalUV;float foamMask;
                 float3 vdmR = getVdm(UV+float2(0.01,0.0), finalUV, foamMask);
-                //vdmR = getVdmSelf(UV+float2(0.01,0.0), finalUV, foamMask);
                 float3 vdmU = getVdm(UV+float2(0.0,0.01), finalUV, foamMask);
-                //vdmU = getVdmSelf(UV+float2(0.0,0.01), finalUV, foamMask);
-                float3 vdm = getVdm(UV, finalUV, foamMask );
+                float3 vdm  = getVdm(UV, finalUV, foamMask );
                 //vdm = getVdmSelf(UV, finalUV, foamMask);
                 o.newUV = finalUV;o.foamMask = foamMask;
                 // 计算法线，这里需要注意的是，计算法线用的是世界坐标采样，因此，用这个映射过的世界坐标采样后
@@ -609,7 +608,7 @@ Shader "FluidFlux/water_ins_tess"
                 o.ttt = float3(1,1,1)*foamMask; // 这个是用来测试近岸范围的mask的，红色部分是近岸范围，白色部分是远岸范围
 
                 // 正常的水面起伏置换与法线计算
-                float waterSurfMask = smoothstep(0.005,0.2,-sdf); // 在接近岸边的地方没有
+                float waterSurfMask = smoothstep(0.005,0.4,-sdf); // 在接近岸边的地方没有
                 o.norMask = waterSurfMask;
                 float4 waterSurf = waterSurfMask * SAMPLE_TEXTURE3D_LOD(_3DDisMap, sampler_3DDisMap, float3(1.0-frac(o.worldPos.xz*_SurfTiling),frac(_Time.y*_SurfSpeed)),0.0);
 
@@ -739,6 +738,7 @@ Shader "FluidFlux/water_ins_tess"
                 UNITY_SETUP_INSTANCE_ID(i);
                 //float2 newUV = animUV(i.uv,1, _Time.y, _VectorDisMap_ST);
                 float2 newUV = i.newUV;
+                //return float4(newUV,0,1);
                 float scale = SDF_SCALE;
                 float2 worldUV=1.0- (i.worldPos/scale + 0.5).xz;
                 bool infanwei = worldUV.x < 1.0 && worldUV.y < 1.0 &&
@@ -945,6 +945,7 @@ Shader "FluidFlux/water_ins_tess"
                     normal, viewDirWS, lightDir, lightColor,
                     _Roughness,_SpecularIntensity
                 );
+                specCol *= smoothstep(0.005,0.05,viewDirWS.y);
 
 
                 //return float4(float3(1,1,1)*fresnel,1);
@@ -958,13 +959,14 @@ Shader "FluidFlux/water_ins_tess"
                 envReflection = clamp(envReflection,0,lerp(30.0,1,smoothstep(0.0,0.1,saturate(viewDirWS.y))));
 
                 // =================== 体积云环境反射 =======================================
-                float4 cloudRFData = SAMPLE_TEXTURE2D(_AtmosRFCloudTex, sampler_AtmosRFCloudTex, screenUV+ normal.xz * 0.1);
+                float2 screenUV_offset = normal.xz * 0.1;
+                float4 cloudRFData = SAMPLE_TEXTURE2D(_AtmosRFCloudTex, sampler_AtmosRFCloudTex, screenUV+ screenUV_offset);
                 envReflection = lerp(saturate(cloudRFData.xyz),envReflection,saturate(cloudRFData.w+smoothstep(1,20,selfDepthLinear)));
 
 
                 // ================ 来自平面反射Renderer Feature的平面反射纹理 =======================================
                 float2 screenUV_flipY = float2(screenUV.x,1.0-screenUV.y);
-                float2 planarRef_UV = screenUV_flipY + normal.xz * 0.1 ;
+                float2 planarRef_UV = screenUV_flipY + screenUV_offset;
                 float3 planarReflection = SAMPLE_TEXTURE2D(_PlanarReflectionTexture,sampler_PlanarReflectionTexture,planarRef_UV);
                 //return float4(planarReflection,1.0);
                 envReflection = lerp(envReflection,planarReflection,step(0.0001,length(planarReflection)));

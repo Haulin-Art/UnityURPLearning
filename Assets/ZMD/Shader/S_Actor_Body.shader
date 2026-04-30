@@ -13,6 +13,12 @@ Shader "Unlit/S_Actor_Body"
         _AOScale ("AO控制",Vector) = (0.0,1.0,0.0,0.0)
         _RMAOTex ("粗糙度金属度AO贴图", 2D) = "write" {}
         _MatCapTex ("MatCap贴图", 2D) = "black" {}
+
+        [Space(10)]
+        _RimThickness ("边缘光厚度",Range(0,1)) = 0.5
+        _RimColor ("边缘光颜色",Color) = (1,1,1,1)
+
+        [Space(10)]
         _UseDrop ("使用流水", Float) = 1.0
         [Space(15)]
         _EnableExtraFluid ("启用额外流水", Float) = 0.0
@@ -20,6 +26,13 @@ Shader "Unlit/S_Actor_Body"
         _ExtraFluidTrans ("额外流水透射率", Range(0.0,5.0)) = 2.0
         _ExtraFluidTex ("额外流水贴图", 2D) = "black" {}
         _ExtraFluidNor ("额外流水法线贴图", 2D) = "blue" {}
+
+
+        _Rain ("雨", Float) = 0.0
+        
+        [Space(15)]
+        _DebugMode ("测试模式",Float) = 0
+        // 1 是阴影
     }
     SubShader
     {
@@ -62,12 +75,23 @@ Shader "Unlit/S_Actor_Body"
             float3 _FresOut;
             //SAMPLER(sampler_POSMap_LinearClamp); 
 
+            float _RimThickness;
+            float3 _RimColor;
+
+
+            float _Rain;
+
+
 
             float _EnableExtraFluid;
             float3 _ExtraFluidColor;
             float _ExtraFluidTrans;
             TEXTURE2D(_ExtraFluidTex);SAMPLER(sampler_ExtraFluidTex);
             TEXTURE2D(_ExtraFluidNor);SAMPLER(sampler_ExtraFluidNor);
+            int _DebugMode;
+            
+            // 场景深度图
+            TEXTURE2D(_CameraDepthTexture);SAMPLER(sampler_CameraDepthTexture);
             
             struct appdata
             {
@@ -163,6 +187,7 @@ Shader "Unlit/S_Actor_Body"
                 float2 screenUV = i.screenPos.xy / i.screenPos.w;
                 float shadow =  SAMPLE_TEXTURE2D(_CSShadow, sampler_CSShadow, screenUV).r;
 
+
                 // ============================ 表面贴图 =================================
                 float4 DTex = SAMPLE_TEXTURE2D(_DTex,sampler_DTex,i.uv);
                 float3 albedo = DTex.xyz;
@@ -185,13 +210,16 @@ Shader "Unlit/S_Actor_Body"
                 float sampleFresnel = pow(saturate(dot(viewDirWS,ntWS)),1.0);
                 float3 fIn = float3(1.544,1.544,1.544);float3 fOut = float3(0.6,0.5,0.4);
                 float3 fresnel = lerp(_FresOut,_FresIn*1.0,sampleFresnel);
-                // rim 边缘光
-                float rim = smoothstep(0.15,0.0,saturate(dot(viewDirWS,ntWS)))*shadow;
-                rim *= 0.0;
 
                 // =================== 采样Ramp ================================
                 // 这里为了获得暗部的细节，lambert是没钳制的，线混合Lambert与阴影
                 float invisible = min(shadow,saturate(lambert))*0.5 + 0.5;
+
+                if (_DebugMode == 1)
+                {
+                    return float4(shadow * saturate(lambert) * float3(1,1,1),1.0);
+                }
+
                 float2 rampUV = float2(invisible,0.5);
                 //rampUV = clamp(rampUV,0.01,0.99);
                 float4 ramp = SAMPLE_TEXTURE2D(_RPTex,sampler_RPTex,rampUV);
@@ -211,7 +239,7 @@ Shader "Unlit/S_Actor_Body"
                 float correctShadow = lerp(albedo*0.5,1.0,min(shadow,saturate(lambert)));
 
                 // ================= 最终着色 ===================================
-                float3 finalCol = (indireDiff + albedo*invisible*lightColor)*correctShadow*fresnel + rim;
+                float3 finalCol = (indireDiff + albedo*invisible*lightColor)*correctShadow*fresnel;
 
 
                 // ======================== 流水 ==============================
@@ -273,16 +301,33 @@ Shader "Unlit/S_Actor_Body"
                 float3 dropHighlight = lightColor * pow(saturate(dot(i.tanWS,ccn_WS)),5.0);
                 dropHighlight *= step(0.03,cc.x + cc.y) * saturate(dot(lightDir,ccn_WS));
                 dropHighlight += dropHighlight1*2.0;
+
                 // 水的暗部
                 float3 dropAB =  pow(saturate(1.0-dot(bitWS,ccn_WS)),0.5);
                 //dropHighlight *= step(0.03,cc.x + cc.y) * saturate(dot(lightDir,ccn_WS));
 
 
                 float3 finalDrop = lerp(shadow,1.0,0.2)*(dropHighlight+dropMC)*step(0.01,cc.x + cc.y);
+                
+                if (_Rain == 0.0)
+                {
+                    ntWS_Drop = ntWS;
+                    dropHighlight = 0;
+                    dropAB = 1;
+                    finalDrop = 0;
+                }
 
                 // =================环境色 ===========================
                 float3 ambient2 = SampleSH(ntWS_Drop) * albedo * ao;
 
+
+                // ================= 边缘光 ==========================
+                float depth_obj = length(_WorldSpaceCameraPos-i.posWS);
+                float2 sw = float2(0.005*_RimThickness/depth_obj,0);
+                float depth = SAMPLE_TEXTURE2D(_CameraDepthTexture,sampler_CameraDepthTexture,screenUV+sw).r;
+                float depth_linear = LinearEyeDepth(depth,_ZBufferParams);
+                float3 rim = smoothstep(0.5,1.0,depth_linear-depth_obj) *_RimColor;
+                //return float4(float3(1,1,1)*(depth_linear-depth_obj),1.0);
 
 
                 // ======================== 额外流水 ==============================
@@ -310,7 +355,7 @@ Shader "Unlit/S_Actor_Body"
                 //finalDrop += extraExtraFluid;
                 */
                 //return float4(i.uv.xy,0.0,1.0);
-                float3 finalEfext = ((finalCol+ambient2)*dropAB+lerp(0.0,finalDrop,_UseDrop));
+                float3 finalEfext = (finalCol+ambient2+rim)*dropAB+finalDrop;
                 return float4(finalEfext,1.0);
                 //return float4(lerp(finalEfext,extraFluidColor,_EnableExtraFluid*smoothstep(0.01,0.1,extraFluidHeight)),1);
             }

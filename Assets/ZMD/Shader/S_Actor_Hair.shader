@@ -10,6 +10,18 @@ Shader "Unlit/S_Actor_Hair"
         _MatCapTex ("MatCap贴图", 2D) = "black" {}
         _UseDrop ("使用流水", Float) = 1.0
         _UseShadow ("使用阴影", Float) = 1.0
+
+
+        [Space(10)]
+        _RimThickness ("边缘光厚度",Range(0,1)) = 0.5
+        _RimColor ("边缘光颜色",Color) = (1,1,1,1)
+
+        [Space(10)]
+        _Rain ("是否下雨", Float) = 0.0
+
+        [Space(15)]
+        _DebugMode ("测试模式",Float) = 0
+        // 1 是阴影 
     }
     SubShader
     {
@@ -170,8 +182,17 @@ Shader "Unlit/S_Actor_Hair"
             TEXTURE2D(_CSShadow);SAMPLER(sampler_CSShadow);
             //SAMPLER(sampler_POSMap_LinearClamp); 
 
+
+            float _RimThickness;
+            float3 _RimColor;
             // 场景深度图
             TEXTURE2D(_CameraDepthTexture);SAMPLER(sampler_CameraDepthTexture); 
+
+            float _DebugMode;
+
+            float _Rain;
+
+
 
             struct appdata
             {
@@ -277,7 +298,11 @@ Shader "Unlit/S_Actor_Hair"
                 float lambert2 = saturate(dot(ntWS,lightDir));// 细节法向的
                 //lambert2 = pow(lambert2,2.0);
                 float invisible = lambert*shadow;
-
+                
+                if (_DebugMode == 1)
+                {
+                    return float4(shadow * lambert * float3(1,1,1),1.0);
+                }
                 // =================== 采样Ramp ===================================
                 float2 rampUV = float2(shadow*lambert2*0.5+0.5,0.5);
                 rampUV = clamp(rampUV,0.01,0.99);
@@ -334,6 +359,7 @@ Shader "Unlit/S_Actor_Hair"
                 float3 kkk2 = float3(1.0,0.5,1.0)*smoothstep(0.04,0.0,abs(dot(kRD2,radialB)))*_P.y*_P.a*hFre*0.3;
                 float3 kkk3 = float3(1.0,1.0,0.5)*smoothstep(0.04,0.0,abs(dot(kRD3,radialB)))*_P.y*_P.a*hFre*0.3;
                 float3 kk = kkk+kkk2+kkk3;
+                kk *= 1.5;
                 kk *= lambert*shadow;
 
                 // =========================== 计算菲尼尔项 ========================
@@ -348,10 +374,6 @@ Shader "Unlit/S_Actor_Hair"
 
                 // ========================= 阴影加深 ===============================
                 float an = lerp(ramp.a,1.0,0.7);
-
-                // rim 边缘光
-                float rim = smoothstep(0.1,0.0,sampleFresnel)*shadow;
-                rim = 0.0;
 
 
                 //===================== 合成颜色 ==================================
@@ -431,11 +453,29 @@ Shader "Unlit/S_Actor_Hair"
                 float albedoDrop = lerp(1.0,0.9,step(0.03,cc.x + cc.y));
 
 
+                if (_Rain == 0.0)
+                {
+                    ntWS_Drop = ntWS;
+                    dropHighlight = 0;
+                    dropAB = 1;
+                    finalDrop = 0;
+                }
+
                 // Unity基础环境光
                 float3 ambient = SampleSH(ntWS_Drop) * albedo * ao;
 
+
+
+                // ================= 边缘光 ==========================
+                float depth_obj = length(_WorldSpaceCameraPos-i.posWS);
+                float2 sw = float2(0.005*_RimThickness/depth_obj,0);
+                float depth_s = SAMPLE_TEXTURE2D(_CameraDepthTexture,sampler_CameraDepthTexture,screenUV+sw).r;
+                float depth_linear = LinearEyeDepth(depth_s,_ZBufferParams);
+                float3 rim = smoothstep(0.5,1.0,depth_linear-depth_obj) *_RimColor;
+
+
                 //return float4(ntWS*float3(1,1,1),1.0);
-                return float4(((finalCol + 0.3*ambient)*darkFactor*dropAB + finalDrop)*float3(1,1,1),1.0);
+                return float4(((finalCol + 0.3*ambient + rim)*darkFactor*dropAB + finalDrop)*float3(1,1,1),1.0);
 
             }
             ENDHLSL

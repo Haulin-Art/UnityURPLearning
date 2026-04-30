@@ -202,7 +202,7 @@ Shader "Hidden/ScreenMipMap/PreProcess"
 
 
             //return float4(float3(1,1,1)*0,1.0);
-            return float4(color.xyz + cautionTotal * lightColor + 2.0*SWECaution*lightColor , 1);
+            return float4(color.xyz + cautionTotal * lightColor + 0*2.0*SWECaution*lightColor , 1);
         }
         
         float4 FragCopy(Varyings input) : SV_Target

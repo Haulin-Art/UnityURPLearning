@@ -16,6 +16,12 @@ Shader "Unlit/S_Actor_Cloth"
         _UseWhite ("是否将白的地方更提白",Float) = 1.0
         _MatCapTex ("MatCap贴图", 2D) = "black" {}
 
+        [Space(10)]
+        _RimThickness ("边缘光厚度",Range(0,1)) = 0.5
+        _RimColor ("边缘光颜色",Color) = (1,1,1,1)
+
+        [Space(10)]
+        _Rain ("是否下雨", Float) = 0.0
 
         [Space(15)]
         _EnableExtraFluid ("启用额外流水", Float) = 1.0
@@ -23,6 +29,10 @@ Shader "Unlit/S_Actor_Cloth"
         _ExtraFluidTrans ("额外流水透射率", Range(0.0,5.0)) = 2.0
         _ExtraFluidTex ("额外流水贴图", 2D) = "black" {}
         _ExtraFluidNor ("额外流水法线贴图", 2D) = "blue" {}
+
+        [Space(15)]
+        _DebugMode ("测试模式",Float) = 0
+        // 1 是阴影
     }
     SubShader
     {
@@ -62,6 +72,8 @@ Shader "Unlit/S_Actor_Cloth"
 
             TEXTURE2D(_CameraDepthTexture);SAMPLER(sampler_CameraDepthTexture); 
 
+            float _Rain;
+
 
 
             float _EnableExtraFluid;
@@ -69,6 +81,13 @@ Shader "Unlit/S_Actor_Cloth"
             float _ExtraFluidTrans;
             TEXTURE2D(_ExtraFluidTex);SAMPLER(sampler_ExtraFluidTex);
             TEXTURE2D(_ExtraFluidNor);SAMPLER(sampler_ExtraFluidNor);
+
+            float _DebugMode;
+            
+            float _RimThickness;
+            float3 _RimColor;
+            // 场景深度图
+            //TEXTURE2D(_CameraDepthTexture);SAMPLER(sampler_CameraDepthTexture);
 
 
             float3 _FresIn;
@@ -188,6 +207,12 @@ Shader "Unlit/S_Actor_Cloth"
                 // =================== 采样Ramp ================================
                 // 这里为了获得暗部的细节，lambert是没钳制的，线混合Lambert与阴影
                 float invisible = shadow*saturate(lambert);//*0.5 + 0.5;
+
+                if (_DebugMode == 1)
+                {
+                    return float4(shadow * saturate(lambert) * float3(1,1,1),1.0);
+                }
+
                 //float invisible1 = lerp(invisible,1.0,0.3334);
                 //invisible = pow(invisible,1.0/2.2);
                 // 貌似是为了规避模型接缝，这里得用两次转换
@@ -260,13 +285,17 @@ Shader "Unlit/S_Actor_Cloth"
                 // 水的暗部
                 float3 dropAB =  pow(saturate(1.0-dot(bitWS,ccn_WS)),0.5);
 
+                if(_Rain == 0.0)
+                {
+                    dropAB = 1.0;
+                    ntWS_Drop = ntWS;
+                }
+                
                 // 菲尼尔
                 float sampleFresnel = pow(saturate(dot(viewDirWS,ntWS_Drop)),1.5);
                 //float3 fIn = float3(1.544,1.544,1.544);float3 fOut = float3(0.6,0.5,0.4);
                 float3 fresnel = lerp(_FresOut,_FresIn,sampleFresnel);
-                // rim 边缘光
-                float rim = smoothstep(0.15,0.0,saturate(dot(viewDirWS,ntWS)))*shadow;
-                //rim *= 0.0;
+
 
 
                 // ================== PBR BRDF 数据 ===============================
@@ -274,12 +303,13 @@ Shader "Unlit/S_Actor_Cloth"
                 // 也不知道为什么，贴图白的部分好像跟他们的效果对不上，再加上两个灰度大于0.2的部分，这样才比较接近
                 float albedoWhite =  lightColor/2.0*_UseWhite * step(0.2, dot(albedo,float3(0.299,0.587,0.114)));
                 float3 albedo2 = albedo + albedo*albedoWhite*lightColor;
-                data.albedo = albedo2 * lerp(1.0,0.7,step(0.03,cc.x + cc.y)) * dropAB;
-                data.normal = ntWS_Drop;
+                data.albedo = albedo2 * lerp(1.0,lerp(1.0,0.7,step(0.03,cc.x + cc.y)) * dropAB,_Rain);
+                data.normal = lerp(ntWS,ntWS_Drop,_Rain);
                 data.viewDir = viewDirWS;
                 data.lightDir = lightDir;
                 data.irradiance = lightColor;
-                data.roughness =lerp( roughness * _RoughnessScale.x + _RoughnessScale.y,0.0,cc.x+cc.y) * lerp(1.0,0.2,saturate(extraFluidData.z));
+                float dropMixRoughness = lerp( roughness * _RoughnessScale.x + _RoughnessScale.y,0.0,cc.x+cc.y) * lerp(1.0,0.2,saturate(extraFluidData.z));
+                data.roughness = lerp(roughness * _RoughnessScale.x + _RoughnessScale.y,dropMixRoughness,_Rain);
                 data.metallic = metallic;
                 data.F0 = 0.0;
                 data.occlusion = ao;
@@ -308,7 +338,20 @@ Shader "Unlit/S_Actor_Cloth"
                 float rimm = step(0.2,(linearDepth - modelDepth)/2.0);
 
 
-                float3 finalCol = diff+ spec+ + ambi + ambient*0.4 + emis + oems + rimm*0.0 + dropMC + dropHighlight;
+                // ================= 边缘光 ==========================
+                float depth_obj = length(_WorldSpaceCameraPos-i.posWS);
+                float2 sw = float2(0.005*_RimThickness/depth_obj,0);
+                float depth = SAMPLE_TEXTURE2D(_CameraDepthTexture,sampler_CameraDepthTexture,screenUV+sw).r;
+                float depth_linear = LinearEyeDepth(depth,_ZBufferParams);
+                float3 rim = smoothstep(0.5,1.0,depth_linear-depth_obj) *_RimColor;
+
+                float3 dropAdd = dropMC + dropHighlight;
+                if (_Rain == 0.0)
+                {
+                    dropAdd = 0;
+                }
+
+                float3 finalCol = diff+ spec+ + ambi + ambient*0.4  + emis + oems  + dropAdd;
 
                 // ======================== 额外流水 ==============================
                 /*

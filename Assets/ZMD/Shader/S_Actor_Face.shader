@@ -17,7 +17,10 @@ Shader "Unlit/S_Actor_Face"
         _ExtraFluidTrans ("额外流水透射率", Range(0.0,5.0)) = 2.0
         _ExtraFluidTex ("额外流水贴图", 2D) = "black" {}
         _ExtraFluidNor ("额外流水法线贴图", 2D) = "blue" {}
-
+        
+        [Space(15)]
+        _DebugMode ("测试模式",Float) = 0
+        // 1 是阴影
     }
     SubShader
     {
@@ -107,6 +110,10 @@ Shader "Unlit/S_Actor_Face"
             float _ExtraFluidTrans;
             TEXTURE2D(_ExtraFluidTex);SAMPLER(sampler_ExtraFluidTex);
             TEXTURE2D(_ExtraFluidNor);SAMPLER(sampler_ExtraFluidNor);
+
+            float _DebugMode;
+
+            
 
             struct appdata
             {
@@ -222,6 +229,12 @@ Shader "Unlit/S_Actor_Face"
 
                 // ======================== 采样RAMP图 ========================
                 float xiaeShadow = faceCorrect.y; // 下颚下的阴影
+
+                if (_DebugMode == 1)
+                {
+                    return float4(sdf * (1.0-xiaeShadow) * float3(1,1,1),1.0);
+                }
+
                 float2 rampUV = float2(sdf * (1.0-xiaeShadow),0.5);//*lerp(shadow,1.0,0.3)
                 rampUV = clamp(rampUV,0.01,0.99);
                 float4 ramp = SAMPLE_TEXTURE2D(_RPTex,sampler_RPTex,rampUV);

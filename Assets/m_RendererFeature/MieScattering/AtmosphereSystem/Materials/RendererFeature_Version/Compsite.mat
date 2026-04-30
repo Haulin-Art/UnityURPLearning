@@ -108,7 +108,7 @@ Material:
     - _NumSamplesLight: 8
     - _NumViewSamples: 24
     - _OnlyOnEdgeErosion: 0
-    - _PanoramicRotation: 0.2257
+    - _PanoramicRotation: 0.2248
     - _PhaseBlend: 0.196
     - _PhaseG: -0.75
     - _PhaseG2: 0.3
@@ -122,7 +122,7 @@ Material:
     - _StepSizeMultiplier: 1
     - _SunBrightness: 1
     - _SunIntensity: 1
-    - _SunSize: 0.000185
+    - _SunSize: 0.000236
     - _TimeScale: 20
     - _TotalScale: 1
     - _TracingMaxDistance: 100000

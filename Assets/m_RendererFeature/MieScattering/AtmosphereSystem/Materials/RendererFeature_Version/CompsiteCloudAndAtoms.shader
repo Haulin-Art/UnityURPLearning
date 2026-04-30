@@ -1,4 +1,4 @@
-Shader "Custom/CompsiteCloudAndAtoms"
+Shader "RendererFeature/Atmosphere/CompsiteCloudAndAtoms"
 {
     Properties
     {
@@ -637,9 +637,12 @@ Shader "Custom/CompsiteCloudAndAtoms"
 
                 // 采样大气层散射
                 float3 EnvColor = SAMPLE_TEXTURE2D_LOD(_EnvPanoramic,sampler_EnvPanoramic, DirToPanoramicUV(RotateAroundY(-RayDir, _PanoramicRotation)), 0.0).rgb;
+                //return float4(EnvColor,1.0);
                 float sun = dot(RayDir, SunDir);
                 sun = step(1.0-_SunSize, sun);
-                EnvColor += sun*EnvColor;
+                //sun *= smoothstep(-0.01,0.05,rd.y);
+                EnvColor += 4.0 * sun * EnvColor * smoothstep(-0.01,0.05,RayDir.y);
+                //return float4(EnvColor,1.0);
                 // 云层参数
                 CloudLayerParams CloudParams = GetCloudLayerParams();
                 

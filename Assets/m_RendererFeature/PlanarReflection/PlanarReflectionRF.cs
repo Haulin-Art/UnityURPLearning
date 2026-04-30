@@ -7,6 +7,18 @@ using Unity.Mathematics;
 public class PlanarReflectionRenderFeature : ScriptableRendererFeature
 {
     [System.Serializable]
+    public enum DebugMode
+    {
+        None, // 无debug
+        OpaquesReflection, // 显示不透明物体的反射
+        FlipYOpaquesReflection, // 用翻转y轴的uv采样，正确的不透明物体的平面的反射
+        Atmosphere, // 大气层
+        Cloud, // 上下半球对称云
+        CompositeCloudAndAtmos, // 大气层与上下半球对称合成
+        FinalReflection // 大气层与上下半球对称合成
+    }
+
+    [System.Serializable]
     public class Settings
     {
         [Header("Reflection Settings")]
@@ -23,6 +35,10 @@ public class PlanarReflectionRenderFeature : ScriptableRendererFeature
         [Tooltip("Water surface height (Y coordinate)")]
         public float waterHeight = 0f;
         public float planeOffset = 0f;
+
+        [Header("Debug")]
+        public Material debugMat; // 用于debug的材质
+        public DebugMode debugMode;
     }
 
     public enum ResolutionMultiplier
@@ -36,9 +52,13 @@ public class PlanarReflectionRenderFeature : ScriptableRendererFeature
     public Settings settings = new Settings();
     private PlanarReflectionRenderPass m_Pass;
 
+    // debug pass
+    private DebugRenderPass debug_pass;
+
     public override void Create()
     {
         m_Pass = new PlanarReflectionRenderPass(settings);
+        debug_pass = new DebugRenderPass(settings);
     }
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -47,6 +67,11 @@ public class PlanarReflectionRenderFeature : ScriptableRendererFeature
             return;
 
         renderer.EnqueuePass(m_Pass);
+        if (settings.debugMat != null && settings.debugMode != DebugMode.None)
+        {
+            renderer.EnqueuePass(debug_pass);
+        }
+
     }
 
     protected override void Dispose(bool disposing)
@@ -200,6 +225,8 @@ public class PlanarReflectionRenderFeature : ScriptableRendererFeature
             cmd.SetViewProjectionMatrices(viewMatrix, projectionMatrix);
 
             context.ExecuteCommandBuffer(cmd);
+            cmd.Clear();
+
             CommandBufferPool.Release(cmd);
         }
 
@@ -336,4 +363,73 @@ public class PlanarReflectionRenderFeature : ScriptableRendererFeature
             };
         }
     }
+
+
+    // 专门用于debug的pass
+    class DebugRenderPass : ScriptableRenderPass
+    {
+        private Settings m_Settings;
+        private FilteringSettings m_FilteringSettings;
+        public DebugRenderPass(Settings settings)
+        {
+            m_Settings = settings;
+            renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
+        }
+
+        public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
+        {
+            // 在这里给材质传入数据，好进行计算
+            //material.SetColor("",);
+            Camera camera = renderingData.cameraData.camera;
+            // 1. 传递ro：相机世界空间位置
+            m_Settings.debugMat.SetVector("_CameraWorldPos", camera.transform.position);
+            // 2. 传递逆视投影矩阵（用于Shader中转世界空间）
+            Matrix4x4 viewProjMatrix = camera.projectionMatrix * camera.worldToCameraMatrix;
+            Matrix4x4 invViewProjMatrix = viewProjMatrix.inverse;
+            m_Settings.debugMat.SetMatrix("_InvViewProj", invViewProjMatrix);
+        }
+
+        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
+        {
+            if (renderingData.cameraData.camera.cameraType == CameraType.Preview)
+                return;
+
+            CommandBuffer cmd = CommandBufferPool.Get(m_Settings.passName);
+
+            // 当前摄像机的画面
+            RenderTargetIdentifier cameraColorTarget = renderingData.cameraData.renderer.cameraColorTargetHandle;
+            RenderTargetIdentifier cameraDepthTarget = renderingData.cameraData.renderer.cameraDepthTargetHandle;
+
+
+            // Debug 模式
+            if(m_Settings.debugMode == DebugMode.OpaquesReflection)
+            {
+                m_Settings.debugMat.SetFloat("_DebugView",0);
+            }else if (m_Settings.debugMode == DebugMode.FlipYOpaquesReflection)
+            {
+                m_Settings.debugMat.SetFloat("_DebugView",1);
+            }else if (m_Settings.debugMode == DebugMode.Atmosphere)
+            {
+                m_Settings.debugMat.SetFloat("_DebugView",2);
+            }else if (m_Settings.debugMode == DebugMode.Cloud)
+            {
+                m_Settings.debugMat.SetFloat("_DebugView",3);
+            }else if (m_Settings.debugMode == DebugMode.CompositeCloudAndAtmos)
+            {
+                m_Settings.debugMat.SetFloat("_DebugView",4);
+            }else if (m_Settings.debugMode == DebugMode.FinalReflection)
+            {
+                m_Settings.debugMat.SetFloat("_DebugView",5);
+            }
+
+
+            cmd.Blit(null,cameraColorTarget,m_Settings.debugMat);
+            context.ExecuteCommandBuffer(cmd);
+            cmd.Clear();
+
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
+        }
+    }
+
 }

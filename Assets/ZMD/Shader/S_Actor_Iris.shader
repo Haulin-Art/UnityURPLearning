@@ -3,6 +3,10 @@ Shader "Unlit/S_Actor_Iris"
     Properties
     {
         _DTex ("颜色贴图", 2D) = "white" {}
+
+        [Space(15)]
+        _DebugMode ("测试模式",Float) = 0
+        // 1 是阴影
     }
     SubShader
     {
@@ -34,7 +38,8 @@ Shader "Unlit/S_Actor_Iris"
             TEXTURE2D(_POSpcf);
             SAMPLER(sampler_POSpcf);
             //SAMPLER(sampler_POSMap_LinearClamp); 
-
+            float _DebugMode;
+            
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -145,6 +150,10 @@ Shader "Unlit/S_Actor_Iris"
                 float3 lightDir = normalize(ld.direction); // 主光源方向（世界空间，ForwardBase通道）
                 float3 lightColor = ld.color;
 
+                if(_DebugMode == 1.0)
+                {
+                    return float4( float3(1,1,1)*length(albedo),1.0);
+                }
 
 
 

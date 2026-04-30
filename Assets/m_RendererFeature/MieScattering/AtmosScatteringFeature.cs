@@ -119,8 +119,6 @@ public class AtmosScatteringFeature : ScriptableRendererFeature
             if (cmd != null)
             {
                 cmd.ReleaseTemporaryRT(shaderID);
-                //_cameraColorTgt?.Release();
-                //_cameraDepthTgt?.Release();
             }
         }
     }

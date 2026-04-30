@@ -1,4 +1,4 @@
-Shader "Custom/AdvancedVolumetricCloud_RF"
+Shader "RendererFeature/Atmosphere/AdvancedVolumetricCloud_RF"
 {
     Properties
     {
@@ -441,6 +441,7 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
                 float Edge = max(_CloudEdgeSharpness, _CloudDensityThreshold + 0.001);
                 float Edge2 = max(_MixEdgeFieldFactor , _CloudDensityThreshold + 0.001); // 用于定义侵蚀范围
                 float erosion = smoothstep(_CloudDensityThreshold, Edge2, Density );
+                //HeightFactor = 1.0; // 暂时不使用这个
                 Density = smoothstep(_CloudDensityThreshold, Edge, Density * HeightFactor );
 
                 // 细节噪声
@@ -452,6 +453,7 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
 
                 
                 // 最终密度
+                //return Density * _CloudDensityMultiplier ; 
                 return Density * lerp(1.0,detailFactor,sunHeight) * sunHeight * _CloudDensityMultiplier ;//* HeightFactor ;//* NoiseDetail.r;
             }
             
@@ -866,14 +868,16 @@ Shader "Custom/AdvancedVolumetricCloud_RF"
                 float3 cloudColor = lerp(FinalColor, EnvColor, _CloudAlpha);
                 mixColor = lerp(cloudColor, mixColor, TotalTransmittance);
 
-
+                //return float4(1,1,1,1)*TotalTransmittance;
                 return float4(cloudColor,TotalTransmittance);
-                
+                //return float4(lerp(cloudColor,0.0,TotalTransmittance),TotalTransmittance);
+                /*
                 #ifdef USE_TYNDALL_EFFECT
                     mixColor +=_CES*20.0*TyndallEffect/float(NumSamples)*0.5*SunColor;
                 #endif
 
                 return float4(mixColor,1.0);
+                */
             }
             
             ENDHLSL

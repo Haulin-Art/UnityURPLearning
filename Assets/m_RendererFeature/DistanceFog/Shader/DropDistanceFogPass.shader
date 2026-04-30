@@ -5,6 +5,9 @@ Shader "Unlit/DropDistanceFogPass"
         _MainTex ("Texture", 2D) = "white" {}
         _RO ("RO", Vector) = (0,0,0,0)
         //_CameraWorldPos ("_CameraWorldPos", Vector) = (0,0,0,0)
+        
+        [Space(10)]
+        _Rain ("是否下雨", Float) = 0.0
 
         //_CameraDepthTexture ("_CameraDepthTexture", 2D) = "black" {}
     }
@@ -50,6 +53,8 @@ Shader "Unlit/DropDistanceFogPass"
             
             TEXTURE2D(_CameraDepthTexture);
             SAMPLER(sampler_CameraDepthTexture); 
+
+            float _Rain;
 
             // C#传递的参数
             //float3 _CameraWorldPos;       // ro：相机世界位置
@@ -214,6 +219,11 @@ Shader "Unlit/DropDistanceFogPass"
 
                 float2 uuvv = float2(dx - d1, dy - d1);
 
+                if(_Rain == 0.0)
+                {
+                    uuvv = float2(0,0);
+                }
+
                 float3 newCol =  SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex, i.uv- uuvv*0.05).rgb;
                 float3 cc = lerp(col,newCol,appDrop); // 靠近了没有雨水效果
 
@@ -223,7 +233,7 @@ Shader "Unlit/DropDistanceFogPass"
                 float3 finalCol = lerp(cc,pow(0.7,2.2),fogMask);
 
                 //return float4(d1*float3(1,1,1),1);
-                return float4((finalCol+d1*0.05)*float3(1,1,1),1);
+                return float4((finalCol+d1*0.05*_Rain)*float3(1,1,1),1);
                 return float4(suaijian*finalCol*float3(1,1,1),1);
             }
             ENDHLSL
