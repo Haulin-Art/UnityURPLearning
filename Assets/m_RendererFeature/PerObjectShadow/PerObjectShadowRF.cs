@@ -7,6 +7,17 @@ using UnityEngine.Rendering.Universal;
 
 public class PerObjectShadowRF : ScriptableRendererFeature
 {
+    [SerializeField]
+    public enum SizeEnum
+    {
+        quarter256 = 256,
+        half512 = 512,
+        one1024 = 1024,
+        two2048 = 2048,
+        four4096 = 4096,
+    }
+
+
     // 输入的参数引用
     public LayerMask layerMask;
     public String m_Tag = "BG"; // 需要排除的物体标签，用于在自动计算摄像机的位置的时候不考虑背景
@@ -21,13 +32,14 @@ public class PerObjectShadowRF : ScriptableRendererFeature
     [Range(0.1f, 5.0f)]
     [SerializeField] public float ShadowFieldSize = 1.0f; // 阴影覆盖场景范围
     [Min(512f)] // 最小值限制
-    [SerializeField] public int ShadowMapSize = 2048;
+    //[SerializeField] public int ShadowMapSize = 2048;
+    [SerializeField] public SizeEnum ShadowMapSize = SizeEnum.quarter256;
     [Range(1, 4)] // 滑块范围
     [SerializeField] private int UnsampleInt = 2;
     [Range(1,16)]
     [SerializeField] private int PoissonCount = 5;
     [Range(0.0001f,0.003f)]
-    [SerializeField] private float _initPCSS = 0.0005f; // PCSS默认模糊
+    [SerializeField] private float _PCSSSoft = 0.0005f; // PCSS默认模糊
     [Range(0.001f,0.02f)]
     [SerializeField] private float _distancePCSS = 0.015f; // 距离PCSS模糊强度
     [Range(0,5)]
@@ -43,8 +55,8 @@ public class PerObjectShadowRF : ScriptableRendererFeature
     public override void Create()
     {
         m_ScriptablePass = new PerObjShadowRP(SoftShadowMat,layerMask,m_Tag,BlurComputeShader,
-                                                UnsampleInt,ShadowMapSize,PoissonCount,
-                                                _initPCSS,_distancePCSS,
+                                                UnsampleInt,(int)ShadowMapSize,PoissonCount,
+                                                _PCSSSoft,_distancePCSS,
                                                 blurSampleCount,blurStepSize,ShadowFieldSize);
         m_ScriptablePass.renderPassEvent = RenderPassEvent.AfterRenderingPrePasses;
     }

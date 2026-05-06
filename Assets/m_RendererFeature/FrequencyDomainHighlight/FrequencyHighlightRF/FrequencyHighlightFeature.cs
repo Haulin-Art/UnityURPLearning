@@ -19,7 +19,7 @@ namespace FrequencyHighlight
             
             [Header("高光提取设置")]
             [Tooltip("高光阈值")]
-            [Range(0f, 1f)]
+            [Range(0f, 5f)]
             public float threshold = 0.7f;
             [Tooltip("过渡柔和度")]
             [Range(0.01f, 1f)]

@@ -28,6 +28,23 @@ public class ZMDShowScripts : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        if (Input.GetKeyDown(KeyCode.R))
+        {
+            rain = !rain;
+        }
+        if (Input.GetKeyDown(KeyCode.V))
+        {
+            if (debugMode != DebugMode.Shadow)
+            {
+                debugMode = DebugMode.Shadow;
+            }
+            else
+            {
+                debugMode = DebugMode.None;
+            }
+        }
+        
+
         if (materials == null || materials.Length == 0)
         {
             return;

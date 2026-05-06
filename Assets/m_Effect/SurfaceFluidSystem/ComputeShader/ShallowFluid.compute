@@ -41,6 +41,7 @@ float friction;                 // 摩擦力系数
 // 0: None, 1: ShowHeightField, 2: ShowVelocityField, 3: ShowGravityMap, 4: ShowUVJumpMap, 5: ShowBedHeight, 6: ShowSurfaceHeight
 int debugMode;
 
+
 // 纹理采样器（线性插值）
 SamplerState samplerLinearClamp
 {

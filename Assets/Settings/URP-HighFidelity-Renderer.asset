@@ -291,10 +291,10 @@ MonoBehaviour:
   SoftShadowMat: {fileID: 2100000, guid: cc6abd971ecd5e14b9aeb9555ebf9c16, type: 2}
   BlurComputeShader: {fileID: 7200000, guid: 5f67dd338075a96469f161edef8aff26, type: 3}
   ShadowFieldSize: 0.11
-  ShadowMapSize: 4096
+  ShadowMapSize: 2048
   UnsampleInt: 2
   PoissonCount: 12
-  _initPCSS: 0.00298
+  _PCSSSoft: 0.00277
   _distancePCSS: 0.0169
   blurSampleCount: 2
   blurStepSize: 1.93
@@ -313,22 +313,22 @@ MonoBehaviour:
   m_Active: 0
   settings:
     resolution: 512
-    threshold: 0.99999
-    softness: 1
+    threshold: 1.07
+    softness: 0.54
     distanceMin: 1
     distanceMax: 200
     highlightShapeSource: {fileID: 2800000, guid: 9d38f2888107b6a42a046d54d0077d5d,
       type: 3}
-    highlightShapeScale: {x: 4, y: 4}
-    aspectRatio: 1.9331275
+    highlightShapeScale: {x: 2, y: 2}
+    aspectRatio: 1.7777778
     highlightKernelFrequencyRT: {fileID: 0}
     needUpdateHighlightKernel: 0
-    intensity: 0.05
+    intensity: 0.07
     highlightColor: {r: 1, g: 1, b: 1, a: 1}
     borderFade: 0.1
     fftComputeShader: {fileID: 7200000, guid: 5e3479dfbf214c242a35aafbaa34ffdd, type: 3}
     debugMode: 0
-    debugStage: 0
+    debugStage: 3
 --- !u!114 &6126066738960194231
 MonoBehaviour:
   m_ObjectHideFlags: 0

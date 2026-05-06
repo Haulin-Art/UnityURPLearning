@@ -505,7 +505,7 @@ Transform:
   m_GameObject: {fileID: 95471080}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -4.64437, y: 0.97, z: -61.924004}
+  m_LocalPosition: {x: -1.8366859, y: 0.97, z: -0.16614223}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 1
   m_Children: []
@@ -9905,8 +9905,8 @@ Light:
   serializedVersion: 10
   m_Type: 1
   m_Shape: 0
-  m_Color: {r: 1, g: 0.74844456, b: 0.59655595, a: 1}
-  m_Intensity: 0.69624686
+  m_Color: {r: 1, g: 0.9249722, b: 0.8796705, a: 1}
+  m_Intensity: 0.83653045
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -9964,13 +9964,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2135745284}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.12186928, y: 0, z: 0, w: 0.9925462}
+  m_LocalRotation: {x: 0.24361496, y: 0, z: 0, w: 0.96987206}
   m_LocalPosition: {x: 0, y: 1.692, z: -52.385}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 14, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 28.2, y: 0, z: 0}
 --- !u!114 &2135745287
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10069,8 +10069,8 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  currentSunHeight: 0.42222232
-  currentIntensity: 0.69624686
+  currentSunHeight: 0.34333336
+  currentIntensity: 0.83653045
   resetAnimation: 0
   startAnimation: 0
   animationSpeed: 0.05

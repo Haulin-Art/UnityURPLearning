@@ -1189,9 +1189,19 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 196051262573320427, guid: 3c1cb0bdf399c67498d10f6ea298b716,
         type: 3}
+      propertyPath: dt
+      value: 0.192
+      objectReference: {fileID: 0}
+    - target: {fileID: 196051262573320427, guid: 3c1cb0bdf399c67498d10f6ea298b716,
+        type: 3}
       propertyPath: root
       value: 
       objectReference: {fileID: 1530723943}
+    - target: {fileID: 196051262573320427, guid: 3c1cb0bdf399c67498d10f6ea298b716,
+        type: 3}
+      propertyPath: size
+      value: 1024
+      objectReference: {fileID: 0}
     - target: {fileID: 196051262573320427, guid: 3c1cb0bdf399c67498d10f6ea298b716,
         type: 3}
       propertyPath: foot_1
@@ -1202,6 +1212,21 @@ PrefabInstance:
       propertyPath: foot_2
       value: 
       objectReference: {fileID: 865806223}
+    - target: {fileID: 196051262573320427, guid: 3c1cb0bdf399c67498d10f6ea298b716,
+        type: 3}
+      propertyPath: penRadius
+      value: 0.012
+      objectReference: {fileID: 0}
+    - target: {fileID: 196051262573320427, guid: 3c1cb0bdf399c67498d10f6ea298b716,
+        type: 3}
+      propertyPath: speedAttenuation
+      value: 0.0108
+      objectReference: {fileID: 0}
+    - target: {fileID: 2252008951748006570, guid: 3c1cb0bdf399c67498d10f6ea298b716,
+        type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 4084130925113732546, guid: 3c1cb0bdf399c67498d10f6ea298b716,
         type: 3}
       propertyPath: m_Name
@@ -1270,17 +1295,17 @@ PrefabInstance:
     - target: {fileID: 6679505184540652141, guid: 3c1cb0bdf399c67498d10f6ea298b716,
         type: 3}
       propertyPath: camBounds.m_Extent.x
-      value: 96.71477
+      value: 92.25631
       objectReference: {fileID: 0}
     - target: {fileID: 6679505184540652141, guid: 3c1cb0bdf399c67498d10f6ea298b716,
         type: 3}
       propertyPath: camBounds.m_Extent.y
-      value: 29.598513
+      value: 29.617645
       objectReference: {fileID: 0}
     - target: {fileID: 6679505184540652141, guid: 3c1cb0bdf399c67498d10f6ea298b716,
         type: 3}
       propertyPath: camBounds.m_Extent.z
-      value: 96.71477
+      value: 92.25631
       objectReference: {fileID: 0}
     - target: {fileID: 6679505184540652141, guid: 3c1cb0bdf399c67498d10f6ea298b716,
         type: 3}

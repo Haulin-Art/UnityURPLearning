@@ -306,7 +306,7 @@ Shader "Unlit/cesPosBuffer"
                 // ================= 漫反射 ==============================
                 float3 ambient = 0.1;//UNITY_LIGHTMODEL_AMBIENT.rgb;
                 float diff = max(0.0,dot(nor,lightDir));
-                diff = lerp(diff,1.0,0.25)*(shadowAttenuation + ambient);
+                diff = lerp(diff,1.0,0.5)*(shadowAttenuation + ambient);
 
                 // ================= 高光 ===============================
                 float specular = pow(max(dot(nor,h),0.0),15.0);
@@ -326,6 +326,7 @@ Shader "Unlit/cesPosBuffer"
                 //return float4(nor.x*float3(1,1,1),1.0);
                 //return float4(nor.y*float3(1,1,1),1.0);
                 //return float4(i.bezTangent.y*float3(1,1,1),1.0);
+                return float4(float3(1,1,1)*albedo*diff*(shadowAttenuation + ambient),1);
                 return float4((diff + specular)*(i.cesCol/100 + albedo)*1.3*float3(1,1,1),1);
                 //return float4(()*float3(1,1,1),1);
                 return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);

@@ -194,6 +194,8 @@ Shader "Unlit/S_Actor_Cloth"
                 float3 emission = SAMPLE_TEXTURE2D(_ETex,sampler_ETex,i.uv).xyz;
                 float otherEmis = SAMPLE_TEXTURE2D(_MTex,sampler_MTex,i.uv1).x;
 
+                //return float4(float3(1,1,1)*otherEmis,1.0);
+
                 // ====================== PBR 数据 ======================================
                 Light ld = GetMainLight();
                 float3 lightDir = normalize(ld.direction); // 主光源方向（世界空间，ForwardBase通道）
@@ -308,7 +310,7 @@ Shader "Unlit/S_Actor_Cloth"
                 data.viewDir = viewDirWS;
                 data.lightDir = lightDir;
                 data.irradiance = lightColor;
-                float dropMixRoughness = lerp( roughness * _RoughnessScale.x + _RoughnessScale.y,0.0,cc.x+cc.y) * lerp(1.0,0.2,saturate(extraFluidData.z));
+                float dropMixRoughness = lerp( roughness * _RoughnessScale.x *0.7 + _RoughnessScale.y,0.0,cc.x+cc.y) * lerp(1.0,0.2,saturate(extraFluidData.z));
                 data.roughness = lerp(roughness * _RoughnessScale.x + _RoughnessScale.y,dropMixRoughness,_Rain);
                 data.metallic = metallic;
                 data.F0 = 0.0;
@@ -324,7 +326,7 @@ Shader "Unlit/S_Actor_Cloth"
                 float3 spec = pbr.specular * shadow; // 直接光镜面反射
                 float3 ambi = albedo * ao * lightColor * 0.15 ; // 环境光
                 float3 emis = emission * 1.0 ; // 第一种自发光
-                float3 oems =  otherEmis * _MColor * 10.0 ; // 第二种自发光，使用一个灰度遮罩控制的自发光
+                float3 oems =  pow(otherEmis,1.4) * _MColor * 20.0 ; // 第二种自发光，使用一个灰度遮罩控制的自发光
 
 
                 // Unity基础环境光
@@ -352,7 +354,7 @@ Shader "Unlit/S_Actor_Cloth"
                 }
 
                 float3 finalCol = diff+ spec+ + ambi + ambient*0.4  + emis + oems  + dropAdd;
-
+                //return float4(oems,1.0);
                 // ======================== 额外流水 ==============================
                 /*
                 //float3 h = normalize(lightDir + viewDirWS);

@@ -957,6 +957,7 @@ Shader "FluidFlux/water_ins_tess"
                 //envReflection = _EnvReflectionStrength*GlossyEnvironmentReflection(reflectDir, _Roughness, 1.0);
                 envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz;
                 envReflection = clamp(envReflection,0,lerp(30.0,1,smoothstep(0.0,0.1,saturate(viewDirWS.y))));
+                //envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-reflectDir)).xyz;  // 使用全景旋转0.263
 
                 // =================== 体积云环境反射 =======================================
                 float2 screenUV_offset = normal.xz * 0.1;
