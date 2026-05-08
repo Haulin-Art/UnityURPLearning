@@ -41,6 +41,13 @@ float friction;                 // 摩擦力系数
 // 0: None, 1: ShowHeightField, 2: ShowVelocityField, 3: ShowGravityMap, 4: ShowUVJumpMap, 5: ShowBedHeight, 6: ShowSurfaceHeight
 int debugMode;
 
+///////////////////////////////////////////////////////////////////////////
+// 水渍模式
+Texture2D<float3> PosOSMap; // 水渍贴图（RG:水渍颜色, B:水渍高度）
+int useStain;               // 是否启用水渍模式
+float waterHeight;          // 水位高度
+float objHeight;            // 物体高度
+///////////////////////////////////////////////////////////////////////////
 
 // 纹理采样器（线性插值）
 SamplerState samplerLinearClamp
@@ -251,10 +258,24 @@ void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
     float sourceMask = step(distToSource, radius) * isHit;
     new_height += sourceMask * dt;
 
+    // ========== 水渍模式处理 ==========
+    float stain = 0.0;
+    if (useStain)
+    {
+        // 水渍模式下，根据水位高度和物体高度混合水渍高度
+        float surfHeight = PosOSMap.SampleLevel(samplerLinearClamp, uv, 0).y + objHeight;
+        float underWater = step(waterHeight, surfHeight);
+        new_height = lerp( 1,new_height, underWater);
+        stain = 1.0-underWater;
+    }
+
     // ========== 写入结果 ==========
     // 只在有重力方向的地方更新
     float validMask = step(0.01, jump_factor.z + jump_factor.w);
     FluidWrite[pixel_pos] = float3(new_vel, new_height) * validMask;
+
+    //FluidWrite[pixel_pos] = float3(1,1,1)*stain * validMask;
+
     //FluidWrite[pixel_pos] = float3(1,1,1)*jump_factor.w;
     // ========== 计算并输出法线 ==========
     // 根据水高梯度计算法线

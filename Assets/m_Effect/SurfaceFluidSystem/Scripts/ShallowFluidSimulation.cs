@@ -30,19 +30,18 @@ public class ShallowFluidSimulation : MonoBehaviour
     
     [Tooltip("输出贴图")]
     public RenderTexture outputTexture;
-
+    /////////////////////////////////////////////////////////////////////
     [Header("射线检测源")]
     [Tooltip("射线检测器组件，用于获取UV位置")]
     public RaycastTargetDetector raycastDetector;
-
+    /////////////////////////////////////////////////////////////////////
     [Space(10)]
     [Header("流体着色设置")] // 这个用于展示，实际无所谓
     public Material fluidMaterial;
     public Color fluidColor = Color.blue;
     [Range(0.0f, 10.0f)]
     public float fluidTransScale = 1.0f;
-
-
+    /////////////////////////////////////////////////////////////////////
     [Space(10)]
     [Header("UV跳跃设置")]
     [Tooltip("UV跳跃贴图（RG:跳跃目标UV, Z:跳跃边缘, A:UV范围），支持Texture2D和RenderTexture")]
@@ -50,7 +49,7 @@ public class ShallowFluidSimulation : MonoBehaviour
     
     [Tooltip("是否启用UV跳跃功能")]
     public bool useUVJump = false;
-
+    /////////////////////////////////////////////////////////////////////
     [Space(10)]
     [Header("重力方向设置")]
     [Tooltip("重力方向贴图（RG通道存储方向，范围0~1，会映射到-1~1）")]
@@ -62,7 +61,17 @@ public class ShallowFluidSimulation : MonoBehaviour
     [Tooltip("重力强度")]
     [Range(0.0f, 10.0f)]
     public float gravityStrength = 1.0f;
+    /////////////////////////////////////////////////////////////////////
+    [Space(10)]
+    [Header("水渍模式")]
+    [Tooltip("是否启用水渍模式")]
+    public bool useStain = false;
+    public Transform target;
+    public Texture posOSMap;
+    public float waterHeight = 0.0f;
+    private float objHeight = 0.0f;
 
+    /////////////////////////////////////////////////////////////////////
     [Space(10)]
     [Header("床底高度设置")]
     [Tooltip("床底高度贴图（噪波地形，用于水流成股效果）")]
@@ -87,6 +96,7 @@ public class ShallowFluidSimulation : MonoBehaviour
     [Range(1.0f, 20.0f)]
     public float gapAttenuationEnhancement = 10.0f;
 
+    /////////////////////////////////////////////////////////////////////
     [Space(10)]
     [Header("物理参数")]
     [Tooltip("表面张力系数（控制水面的聚拢程度）")]
@@ -192,6 +202,11 @@ public class ShallowFluidSimulation : MonoBehaviour
     private void Update()
     {
         SetFluidMat(); // 更新流体材质
+        if (target != null)
+        {
+            objHeight = target.transform.position.y;
+            Debug.Log(objHeight);
+        }
 
 
         if (computeShader == null) return;
@@ -350,6 +365,12 @@ public class ShallowFluidSimulation : MonoBehaviour
         computeShader.SetFloat("surfaceTension", surfaceTension);
         computeShader.SetFloat("extraGravityStrength", extraGravityStrength);
         computeShader.SetFloat("friction", friction);
+
+        // 设置水渍模式参数
+        computeShader.SetInt("useStain", useStain ? 1 : 0);
+        computeShader.SetTexture(shallowWaterKernel, "PosOSMap", posOSMap);
+        computeShader.SetFloat("waterHeight", waterHeight);
+        computeShader.SetFloat("objHeight", objHeight);
 
 
         // ======================== 浅水方程核 ==============================

@@ -83,6 +83,7 @@ Shader "Unlit/cesPosBuffer"
                 float3 cesCol : TEXCOORD3;
                 float grassHeight : TEXCOORD4;
 
+                float3 instancePos : TEXCOORD7;
                 
             };
 
@@ -189,15 +190,17 @@ Shader "Unlit/cesPosBuffer"
                 float ran = random(onlyInt);
                 float ranScale = pow(ran,0.5) + 0.4;;
 
-                
-                v.vertex.xyz *= _GrassScale * _TotalScale;
+                // 获取 Buffer 记录的偏移
+                float3 worldOffset = _GrassPositions[instanceID + _Grass_Instance_Offset] ;
+                o.instancePos = worldOffset;
+                float scale = tex2Dlod(_WindTex,float4(worldOffset.xz/10.0,0,0)).r;
+                scale = scale*0.5 + 0.6;
+                v.vertex.xyz *= _GrassScale * _TotalScale * scale;
                 float height = v.vertex.y;
                 //height = v.uv.x;
                 //v.vertex *= ranScale ;
                 //v.vertex.xz *= 3.0; // 为了让草更粗点，好观察
 
-                // 获取 Buffer 记录的偏移
-                float3 worldOffset = _GrassPositions[instanceID + _Grass_Instance_Offset] ;//- float3(0,0,4); // test
                 
                 // 根据地形法向更新草的上朝向，根据深度计算法线朝向，勾股定理
                 float2 grassWorldUV = (worldOffset.xz-_GrassUVParams.xy)/(_GrassUVParams.z+_GrassUVParams.w);
@@ -319,6 +322,9 @@ Shader "Unlit/cesPosBuffer"
                 specular = specular*(1.0-smoothstep(10.0,40.0,dep)); // 远处高光消失
 
 
+                albedo *= lerp(1.0,tex2D(_WindTex,i.instancePos.xz/10.0).rgb,0.6);
+
+
                 float3 cool = instanceID < 20 ? float3(1,0,0) : float3(0,0,1);
                 //return float4(cool,1.0);
 
@@ -326,7 +332,7 @@ Shader "Unlit/cesPosBuffer"
                 //return float4(nor.x*float3(1,1,1),1.0);
                 //return float4(nor.y*float3(1,1,1),1.0);
                 //return float4(i.bezTangent.y*float3(1,1,1),1.0);
-                return float4(float3(1,1,1)*albedo*diff*(shadowAttenuation + ambient),1);
+                return float4(float3(1,1,1)*(albedo+i.cesCol/25)*diff*(shadowAttenuation + ambient),1);
                 return float4((diff + specular)*(i.cesCol/100 + albedo)*1.3*float3(1,1,1),1);
                 //return float4(()*float3(1,1,1),1);
                 return float4((shadowAttenuation+ambient + float3(abs(i.cesCol.xy)*1.5,0))*i.grassHeight*float3(1,1,1),1);

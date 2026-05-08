@@ -546,7 +546,9 @@ FFWaterBSDFOutput FFEvaluateWaterBSDFSimple(FFWaterBSDFInput input)
     // Step 5: 应用出射菲涅尔透射率
     float T_exit = FFFresnelExit(input.fresnel0, input.normalWS, input.viewDirWS);
     output.totalScattering = (output.diffR + output.diffT) * T_exit ;
-    
+
+    //output.totalScattering = geo.T_entry/20 * float3(1,1,1);
+
     return output;
 }
 
@@ -602,9 +604,12 @@ float3 FFEvaluateWaterScattering(
     input.lightColor = lightColor;
     input.shadowValue = shadowValue;
     
+    input.thickness = saturate(dot(normalWS, viewDirWS));
+
     // 评估BSDF
     FFWaterBSDFOutput output = FFEvaluateWaterBSDFSimple(input);
     
+    //return float3(1,1,1)*input.thickness;
     return output.totalScattering;
 }
 

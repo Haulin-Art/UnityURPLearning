@@ -21,6 +21,8 @@ public class DynamicLightColor : MonoBehaviour
     public bool resetAnimation = false;
     public bool startAnimation = false;
     public float animationSpeed = 0.05f ;
+
+    private float sep = 0.04f;
     
     private Light _light;
     
@@ -63,7 +65,8 @@ public class DynamicLightColor : MonoBehaviour
         // 灯光高度的键盘控制
         if (Input.GetKey(KeyCode.P))
         {
-            RotateAroundX(0.04f);
+            sep += 0.0002f;
+            RotateAroundX(sep);
         }
         if (Input.GetKey(KeyCode.O))
         {

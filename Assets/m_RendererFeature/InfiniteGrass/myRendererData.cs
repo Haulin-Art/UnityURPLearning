@@ -151,7 +151,7 @@ public class myRendererData : MonoBehaviour
             args[0] = (uint)mesh.GetIndexCount(0);
             // args[1]：最大实例数（缓冲区容量，实际实例数由ComputeShader的计数器覆盖）
             //args[1] = (uint)(maxBufferCount * 10000);
-            args[1] = (uint)(2 * 10000);
+            args[1] = (uint)(2 * 100000);
             // args[2]：索引起始位置（默认0）
             args[2] = (uint)mesh.GetIndexStart(0);
             // args[3]：基础顶点位置（默认0）

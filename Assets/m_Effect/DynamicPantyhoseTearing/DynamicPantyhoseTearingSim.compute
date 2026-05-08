@@ -1,0 +1,130 @@
+#pragma kernel ShallowWaterKernel
+
+#include "UnityCG.cginc"
+
+// 模拟参数
+float texSize;
+float dt;
+float advectSpeed;
+float2 attenuation;     // 速度衰减(x)与高度衰减(y)
+
+// 射线检测源参数
+float2 sourceUV;
+int isHit;
+float radius;
+
+// 物理参数
+float surfaceTension;
+float gravityStrength;   // 重力加速度 g
+float friction;
+
+// 纹理采样器
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+// 读写纹理 - 合并速度(RG)和高度(B)
+RWTexture2D<float3> FluidWrite;
+RWTexture2D<float3> NormalOutput;
+// 只读纹理
+Texture2D<float3> FluidTex;
+
+/// <summary>
+/// 浅水方程核
+/// 连续性方程: ∂h/∂t + ∇·(hv) = 0
+/// 动量方程:   ∂v/∂t = -(v·∇)v - g∇h - friction*v + surfaceTension*∇²h
+/// 纹理格式: RG=速度(xy), B=高度
+/// </summary>
+[numthreads(8, 8, 1)]
+void ShallowWaterKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+
+    float2 w = float2(1.0 / texSize, 0.0);
+
+    // 读取当前数据（一次采样获取速度和高度）
+    float3 data_center = FluidTex.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 old_vel = data_center.xy;
+    float old_height = data_center.z;
+
+    // ========== 平流项: 半拉格朗日法 ==========
+    float2 backtracedUV = uv - advectSpeed * old_vel * dt;
+    backtracedUV = clamp(backtracedUV, 0.0, 1.0);
+
+    float3 ad_data = FluidTex.SampleLevel(samplerLinearClamp, backtracedUV, 0);
+    float2 ad_vel = ad_data.xy;
+    float ad_height = ad_data.z;
+
+    // ========== 采样周围数据用于梯度计算 ==========
+    float3 data_right = FluidTex.SampleLevel(samplerLinearClamp, uv + w.xy, 0);
+    float3 data_left  = FluidTex.SampleLevel(samplerLinearClamp, uv - w.xy, 0);
+    float3 data_up    = FluidTex.SampleLevel(samplerLinearClamp, uv - w.yx, 0);
+    float3 data_down  = FluidTex.SampleLevel(samplerLinearClamp, uv + w.yx, 0);
+
+    float h_center = data_center.z;
+    float h_right  = data_right.z;
+    float h_left   = data_left.z;
+    float h_up     = data_up.z;
+    float h_down   = data_down.z;
+
+    float2 vel_center = data_center.xy;
+    float2 vel_right  = data_right.xy;
+    float2 vel_left   = data_left.xy;
+    float2 vel_up     = data_up.xy;
+    float2 vel_down   = data_down.xy;
+
+    // ========== 水面梯度（驱动水流的关键） ==========
+    float detadx = (h_right - h_left) * 0.5;
+    float detady = (h_down - h_up) * 0.5;
+    float2 surface_gradient = float2(detadx, detady);
+
+    // ========== 通量散度（连续性方程） ==========
+    float2 flux_right = h_right * vel_right;
+    float2 flux_left  = h_left  * vel_left;
+    float2 flux_up    = h_up    * vel_up;
+    float2 flux_down  = h_down  * vel_down;
+
+    float flux_divergence = (flux_right.x - flux_left.x) * 0.5 + (flux_down.y - flux_up.y) * 0.5;
+
+    // 表面张力: 高度拉普拉斯
+    float laplacian_h = (h_right + h_left + h_up + h_down - 4.0 * h_center);
+
+    // ========== 动量方程 ==========
+    float2 new_vel = ad_vel
+                    - surface_gradient * gravityStrength * dt
+                    - friction * ad_vel * dt
+                    + surfaceTension * laplacian_h * dt;
+
+    // ========== 连续性方程 ==========
+    float new_height = ad_height - flux_divergence * dt;
+
+    // ========== 浅水区域停止流动 ==========
+    if (h_center < 0.00001)
+        new_vel *= 0.1;
+
+    // ========== 衰减 ==========
+    new_height *= (1.0 - attenuation.y);
+    new_vel    *= (1.0 - attenuation.x);
+
+    // ========== 限制 ==========
+    new_height = clamp(new_height, 0.0, 10.0);
+    new_vel = clamp(new_vel, -5.0, 5.0);
+
+    // ========== 添加源 ==========
+    float distToSource = length(sourceUV - uv);
+    float sourceMask = step(distToSource, radius) * isHit;
+    new_height += sourceMask * dt;
+
+    // ========== 写入流体数据 ==========
+    FluidWrite[pixel_pos] = float3(new_vel, new_height);
+
+    // ========== 计算法线 ==========
+    float dhdx = (h_right - h_left) * 0.5;
+    float dhdy = (h_down - h_up) * 0.5;
+    float3 normal = normalize(float3(-dhdx * 2.0, -dhdy * 2.0, 1.0));
+    NormalOutput[pixel_pos] = normal * 0.5 + 0.5;
+}

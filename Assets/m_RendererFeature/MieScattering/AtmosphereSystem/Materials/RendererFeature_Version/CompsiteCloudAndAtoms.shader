@@ -641,7 +641,7 @@ Shader "RendererFeature/Atmosphere/CompsiteCloudAndAtoms"
                 float sun = dot(RayDir, SunDir);
                 sun = step(1.0-_SunSize, sun);
                 //sun *= smoothstep(-0.01,0.05,rd.y);
-                EnvColor += 4.0 * sun * EnvColor * smoothstep(-0.01,0.05,RayDir.y);
+                EnvColor += 10.0 * sun * EnvColor * smoothstep(-0.01,0.05,RayDir.y);
                 //return float4(EnvColor,1.0);
                 // 云层参数
                 CloudLayerParams CloudParams = GetCloudLayerParams();

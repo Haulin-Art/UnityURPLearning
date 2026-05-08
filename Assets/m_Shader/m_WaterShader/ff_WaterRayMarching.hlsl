@@ -461,6 +461,8 @@ float3 FFRayMarchVolumeScattering(
         accumulatedTransmittance *= stepTransmittance;
     }
     
+    //totalScatter = cosTheta*float3(1,1,1);
+
     return totalScatter;
 }
 

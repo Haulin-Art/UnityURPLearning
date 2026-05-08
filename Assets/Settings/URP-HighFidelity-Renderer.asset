@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 96d2f03d9070910418ef733a49b43845, type: 3}
   m_Name: DistanceFog
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: 882febf2956997a43be5ef3f29aec3fd, type: 2}
 --- !u!114 &-8353285721275133182
@@ -27,7 +27,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5d42d7d26560364e912c2c968ac21c5, type: 3}
   m_Name: WaterLineFeature
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: cd1aa1b9b04106149a49df274ef36a7e, type: 2}
   CautionMaterial: {fileID: 2100000, guid: c786bdecd4e74ce479d6e12aff9e9ee5, type: 2}
@@ -53,10 +53,10 @@ MonoBehaviour:
       serializedVersion: 2
       m_Bits: 8
     textureSize: 256
-    drawDistance: 80
+    drawDistance: 120
     textureUpdateThreshold: 22
-    spacing: 0.05
-    maxBufferCount: 7
+    spacing: 0.06
+    maxBufferCount: 30
     topOrthDepMat: {fileID: 2100000, guid: d20aa97f7ae5eeb4692d6683cd9a5dab, type: 2}
     viewSpaceDepMat: {fileID: 2100000, guid: b435141ef14a0944da757ca86a7f76a4, type: 2}
     showMat: {fileID: 2100000, guid: 3bbb4eccbc0a67d47a84b3a3dbf74ca8, type: 2}
@@ -111,9 +111,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2a240227cc3e3af48a85deafed9c8364, type: 3}
   m_Name: ScreenMipMapRendererFeature
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   downSampleQuality: 2
-  mipLevelCount: 5
+  mipLevelCount: 6
   rtFormat: 2
   filterMode: 2
   enablePreProcess: 1
@@ -130,7 +130,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a3051463dc50069419e6e587580fc859, type: 3}
   m_Name: AdvCloudFeature
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   settings:
     layerMask:
       serializedVersion: 2
@@ -155,7 +155,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 49deb0eb83ea70c409480f8ed856f332, type: 3}
   m_Name: OutLine
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   mat: {fileID: 2100000, guid: fc63600893fc2a748b50a0fe3c56555d, type: 2}
   m_Tag: CES
 --- !u!114 &11400000
@@ -283,7 +283,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 33e0f536fa7989647a905792cf9031fe, type: 3}
   m_Name: PerObjectShadowRF
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   layerMask:
     serializedVersion: 2
     m_Bits: 64
@@ -310,7 +310,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 835781b1e9b0341468aad37328082f39, type: 3}
   m_Name: FrequencyHighlightFeature
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   settings:
     resolution: 512
     threshold: 1.07
@@ -354,7 +354,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2a7697d4997ebfa478dcdad1aa4f143a, type: 3}
   m_Name: PlanarReflectionRenderFeature
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   settings:
     reflectLayers:
       serializedVersion: 2

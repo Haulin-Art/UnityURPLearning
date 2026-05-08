@@ -235,7 +235,7 @@ float3 ComputeAtmosScattering(float3 rayOrigin, float3 rayDir, float rayLength,
     outViewTransmittance = exp(-viewTau);
     
     // 返回所有散射的总和（瑞利 + 米氏 + 太阳米氏）
-    return accumRayleigh + accumMie + accumSunMie * smoothstep(0.15,0.4,sunDir.y);
+    return accumRayleigh + accumMie + accumSunMie * smoothstep(0.1,0.3,sunDir.y);
 }
 
 // 将UV坐标转换为世界空间方向向量（等距圆柱投影）

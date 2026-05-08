@@ -101,8 +101,8 @@ void SegmentedBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_Gr
     // 【越界保护】计算Tile索引并检查边界
     // Tile网格为8x8，索引必须在0~7范围内，否则会越界访问 _TileActivationStatusR
     int2 correspondingTileIndex = floor((positionXZ + 22.0*0.5+ 22.0*4 -_centerPos)/22.0);
-    if (any(correspondingTileIndex < 0) || any(correspondingTileIndex >= 8)) return;
-    if (_TileActivationStatusR[correspondingTileIndex.x + 8*correspondingTileIndex.y]==0) return;
+    //if (any(correspondingTileIndex < 0) || any(correspondingTileIndex >= 8)) return;
+    //if (_TileActivationStatusR[correspondingTileIndex.x + 8*correspondingTileIndex.y]==0) return;
 
 
     bool enable = false ; // 确定本线程计算出的位置是否加入
@@ -180,12 +180,13 @@ void SegmentedBufferData (uint3 id : SV_DispatchThreadID , uint3 localID : SV_Gr
             //float depthMap = -_CameraDepthTexture.SampleLevel(linearClampSampler,screenUV,0);
 
             //bool occlusionCulling = -viewPos.z <= depthMap || -viewPos2.z <= depthMap2;
-            float depOffset = 0.5;
+            float depOffset = 0.7;
             bool occlusionCulling = OcclusionCulling(positionWS) || 
                     OcclusionCulling(positionWS+float3(0,depOffset,0)) ||
                     OcclusionCulling(positionWS-float3(0,depOffset,0)) ||
                     OcclusionCulling(positionWS+float3(depOffset,0,0)) ;//||
                     //OcclusionCulling(positionWS-float3(depOffset,0,0));
+            
             // 裁剪条件（宽松裁剪，避免边缘草被过度裁剪）：
             //if (absPosCS.z <= absPosCS.w && absPosCS.y <= absPosCS.w * 1.5 && absPosCS.x <= absPosCS.w * 1.1 && absPosCS.w <= _drawDistance)；
             if (frustumCulling && occlusionCulling)

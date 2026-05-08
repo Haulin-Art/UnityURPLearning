@@ -2,7 +2,7 @@ Shader "FluidFlux/water_ins_tess"
 {
     Properties
     {
-        [Enum(Final,0,Scattering1,1,ces,2,Reflection,3,Foam,4,vNormal,5,fresnel,6)]
+        [Enum(Final,0,Scattering1,1,SWEFluid,2,Reflection,3,Foam,4,vNormal,5,fresnel,6)]
         _DebugView ("显示结果", Float) = 0
         // 这个3D纹理是用于正常水面起伏的，x是Voronoi分形的海面高度，yz是法向
         _Tile01 ("================= 这个3D纹理是用于正常水面起伏的 ===============",Float) = 0.0 
@@ -100,6 +100,7 @@ Shader "FluidFlux/water_ins_tess"
         _ScatterColor ("散射颜色", Color) = (0.2, 0.5, 0.8)
         _BSDFAbsorptionColor ("BSDF吸收颜色", Color) = (0.1, 0.2, 0.3)
         _PhaseG ("相位参数G", Range(-1.0, 1.0)) = 0.8
+        [Range(0.0,10.0)]_ThinBSDFScale ("薄BSDF缩放", Range(0.0, 10.0)) = 3.0
         _Thickness ("厚度", Range(0.0, 20.0)) = 0.5
         _DepthScale ("深度缩放", Range(0.1, 50.0)) = 10.0
         
@@ -239,6 +240,9 @@ Shader "FluidFlux/water_ins_tess"
                 float3 _ScatterColor;
                 float3 _BSDFAbsorptionColor;
                 float _PhaseG;
+
+                float _ThinBSDFScale;
+
                 float _Thickness;
                 float _DepthScale;
                 float _UseRayMarching;
@@ -699,14 +703,14 @@ Shader "FluidFlux/water_ins_tess"
                 return rotatedPos;
             }
             // 全景图UV转换
-            float2 DirToPanoramicUV(float3 dir)
+            float2 DirToPanoramicUV(float3 dir,float rotation)
             {
-                dir = RotateAroundY(dir,6.0*_PanoramicRotation);
+                dir = RotateAroundY(dir,6.0*rotation);
                 //dir = normalize(dir);
                 float phi = atan2(dir.z, dir.x);
                 float theta = acos(dir.y);
                 
-                float rotationRad = _PanoramicRotation * 3.14159265 / 180.0;
+                float rotationRad = rotation * 3.14159265 / 180.0;
                 phi += rotationRad;
                 
                 float2 uv;
@@ -775,8 +779,13 @@ Shader "FluidFlux/water_ins_tess"
                 float swe_u = SWEMask * SAMPLE_TEXTURE2D_LOD(_SWETex,sampler_SWETex, SWEUV+w.yx, 0.0).r * _SWEData.z;
                 float swe_d = SWEMask * SAMPLE_TEXTURE2D_LOD(_SWETex,sampler_SWETex, SWEUV-w.yx, 0.0).r * _SWEData.z;
                 float3 SWEGrad = float3(swe_r - swe_l,0,swe_u - swe_d) * 20.0 * _SWENorScale;
-                float3 SWENor = normalize(float3(-SWEGrad.x,1.0,-SWEGrad.z));
+                float3 SWENor = normalize(float3(SWEGrad.x,1.0,SWEGrad.z));
                 Nor = lerp(Nor,SWENor,saturate(SWEMask*swe*10.0*_SWENorIntensity)); // 根据浅水方程的结果调整法线，只有在有波纹的地方才调整，且根据波纹强度调整
+
+                if (_DebugView == 2)
+                {
+                    return float4(float3(1,1,1)*swe,1);
+                }
 
                 //return float4(saturate(SWEMask*swe)*float3(1,1,1),1.0);
 
@@ -901,12 +910,15 @@ Shader "FluidFlux/water_ins_tess"
                     //bsdfScattering *= lerp(T_exit,1.0,0.7);
 
                     // 使用简化的BSDF计算
-                    bsdfScattering += 2.0*FFEvaluateWaterScattering(
+                    float3 thinBSDF = _ThinBSDFScale*FFEvaluateWaterScattering(
                         sssNormal, viewDirWS, lightDir, lightColor,
                         _ScatterColor, _BSDFAbsorptionColor,
                         thickness, _FresnelF0, _PhaseG,
                         0.0
-                    )*smoothstep(-0.02,0.00,lightDir.y);
+                    )*smoothstep(-0.02,0.00,lightDir.y)
+                    *smoothstep(0.0,2.0,waterDepth);
+
+                    bsdfScattering += saturate(thinBSDF);
 
                 #else
                     // 使用简化的BSDF计算
@@ -949,18 +961,32 @@ Shader "FluidFlux/water_ins_tess"
 
 
                 //return float4(float3(1,1,1)*fresnel,1);
+
+                ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
                 // ==================== 环境反射 ====================
                 _EnvReflectionStrength *= lerp(3.0,1.0,step(0,facing)); // 背面环境反射更强一些，这样看起来更自然
                 float3 reflectDir = reflect(-viewDirWS, normalize(float3(normal.x*1.0,normal.y*1.0,normal.z*1.0)));
+                reflectDir = reflect(-viewDirWS, normalize(lerp(float3(0,1,0),normal,0.7)));
                 float3 envReflection = FFSampleEnvReflection(reflectDir, _Roughness, _EnvReflectionStrength);
                 //envReflection =  _EnvReflectionStrength*SAMPLE_TEXTURECUBE(_EnvCubeMap, sampler_EnvCubeMap, reflectDir);
                 //envReflection = _EnvReflectionStrength*GlossyEnvironmentReflection(reflectDir, _Roughness, 1.0);
-                envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz;
+                float2 envUV1 = DirToPanoramicUV(-viewDirWS,_PanoramicRotation);
+                envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, envUV1).xyz;
                 envReflection = clamp(envReflection,0,lerp(30.0,1,smoothstep(0.0,0.1,saturate(viewDirWS.y))));
-                //envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-reflectDir)).xyz;  // 使用全景旋转0.263
+                float2 envUV2 = DirToPanoramicUV(-reflectDir,0.263);
+                envReflection = SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, envUV2).xyz;  // 使用全景旋转0.263
+
+                float sun = dot(reflectDir, lightDir);
+                sun = step(1.0-0.000236, sun);
+                //sun *= smoothstep(-0.01,0.05,rd.y);
+                envReflection += 10.0 * sun * envReflection ;//* smoothstep(-0.01,0.05,reflectDir.y);
 
                 // =================== 体积云环境反射 =======================================
-                float2 screenUV_offset = normal.xz * 0.1;
+                float fresnelReflection = 1-FFFresnelExit(0.1, normal, viewDirWS);
+                //return float4(fresnelReflection*float3(1,1,1),1);
+                float2 screenUV_offset = normal.xz * 0.1 / selfDepthLinear;
+                screenUV_offset = 0*float2(0,fresnelReflection*0.05) + normal.xz * 0.1;
+                //return float4(screenUV_offset,0,1);
                 float4 cloudRFData = SAMPLE_TEXTURE2D(_AtmosRFCloudTex, sampler_AtmosRFCloudTex, screenUV+ screenUV_offset);
                 envReflection = lerp(saturate(cloudRFData.xyz),envReflection,saturate(cloudRFData.w+smoothstep(1,20,selfDepthLinear)));
 
@@ -969,6 +995,8 @@ Shader "FluidFlux/water_ins_tess"
                 float2 screenUV_flipY = float2(screenUV.x,1.0-screenUV.y);
                 float2 planarRef_UV = screenUV_flipY + screenUV_offset;
                 float3 planarReflection = SAMPLE_TEXTURE2D(_PlanarReflectionTexture,sampler_PlanarReflectionTexture,planarRef_UV);
+                planarReflection *= 1.0-smoothstep(0.0,0.7,saturate(dot(viewDirWS,normal)));
+                //return float4(float3(1,1,1)*(1.0-saturate(dot(viewDirWS,normal))),1);
                 //return float4(planarReflection,1.0);
                 envReflection = lerp(envReflection,planarReflection,step(0.0001,length(planarReflection)));
                 //return float4(float3(1,1,1)*smoothstep(0.1,0.2,viewDirWS.y),1.0);
@@ -984,7 +1012,7 @@ Shader "FluidFlux/water_ins_tess"
 
                 // ==================== 最终颜色合成 ====================
                 // 将BSDF散射与反射混合
-                float3 finalColor = reflectionColor  + lerp(float3(0,0,0), bsdfScattering, rampMask);
+                float3 finalColor = reflectionColor  + bsdfScattering +0*lerp(float3(0,0,0), bsdfScattering, rampMask);
                 finalColor += specCol;
 
                 // ==================== SSS次表面散射 ====================
@@ -1048,10 +1076,15 @@ Shader "FluidFlux/water_ins_tess"
                 fffDiff *= clamp(totalFoam* _FoamIntensity,0.0,1.0)  ;
                 float3 foamCol = _FoamColor*fffDiff*lightColor;
 
+
+                finalColor = (finalColor + foamCol);
+                //finalColor = lerp(finalColor,envReflection,roughnessRamp);
                 
+                //return float4(roughnessRamp*float3(1,1,1),1);
+
                 if(_DebugView == 0) // 最终结果
                 {
-                    return float4((finalColor + foamCol)*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
+                    return float4(finalColor*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
                 
                 }else if(_DebugView == 1) // BSDF + RayMarching 散射
                 {
@@ -1072,9 +1105,11 @@ Shader "FluidFlux/water_ins_tess"
                 {
                     return float4(fresnel*float3(1,1,1),1);
                 }
-                
+
+                return float4(roughnessRamp*float3(1,1,1),1);
+
                 //return float4(SAMPLE_TEXTURE2D(_EnvPanoramic, sampler_EnvPanoramic, DirToPanoramicUV(-viewDirWS)).xyz,1);
-                return float4((finalColor + foamCol)*float3(1,1,1), sdfAlpha*depAlpha*sdfEdgeAlpha);
+                return float4(lerp(lightColor,(finalColor + foamCol)*float3(1,1,1),saturate(roughnessRamp+0.2)), sdfAlpha*depAlpha*sdfEdgeAlpha);
             }
             ENDHLSL
         }
