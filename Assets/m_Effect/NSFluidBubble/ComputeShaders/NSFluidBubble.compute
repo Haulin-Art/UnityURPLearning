@@ -1,0 +1,129 @@
+#pragma kernel ElasticRelaxationKernel
+#pragma kernel SourceInputKernel
+#pragma kernel DyeAdvectionKernel
+
+#include "UnityCG.cginc"
+
+// ── 基础参数 ──
+float texSize;
+float dt;
+float2 sourceUV;         // 当前射线命中 UV 坐标
+float pushStrength;      // 源点径向推力大小
+float radius;            // 画笔半径
+bool isHit;              // 是否射线命中 + 鼠标按下
+float advectSpeed;       // 染料平流速度
+float colorAttenuation;  // 染料衰减系数（0~1 每帧）
+
+// ── 弹性参数 ──
+float relaxFactor;       // 松弛因子（0~1）：每次迭代向邻居平均的混合度
+float stiffness;         // 弹性刚度：拉回零点的力度
+
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+// ── 位移场 (RGHalf, 2通道) ──
+RWTexture2D<float2> DispRead;
+RWTexture2D<float2> DispWrite;
+Texture2D<float2> DispTex;
+
+// ── 染料场 (RGBA UNorm) ──
+RWTexture2D<float3> DyeRead;
+RWTexture2D<float3> DyeWrite;
+Texture2D<float3> DyeTex;
+
+// ================================================================
+// ① 弹性松弛核（Jacobi 迭代）
+//    邻居拉拽 = 预应力收缩感
+//    刚度拉回 = 有限hole大小
+// ================================================================
+[numthreads(8, 8, 1)]
+void ElasticRelaxationKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)pixel_pos + 0.5) / texSize;
+
+    float h = 1.0 / texSize;
+
+    float2 s  = DispTex.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 sr = DispTex.SampleLevel(samplerLinearClamp, uv + float2(h, 0.0), 0);
+    float2 sl = DispTex.SampleLevel(samplerLinearClamp, uv - float2(h, 0.0), 0);
+    float2 su = DispTex.SampleLevel(samplerLinearClamp, uv + float2(0.0, h), 0);
+    float2 sd = DispTex.SampleLevel(samplerLinearClamp, uv - float2(0.0, h), 0);
+
+    // 邻居平均：织物自然想变平，这是"预应力"的数学表达
+    float2 avg = (sr + sl + su + sd) * 0.25;
+
+    // 向邻居平均混合
+    float2 s_relax = lerp(s, avg, relaxFactor);
+
+    // 弹性回复力：S *= (1 - k*dt)，hole扩张范围受此控制
+    float2 s_new = s_relax * (1.0 - stiffness * dt);
+
+    s_new = clamp(s_new, -1.0, 1.0);
+
+    DispWrite[pixel_pos] = s_new;
+}
+
+// ================================================================
+// ② 源输入核
+//    在鼠标命中的 UV 位置设置径向位移（模拟扎洞）
+// ================================================================
+[numthreads(8, 8, 1)]
+void SourceInputKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)pixel_pos + 0.5) / texSize;
+
+    float2 s = DispTex.SampleLevel(samplerLinearClamp, uv, 0);
+
+    float mask = step(length(uv - sourceUV), radius);
+    float maskActive = mask * (isHit ? 1.0 : 0.0);
+
+    // 径向向外推（源点中心为0，推开材料）
+    float2 pushDir = normalize(uv - sourceUV + 0.0001);
+    float2 push = pushDir * pushStrength;
+
+    // 在源点覆盖位移
+    s = lerp(s, push, maskActive);
+
+    DispWrite[pixel_pos] = s;
+}
+
+// ================================================================
+// ③ 染料平流 + 注入核
+//    染料被位移场驱动，从源点向外流动
+//    adUV = uv - S * advectSpeed：反向追踪（半拉格朗日）
+//    S 指向 → 染料从源点向外流
+// ================================================================
+[numthreads(8, 8, 1)]
+void DyeAdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)pixel_pos + 0.5) / texSize;
+
+    // 位移作为流速场
+    float2 flow = DispTex.SampleLevel(samplerLinearClamp, uv, 0);
+
+    // 反向追踪：染料从哪里来。uv - flow 让染料沿 flow 方向向外扩散
+    float2 adUV = uv - flow * advectSpeed;
+    adUV = clamp(adUV, 0.0, 1.0);
+
+    float3 col = DyeTex.SampleLevel(samplerLinearClamp, adUV, 0);
+
+    // 染料自然衰减
+    col *= (1.0 - colorAttenuation);
+
+    // 在源点注入新染料
+    float mask = step(length(uv - sourceUV), radius);
+    float3 addCol = float3(1.0, 0.3, 0.1) * mask * (isHit ? 1.0 : 0.0);
+    col += addCol;
+
+    // 限制范围
+    col = clamp(col, 0.0, 1.0);
+
+    DyeWrite[pixel_pos] = col;
+}

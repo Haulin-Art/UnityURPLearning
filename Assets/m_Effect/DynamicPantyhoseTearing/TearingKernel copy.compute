@@ -1,0 +1,250 @@
+#pragma kernel InitKernel
+#pragma kernel TearingKernel
+
+// ── 模拟参数 ──
+float _TexSize;             // 网格分辨率
+float _DT;                  // 时间步长
+float4 _PenPos;             // xy=当前画笔UV, zw=上一帧画笔UV
+float _Radius;              // 画笔半径
+float _KeyDown;             // 是否按下 (0/1)
+float _RetractionStrength;  // 回缩强度 (0~1)
+float _Damping;             // 弹性记忆: 位移向零点回归速率
+float _StretchStiffness;    // 拉伸刚度: 越大越难拉伸
+
+// ── 只读纹理（用于 SampleLevel 线性采样）──
+Texture2D<float>  _HoleTex;    // 空洞字段 0=完好 1=空洞
+Texture2D<float4> _DispTex;    // 位移字段
+
+// ── 可写缓冲（ping-pong 写目标）──
+RWTexture2D<float2>  _HoleWrite;
+RWTexture2D<float4> _DispWrite;
+
+// ── 线性采样器 ──
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+struct pixelParticle
+{
+    float2 prevUV;     // 上一帧位置
+    float2 curUV;      // 当前位置
+    bool pinned;       // 是否为固定粒子（边缘钉住，不被重力/风力移动）
+    bool disabled;     // 是否禁用（空洞或被固定）
+};
+pixelParticle getPaticleData(uint2 pos)
+{
+    pixelParticle p;
+    float2 uv = ((float2)pos + 0.5) / _TexSize;
+    float4 disp = _DispTex.SampleLevel(samplerLinearClamp, uv, 0);
+    // 获取上一帧速度与当前帧速度，通过这两个可以获得速度
+    p.prevUV = disp.zw;
+    p.curUV = disp.xy;
+    // 根据是否位置UV边界判断是不是固定点，固定点的位置是不变的
+    p.pinned = uv.x < 0.01 || uv.x > 0.99 || uv.y < 0.01 || uv.y > 0.99;
+    //位置在空洞位置在空洞判断是否禁用
+    float hole = _HoleTex.SampleLevel(samplerLinearClamp, uv, 0).x;
+    p.disabled = hole > 0.5;
+
+    return p;
+}
+void constraint(inout int2 nid, inout pixelParticle p, float edgeLen)
+{
+    if (any(nid < 0)) return; // 任意分量越界或无效邻居索引，直接返回
+    //float2 uv = ((float2)nid + 0.5) / _TexSize;
+    pixelParticle n = getPaticleData(nid);
+
+    if (n.disabled)               // 邻居已撕裂，将其标记为无效，后续迭代不处理
+    {
+        nid = -1;
+        return;
+    }
+
+    float2 deltaPos = n.curUV - p.curUV;   // 当前粒子指向邻居的向量
+    float len = length(deltaPos);    // 当前实际距离
+    float2 dir = deltaPos / len;       // 单位方向向量
+
+    float error = len - edgeLen;     // 距离误差（正=拉伸, 负=压缩）
+
+    // 关键设计：压缩误差仅取 0.5%，布料可自然折叠而不会弹跳
+    if (error < 0.) error *= 0.005;
+
+    // 撕裂检测：比较"当前粒子上一帧位置"与"邻居当前位置"的距离
+    // 如果相对位移超过 edgeLen × 5，说明布料被过度拉伸，触发撕裂
+    if (distance(p.prevUV, n.curUV) > edgeLen * 5.0) p.disabled = true;
+
+    // 位置修正：固定粒子的权重为 1.0（对方全量移动），普通粒子权重 0.7
+    // 这样 pinned 粒子完全不动，普通粒子各承担大约一半的修正量
+    float f = n.pinned ? 1.0 : .7;
+    p.curUV += dir * error * f;
+}
+
+/*
+// ── 8 邻域偏移与预归一化方向 ──
+static const int2 _Offsets[8] = {
+    int2( 1, 0), int2(-1, 0), int2( 0, 1), int2( 0,-1),
+    int2( 1, 1), int2(-1,-1), int2( 1,-1), int2(-1, 1)
+};
+// 远离邻居的方向（即 -normalize(offset)）
+static const float2 _Dirs[8] = {
+    float2(-1,  0), float2( 1,  0), float2( 0, -1), float2( 0, 1),
+    float2(-0.70710678, -0.70710678), float2( 0.70710678,  0.70710678),
+    float2(-0.70710678,  0.70710678), float2( 0.70710678, -0.70710678)
+};
+// 静止距离: 正交=1, 对角=√2
+static const float _RestDist[8] = {
+    1.0, 1.0, 1.0, 1.0,
+    1.41421356, 1.41421356, 1.41421356, 1.41421356
+};
+
+// 点到线段的距离（连接上一帧位置，防快速移动时轨迹断裂）
+float distToLine(float2 uv, float2 a, float2 b)
+{
+    float2 ab = b - a;
+    float len2 = dot(ab, ab);
+    if (len2 < 1e-10) return length(uv - a);
+    float t = saturate(dot(uv - a, ab) / len2);
+    return length(uv - a - ab * t);
+}
+*/
+// ===================================================================
+// InitKernel: 初始化位移场为像素UV位置（仅运行一次）
+// ===================================================================
+[numthreads(8, 8, 1)]
+void InitKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    _DispWrite[pos] = float4(((float2)pos + 0.5) / _TexSize,((float2)pos + 0.5) / _TexSize);
+    _HoleWrite[pos] = float2(0,0);
+}
+
+// ===================================================================
+// TearingKernel: 单 kernel 完成弹性回缩 + 拉伸极限 + 空洞输入
+// ===================================================================
+[numthreads(8, 8, 1)]
+void TearingKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    float2 uv = ((float2)pos + 0.5) / _TexSize;
+    float h = 1.0 / _TexSize;
+
+    // ── 1. SampleLevel 读取当前状态 ──
+    float2  hole_self = _HoleTex.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 disp_self = _DispTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+
+    /*
+    // 完全空洞 → 位移归零，直接返回
+    if (hole_self.x >= 0.999)
+    {
+        _DispWrite[pos] = float4(((float2)pos + 0.5) / _TexSize,((float2)pos + 0.5) / _TexSize);
+        _HoleWrite[pos] = hole_self;
+        return;
+    }
+
+
+    // ── 3. 遍历 8 邻域: 计算回缩力 + 拉伸量 ──
+    float2 retractionDir   = float2(0, 0);   // 回缩方向（向量）
+    float  excessStretch   = 0.0;            // 累计超限拉伸
+    float  validCount      = 0.0;            // 非空洞邻居计数
+
+    float2 lache = float2(0,0);              // 拉伸方向（向量）
+    */
+    /*
+    for (int k = 0; k < 8; k++)
+    {
+        // 采样邻居数据
+        float2 nUV  = uv + float2(_Offsets[k].x, _Offsets[k].y) * h;
+        float2  hole_n = _HoleTex.SampleLevel(samplerLinearClamp, nUV, 0);
+        float2 disp_n = _DispTex.SampleLevel(samplerLinearClamp, nUV, 0).xy;
+
+        //float diff = hole_n - hole_self;
+        // 回缩力的大小取决于方向与空洞系数，越是空洞影响越小
+        retractionDir += _Dirs[k] * _RetractionStrength * (1.0-hole_n.x) * h;
+
+        float2 cc = 0.9*h - length(disp_n - disp_self);
+
+        //float2 nCurPos = nUV + disp_n;
+        float actualDist = length(disp_n - disp_self);
+        float restDist   = _RestDist[k] * h;
+        excessStretch += max(0.0, abs(actualDist - restDist));
+        validCount += (1.0 - hole_n.x);
+
+        lache += _Dirs[k] * cc * step(0.0001,length(disp_n));
+    }
+    */
+    /*
+    // ── 4. 拉伸限制因子 ──
+    float avgExcess = excessStretch / max(validCount, 1);
+    //lache /= max(validCount, 1);
+    //avgExcess = exp(avgExcess*_TexSize)-1.0;
+    float stretchFactor = 1.0 / (1.0 +_StretchStiffness * avgExcess);
+    stretchFactor = 1.0 / (exp(max(0,0*10.0*(excessStretch + hole_self.y))));
+    stretchFactor = 1.0;
+    
+    // ── 5. 位移更新 ──
+    float2 u_new =  retractionDir * _DT;
+    //u_new /= (1.0-validCount)/8.0 + 1.0;            // 按理说，空洞邻居越多，越不会扩展
+    u_new = lerp(u_new, float2(0, 0), _Damping);   
+    u_new = clamp(u_new, -0.5, 0.5);               // 位移限幅防数值爆炸
+    u_new *= float2(2.0,1.0);                      // 布料的各向异性变形
+
+    // 使用半拉格朗日法回溯位移，确保不可压缩性
+    float2 add_uv = uv + u_new;
+    float2 add_disp = _DispTex.SampleLevel(samplerLinearClamp, add_uv, 0).xy;
+
+    float2 add_hole = _HoleTex.SampleLevel(samplerLinearClamp, add_uv, 0);
+    */
+    // ── 6. 空洞输入（仅鼠标，无自增长）──
+    float distToPen = length(uv - _PenPos.xy);
+    //float lineDist  = distToLine(uv, _PenPos.xy, _PenPos.zw);
+    //float minDist   = min(distToPen, lineDist);
+    float inHole = (1.0 - smoothstep(_Radius*0.8, _Radius, distToPen)) * _KeyDown;
+    float erzhiinHole = (1.0 - step(_Radius,distToPen)) * _KeyDown;
+
+    //newTensileForce += (1.0 - smoothstep(_Radius,_Radius + 0.05, distToPen)) * _KeyDown * _DT;
+
+    //// 拉扯力
+    //float newTensileForce = add_hole.y;
+    //newTensileForce += excessStretch ;
+    //
+    //// 空洞一旦设下就永久保留
+    //add_hole = max(add_hole, inHole);
+
+    
+    ////*********************** 以下为新部分 ********************************
+    pixelParticle p = getPaticleData(pos);
+
+    // 仅对非固定、未撕裂的粒子执行
+    if (!p.disabled && !p.pinned)
+    {
+
+        p.prevUV = p.curUV; // 保存当前uv坐标到上一帧
+
+        int2 a, b, l, r;
+        a = b = l = r = pos;
+
+        float rlen = h; // 粒子间距
+
+        for (float i = 1.; i < 5; ++i)
+        {
+            a += int2( 0,  1);   // 链式向上迭代
+            b += int2( 0, -1);   // 链式向下迭代
+            r += int2( 1,  0);   // 链式向右迭代
+            l += int2(-1,  0);   // 链式向左迭代
+
+            float sLen = rlen * i;    // 第 i 层的期望长度 = 基础距离 × i
+            constraint(a, p, sLen);       // 约束上方第 i 个邻居
+            constraint(b, p, sLen);       // 约束下方第 i 个邻居
+            constraint(r, p, sLen);       // 约束右方第 i 个邻居
+            constraint(l, p, sLen);       // 约束左方第 i 个邻居
+        }
+    }
+
+    // ── 写入 ──
+    //_DispWrite[pos] = float4(disp_self + lache*_DT, 0, 0);
+    _DispWrite[pos] = float4(p.curUV, p.prevUV);
+    _HoleWrite[pos] = float2(saturate(hole_self.x+erzhiinHole),0);
+}
+

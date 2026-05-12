@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 96d2f03d9070910418ef733a49b43845, type: 3}
   m_Name: DistanceFog
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: 882febf2956997a43be5ef3f29aec3fd, type: 2}
 --- !u!114 &-8353285721275133182
@@ -27,7 +27,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5d42d7d26560364e912c2c968ac21c5, type: 3}
   m_Name: WaterLineFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   renderPassEvent: 600
   featureMaterial: {fileID: 2100000, guid: cd1aa1b9b04106149a49df274ef36a7e, type: 2}
   CautionMaterial: {fileID: 2100000, guid: c786bdecd4e74ce479d6e12aff9e9ee5, type: 2}
@@ -111,7 +111,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2a240227cc3e3af48a85deafed9c8364, type: 3}
   m_Name: ScreenMipMapRendererFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   downSampleQuality: 2
   mipLevelCount: 6
   rtFormat: 2
@@ -130,7 +130,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a3051463dc50069419e6e587580fc859, type: 3}
   m_Name: AdvCloudFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   settings:
     layerMask:
       serializedVersion: 2
@@ -155,7 +155,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 49deb0eb83ea70c409480f8ed856f332, type: 3}
   m_Name: OutLine
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   mat: {fileID: 2100000, guid: fc63600893fc2a748b50a0fe3c56555d, type: 2}
   m_Tag: CES
 --- !u!114 &11400000
@@ -283,7 +283,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 33e0f536fa7989647a905792cf9031fe, type: 3}
   m_Name: PerObjectShadowRF
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   layerMask:
     serializedVersion: 2
     m_Bits: 64
@@ -310,7 +310,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 835781b1e9b0341468aad37328082f39, type: 3}
   m_Name: FrequencyHighlightFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   settings:
     resolution: 512
     threshold: 1.07
@@ -320,7 +320,7 @@ MonoBehaviour:
     highlightShapeSource: {fileID: 2800000, guid: 9d38f2888107b6a42a046d54d0077d5d,
       type: 3}
     highlightShapeScale: {x: 2, y: 2}
-    aspectRatio: 1.7777778
+    aspectRatio: 1.4903554
     highlightKernelFrequencyRT: {fileID: 0}
     needUpdateHighlightKernel: 0
     intensity: 0.07
@@ -354,7 +354,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2a7697d4997ebfa478dcdad1aa4f143a, type: 3}
   m_Name: PlanarReflectionRenderFeature
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   settings:
     reflectLayers:
       serializedVersion: 2

@@ -1,0 +1,229 @@
+// ============================================================================
+// Buffer A — 物理模拟 Pass（粒子位置更新）
+// ============================================================================
+// 职责：每帧对每个粒子执行以下操作
+//   1. Verlet 积分（重力 + 风力 + 惯性）
+//   2. 多级距离约束求解（基数方向 + 对角线方向）
+//   3. 撕裂检测
+//   4. 鼠标/自动交互切割
+//   5. 首帧初始化
+//
+// 数据流：
+//   输入：iChannel0=本Buffer上帧结果（粒子数据）, iChannel1=BufferB（状态纹理(0,0)像素）
+//   输出：更新后的粒子 POS/PREV 数据
+// ============================================================================
+
+// -------------------------------------------------------------------
+// 1. 物理参数
+// -------------------------------------------------------------------
+
+const vec3 GRAVITY = vec3(0,-1,0);       // 重力（向下）
+
+const float WIND_SPEED = 100.;           // 风力强度
+const float WIND_CHANGE_RATE = .5;       // 风速随时间变化的频率
+const float WIND_RIPPLE = .01;           // 风力沿粒子列的空间波纹密度
+
+const float EDGE_BREAK_LEN = 5.;         // 撕裂阈值倍数：位移超过 edgeLen × 5 则断裂
+const float COMPRESSION_RESIST = .005;   // 压缩阻力比：仅抵抗 0.5% 的压缩量（允许折叠起皱）
+
+// -------------------------------------------------------------------
+// 2. 约束求解器 — PBD (Position-Based Dynamics) 风格
+// -------------------------------------------------------------------
+// 核心思想：不计算力，直接修正位置以消除约束误差
+// 每次约束处理：
+//   a) 检查邻居粒子是否有效
+//   b) 计算实际距离与期望距离的误差
+//   c) 压缩误差大幅缩小（允许褶皱），拉伸误差完全修正
+//   d) 检查是否触发撕裂
+//   e) 按权重比将修正量分配到两个粒子
+
+void constraint(inout int nid, inout fxParticle p, float edgeLen)
+{
+    if (nid < 0) return;          // 无效邻居（边界外或已失活的邻居链）
+
+    fxParticle n = fxGetParticle(nid);
+
+    if (n.disabled)               // 邻居已撕裂，将其标记为无效，后续迭代不处理
+    {
+        nid = -1;
+        return;
+    }
+
+    vec3 deltaPos = n.pos - p.pos;   // 当前粒子指向邻居的向量
+    float len = length(deltaPos);    // 当前实际距离
+    vec3 dir = deltaPos / len;       // 单位方向向量
+
+    float error = len - edgeLen;     // 距离误差（正=拉伸, 负=压缩）
+
+    // 关键设计：压缩误差仅取 0.5%，布料可自然折叠而不会弹跳
+    if (error < 0.) error *= COMPRESSION_RESIST;
+
+    // 撕裂检测：比较"当前粒子上一帧位置"与"邻居当前位置"的距离
+    // 如果相对位移超过 edgeLen × 5，说明布料被过度拉伸，触发撕裂
+    if (distance(p.prev, n.pos) > edgeLen * EDGE_BREAK_LEN) p.disabled = true;
+
+    // 位置修正：固定粒子的权重为 1.0（对方全量移动），普通粒子权重 0.7
+    // 这样 pinned 粒子完全不动，普通粒子各承担大约一半的修正量
+    float f = n.pinned ? 1.0 : .7;
+    p.pos += dir * error * f;
+}
+
+// -------------------------------------------------------------------
+// 3. 主函数 — 每像素（即每个粒子数据槽位）调用一次
+// -------------------------------------------------------------------
+void mainImage( out vec4 fragColor, in vec2 fragCoord )
+{
+    ivec2 iFragCoord = ivec2(fragCoord);
+    int index = iFragCoord.x + iFragCoord.y*int(iResolution.x);  // 一维索引
+    int id = index / NUM_PARTICLE_DATA_TYPES;                     // 粒子 ID
+    int dataType = index - id * NUM_PARTICLE_DATA_TYPES;          // 是 POS 还是 PREV 槽位
+    computeClothSide(iResolution);
+    if(id>=MAX_PARTICLES) return;  // 超出粒子范围的像素不处理
+
+    // 从 Buffer B 的 (0,0) 像素读取全局状态
+    vec4 state = texelFetch(iChannel1, ivec2(0), 0);
+
+    // 读取当前粒子的数据
+    fxParticle p = fxGetParticle(id);
+
+    // -------------------------------------------------------------------
+    // 3a. 物理积分 — 仅对非固定、未撕裂的粒子执行
+    // -------------------------------------------------------------------
+    if (!p.pinned && !p.disabled)
+    {
+        // Verlet 积分：新位置 = 当前位置 + (当前位置 - 上一帧位置) + 重力
+        // (p.pos - p.prev) 隐含了上一帧的速度，不需要显式存储速度变量
+        p.prev = p.pos;
+        p.pos += p.pos - p.prev + GRAVITY; //^^// 这一行源代码改成  p.pos += GRAVITY;，
+
+        // 风力：沿 Z 轴施加正弦波
+        // 风力随粒子列号变化产生空间波纹，随时间缓慢变化
+        p.pos.z += WIND_SPEED * sin((float(id % CLOTH_SIDE) * WIND_RIPPLE + iTime * WIND_CHANGE_RATE));
+
+        // -------------------------------------------------------------------
+        // 3b. 基数方向约束（上下左右）— 迭代 45 层
+        // -------------------------------------------------------------------
+        // 关键创新：不只约束直接邻居，而是沿四个方向逐层延伸到远方粒子
+        // a = above(a) 链式向上走，b = below(b) 链式向下走，以此类推
+        // 第 i 层的期望距离 = EDGE_LEN × i（距离越远，期望长度越大）
+        int a, b, l, r;
+        a = b = l = r = id;
+
+        float EDGE_LEN = SIDE_LEN / float(CLOTH_SIDE);  // 相邻粒子的基准距离
+        float CARDINAL_ITERATIONS = 45.;
+        for (float i = 1.; i < CARDINAL_ITERATIONS; ++i)
+        {
+            a = above(a);   // 链式向上迭代
+            b = below(b);   // 链式向下迭代
+            r = right(r);   // 链式向右迭代
+            l = left(l);    // 链式向左迭代
+
+            float sLen = EDGE_LEN * i;    // 第 i 层的期望长度 = 基础距离 × i
+            constraint(a, p, sLen);       // 约束上方第 i 个邻居
+            constraint(b, p, sLen);       // 约束下方第 i 个邻居
+            constraint(r, p, sLen);       // 约束右方第 i 个邻居
+            constraint(l, p, sLen);       // 约束左方第 i 个邻居
+        }
+
+#define DIAGONAL_CONSTRAINTS 1          // 是否启用对角线约束（默认开启）
+
+#if DIAGONAL_CONSTRAINTS
+        // -------------------------------------------------------------------
+        // 3c. 对角线约束（四个斜方向）— 迭代 25 层
+        // -------------------------------------------------------------------
+        // 对角线方向的期望距离 = EDGE_LEN × i × √2（因为对角是直角三角形的斜边）
+        // 组合函数：above(right(i)) = 先右后上 = 右上方向
+        int al, ar, bl, br;
+        al = ar = bl = br = id;
+
+        // 约束迭代，迭代 指定 层
+        // 这是但 Dispatch 的方案，每次采样的越来越远，直到采样到边界
+        // 这样可以确保每个粒子都被约束到其邻居，而不是被约束到其直接邻居
+        // 这种约束方式可以避免粒子被约束到其直接邻居，导致粒子被约束到其邻居的邻居
+        // 实际上可以用多 Dispatch 来实现，性能更好
+        float DIAGONAL_ITERATIONS = 45.;
+        for (float i = 1.; i < DIAGONAL_ITERATIONS; ++i)
+        {
+            // 每次采样的越来越远
+            ar = above(right(ar));   // 右上 = 先右后上
+            al = above(left(al));    // 左上 = 先左后上
+            br = below(right(br));   // 右下 = 先右后下
+            bl = below(left(bl));    // 左下 = 先左后下
+
+            float dLen = EDGE_LEN * i * sqrt(2.);  // 对角线期望长度 = 边长 × √2
+            constraint(al, p, dLen);
+            constraint(ar, p, dLen);
+            constraint(bl, p, dLen);
+            constraint(br, p, dLen);
+        }
+#endif // DIAGONAL_CONSTRAINTS
+    }
+
+    // -------------------------------------------------------------------
+    // 3d. 初始化 — 首帧或重置时将粒子排列成布料形状
+    // -------------------------------------------------------------------
+    if (iFrame == 0 || state.x < 0.)
+    {
+        // 将粒子排列成旋转 45° 的正方形网格（菱形悬挂形状）
+        // x 控制水平位置，y 控制垂直位置
+        float x = float(id % CLOTH_SIDE) / float(CLOTH_SIDE) - 0.5;
+        float y = 0.5 - float(id)/float(CLOTH_SIDE*CLOTH_SIDE);
+        p.pos = vec3(x + y, x - y, 0.) * SIDE_LEN / sqrt(2.);
+        p.prev = p.pos;  // 上一帧位置 = 当前位置（初始速度为零）
+
+        // 固定边缘粒子：上下两行 + 左右两列
+        // 模拟布料被钉在框架上的效果
+        p.pinned = id < CLOTH_SIDE                                     // 第一行（顶部）
+                || id >= (CLOTH_SIDE - 1) * CLOTH_SIDE                 // 最后一行（底部）
+                || (id % CLOTH_SIDE) == 0                              // 第一列（左边缘）
+                || (id % CLOTH_SIDE) == (CLOTH_SIDE - 1);              // 最后一列（右边缘）
+
+        // 备选固定方式：均匀分布的固定点（如被子的绗缝效果）
+        //if (id % (CLOTH_SIDE / 10) == 0 && (id / CLOTH_SIDE) % (CLOTH_SIDE / 10) == 0) p.pinned = true;
+        p.disabled = false;
+    }
+
+    // -------------------------------------------------------------------
+    // 3e. 交互切割 — 两种模式
+    // -------------------------------------------------------------------
+    bool del = false;
+    vec2 from, to;
+    if (iMouse.z > 0. && iMouse.w < 0.)
+    {
+        // 模式 1：鼠标拖拽切割
+        // 将上一帧和当前帧的鼠标位置从屏幕坐标转换为世界空间的裁剪线
+        from = vec2(2.*iResolution.x/iResolution.y, 2.) * state.yz / iResolution.xy - vec2(iResolution.x/iResolution.y, 1.);
+        to = vec2(2.*iResolution.x/iResolution.y, 2.) * iMouse.xy / iResolution.xy - vec2(iResolution.x/iResolution.y, 1.);
+        del = true;
+    }
+    else if (state.yz == vec2(0) && state.w > 0.5)
+    {
+        // 模式 2：自动吸引模式（无鼠标时自动演示）
+        // 生成一条旋转移动的线段，周期性横扫布料
+        from = vec2(sin((iTime - iTimeDelta) * 2.), cos((iTime - iTimeDelta) * 5.2)) * vec2(iResolution.x / iResolution.y, 1.) * 0.9;
+        to = vec2(sin(iTime * 2.), cos(iTime * 5.2)) * vec2(iResolution.x / iResolution.y, 1.) * 0.9;
+        del = sin(iTime * 23.) > 0.2;  // 周期性切换切割状态
+    }
+
+    if (del)
+    {
+        // 将粒子从世界坐标投影到屏幕坐标
+        vec3 cameraLookAt, cameraPos, cameraFwd, cameraLeft, cameraUp;
+        fxCalcCamera(cameraLookAt, cameraPos, cameraFwd, cameraLeft, cameraUp);
+
+        mat4 c2w = fxCalcCameraMat(iResolution, cameraLeft, cameraUp, cameraFwd, cameraPos);
+        mat4 w2c = inverse(c2w);           // 世界→相机变换矩阵
+
+        vec3 posCamera = (w2c * vec4(p.pos,1.0)).xyz;  // 世界→相机空间
+        posCamera.xy = posCamera.xy / posCamera.z;     // 透视除法 → 屏幕空间
+
+        // 计算粒子屏幕投影到切割线段的距离
+        float dist2 = fxLinePointDist2(from, to, posCamera.xy);
+
+        // 距离小于阈值则标记为撕裂
+        if (dist2 < 0.0005) p.disabled = true;
+    }
+
+    // 输出编码后的粒子数据
+    fragColor = fxSaveParticle(p, dataType);
+}

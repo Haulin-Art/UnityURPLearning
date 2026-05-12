@@ -1,0 +1,49 @@
+// ============================================================================
+// Buffer A — 速度场自平流 + UV位置追踪
+// iChannel0 = Buffer A（自循环）
+// RG = 速度(像素/帧), BA = 平流后的UV位置
+// ============================================================================
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord)
+{
+    vec2 uv = fragCoord / iResolution.xy;
+
+    // 1. 读取上一帧
+    vec4 prev = texture(iChannel0, uv);
+    vec2 vel = prev.rg;
+    vec2 tag = prev.ba;
+
+    // 2. 半拉格朗日自平流
+    vec2 prevUV = (fragCoord - vel) / iResolution.xy;
+    vec4 advected = texture(iChannel0, prevUV);
+
+    // 3. 速度扩散：上下左右邻居平均 → 与中间平均 → 混入平流结果(占0.1)
+    vec2 ts = 1.0 / iResolution.xy;
+    vec2 n  = texture(iChannel0, uv + vec2(0.0, ts.y)).rg;
+    vec2 s  = texture(iChannel0, uv - vec2(0.0, ts.y)).rg;
+    vec2 e  = texture(iChannel0, uv + vec2(ts.x, 0.0)).rg;
+    vec2 w  = texture(iChannel0, uv - vec2(ts.x, 0.0)).rg;
+    vec2 neighborAvg = (n + s + e + w) * 0.25;
+    vec2 diffused = (neighborAvg + vel) * 0.5;
+    vel = mix(advected.rg, diffused, 0.1);
+
+    // tag 纯平流（不 mix，避免被原位拉回）
+    tag = advected.ba;
+
+    // 4. 鼠标点击注入径向速度
+    if (iMouse.z > 0.0)
+    {
+        vec2 dir = fragCoord - iMouse.xy;
+        vel += normalize(dir + 0.001) * exp(-dot(dir, dir) * INJECTION_FALLOFF) * INJECTION_MAG;
+    }
+
+    // 5. 耗散 + 钳位
+    vel *= VEL_DISSIPATION;
+    float speed = length(vel);
+    if (speed > MAX_SPEED) vel *= MAX_SPEED / speed;
+
+    // 6. 首帧：速度=0, tag=初始UV
+    if (iFrame < 1) { vel = vec2(0.0); tag = uv; }
+
+    fragColor = vec4(vel, tag);
+}

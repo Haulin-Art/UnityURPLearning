@@ -1,0 +1,194 @@
+#pragma kernel ElasticRelaxationKernel
+#pragma kernel DamageEvolutionKernel
+#pragma kernel SourceInputKernel
+
+#include "UnityCG.cginc"
+
+// ── 模拟参数 ──
+float texSize;          // 网格分辨率
+float dt;               // 时间步长
+float4 penPos;          // xy=当前画笔UV, zw=上一帧画笔UV
+float radius;           // 画笔半径
+bool keyDown;           // 是否按下
+float stiffness;        // 弹簧刚度 k（控材质硬度）
+float relaxFactor;      // 松弛因子 α (≈0.5)
+float retractStrength;  // 损伤回缩强度（控破洞扩张速度）
+float strainThreshold;  // 应变阈值 ε_threshold
+float damageRate;       // 损伤增长速率 β
+float damageDiffusion;  // 损伤扩散系数
+
+// ── 只读纹理（实际绑 RenderTexture，用于读邻域） ──
+Texture2D<float2> DispTex;      // 位移场
+Texture2D<float>  DamageTex;    // 损伤场 0=完好 1=断裂
+
+// ── 可写缓冲（ping-pong 写目标） ──
+RWTexture2D<float2> DispWrite;
+RWTexture2D<float>  DamageWrite;
+
+// ── 点采样器（精准邻域读取） ──
+SamplerState samplerPointClamp
+{
+    Filter = MIN_MAG_MIP_POINT;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+// ── 8邻域偏移与静止距离 ──
+static const int2 kNeighbors[8] = {
+    int2(1,0), int2(-1,0), int2(0,1), int2(0,-1),     // 正交
+    int2(1,1), int2(-1,-1), int2(1,-1), int2(-1,1)    // 对角
+};
+static const float kRestDist[8] = {
+    1.0, 1.0, 1.0, 1.0,
+    1.41421356, 1.41421356, 1.41421356, 1.41421356
+};
+
+// ===================================================================
+// ElasticRelaxation: 弹性松弛迭代
+// 8邻域弹簧力 + 损伤回缩力，更新位移场
+// ===================================================================
+[numthreads(8, 8, 1)]
+void ElasticRelaxationKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pix = id.xy;
+    float h = 1.0 / texSize;
+
+    float2 u_i = DispTex[pix];
+    float  d_i = DamageTex[pix];
+
+    // 完全断裂 → 位移归零（无材料）
+    if (d_i >= 1.0)
+    {
+        DispWrite[pix] = float2(0, 0);
+        return;
+    }
+
+    float2 totalForce = float2(0, 0);
+
+    for (int n = 0; n < 8; n++)
+    {
+        int2 npix = pix + kNeighbors[n];
+        if (npix.x < 0 || npix.x >= (int)texSize ||
+            npix.y < 0 || npix.y >= (int)texSize)
+            continue;
+
+        float2 u_j = DispTex[npix];
+        float  d_j = DamageTex[npix];
+
+        // 当前位置 = 静止UV + 位移
+        float2 pos_i = ((float2)pix  + 0.5) * h + u_i;
+        float2 pos_j = ((float2)npix + 0.5) * h + u_j;
+
+        float2 dir   = pos_j - pos_i;
+        float  dist  = length(dir);
+        float2 dir_n = dir / max(dist, 1e-6);
+
+        float rest = kRestDist[n] * h;
+
+        // ① 弹簧力：维持静止距离，损伤两端取 max
+        float k_spring = stiffness * (1.0 - max(d_i, d_j));
+        float F_spring = k_spring * (dist - rest);
+
+        // ② 回缩力：材料远离更高损伤的邻域
+        float k_retract = retractStrength * max(0.0, d_j - d_i) * (1.0 - d_i);
+        float F_retract = -k_retract;
+
+        totalForce += (F_spring + F_retract) * dir_n;
+    }
+
+    float2 u_new = u_i + relaxFactor * totalForce * dt;
+
+    // 位移限幅（防数值爆炸）
+    u_new = clamp(u_new, -0.5, 0.5);
+
+    DispWrite[pix] = u_new;
+}
+
+// ===================================================================
+// DamageEvolution: 应变 → 损伤增长 + 扩散
+// ===================================================================
+[numthreads(8, 8, 1)]
+void DamageEvolutionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pix = id.xy;
+    int   isz = (int)texSize;
+    float h   = 1.0 / texSize;
+
+    float d_cur = DamageTex[pix];
+    if (d_cur >= 1.0)
+    {
+        DamageWrite[pix] = 1.0;
+        return;
+    }
+
+    // ── 位移梯度（中心差分） ──
+    int2 left  = int2(max(pix.x - 1, 0), pix.y);
+    int2 right = int2(min(pix.x + 1, isz - 1), pix.y);
+    int2 down  = int2(pix.x, max(pix.y - 1, 0));
+    int2 up    = int2(pix.x, min(pix.y + 1, isz - 1));
+
+    float2 u_c  = DispTex[pix];
+    float2 u_l  = DispTex[left];
+    float2 u_r  = DispTex[right];
+    float2 u_d  = DispTex[down];
+    float2 u_u  = DispTex[up];
+
+    float dudx = (u_r.x - u_l.x) / (2.0 * h + 1e-6);
+    float dudy = (u_u.x - u_d.x) / (2.0 * h + 1e-6);
+    float dvdx = (u_r.y - u_l.y) / (2.0 * h + 1e-6);
+    float dvdy = (u_u.y - u_d.y) / (2.0 * h + 1e-6);
+
+    // ── 等效应变（取各分量绝对值最大） ──
+    float strain = max(max(abs(dudx), abs(dvdy)), 0.5 * abs(dudy + dvdx));
+
+    // ── 损伤增长 ──
+    float over = max(0.0, strain - strainThreshold);
+    float dd = damageRate * over * pow(1.0 - d_cur, 2.0) * dt;
+
+    // ── 损伤扩散（5点拉普拉斯，防边界过锐） ──
+    float d_l = DamageTex[left];
+    float d_r = DamageTex[right];
+    float d_u = DamageTex[up];
+    float d_d = DamageTex[down];
+    float laplacian = (d_l + d_r + d_u + d_d) - 4.0 * d_cur;
+
+    float d_new = d_cur + dd + damageDiffusion * laplacian * dt;
+    d_new = clamp(d_new, 0.0, 1.0);
+
+    DamageWrite[pix] = d_new;
+}
+
+// ===================================================================
+// SourceInput: 点击 → 创建破洞（设置损伤=1，位移归零）
+// ===================================================================
+float drawLine(float2 uv, float2 endP, float2 startP, float width, float edgeSmooth)
+{
+    float2 dir = endP - startP;
+    float2 startUV = uv - startP;
+    float proj = clamp(dot(dir, startUV) / max(dot(dir, dir), 1e-5), 0.0, 1.0);
+    float2 projP = startP + proj * dir;
+    float distProjP = length(uv - projP);
+    return smoothstep(width * 0.5, width * edgeSmooth, distProjP);
+}
+
+[numthreads(8, 8, 1)]
+void SourceInputKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pix = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+
+    // 圆形 + 轨迹连线
+    float circle = 1.0 - step(radius, length(uv - penPos.xy));
+    float lineMask = drawLine(uv, penPos.xy, penPos.zw, radius, 0.1);
+    float source = clamp(circle + lineMask, 0.0, 1.0) * (float)keyDown;
+
+    float  d_old = DamageTex[pix];
+    float2 u_old = DispTex[pix];
+
+    // 洞口区域：损伤→1，位移→0
+    float  d_new = lerp(d_old, 1.0, source);
+    float2 u_new = lerp(u_old, float2(0, 0), source);
+
+    DamageWrite[pix] = d_new;
+    DispWrite[pix]   = u_new;
+}

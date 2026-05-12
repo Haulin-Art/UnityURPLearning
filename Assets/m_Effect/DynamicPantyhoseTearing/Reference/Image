@@ -1,0 +1,115 @@
+// ============================================================================
+// Image — 最终渲染 Pass（布料可视化）
+// ============================================================================
+// 职责：将布料粒子网络的可见边绘制到屏幕
+//
+// 数据流：
+//   输入：iChannel0=BufferA（粒子位置数据）, iChannel1=BufferB（最近粒子索引）
+//   输出：最终画面 — 浅灰背景上绘制深色布料网格线
+//
+// 策略：每个像素从 Buffer B 查询最近的粒子，
+//       然后画出该粒子与上下左右四个直接邻居之间的连线
+//
+// 原项目: Created by fenix in 2022
+// License: Creative Commons Attribution-NonCommercial-ShareAlike 3.0
+// ============================================================================
+
+// -------------------------------------------------------------------
+// 1. 线段绘制 — 将 3D 粒子之间的边投影到屏幕并着色
+// -------------------------------------------------------------------
+// from, to: 两个粒子的世界空间坐标
+// p: 当前像素的屏幕 NDC 坐标
+// w2c: 世界→相机变换矩阵
+// fragColor: 像素颜色（inout，逐线段叠加暗色）
+
+void drawLine(vec3 from, vec3 to, vec2 p, mat4 w2c, inout vec4 fragColor)
+{
+    // 将两个端点从世界空间变换到相机空间，再做透视除法得到屏幕坐标
+    vec3 fromCamera = (w2c * vec4(from,1.0)).xyz;
+    fromCamera.xy = fromCamera.xy / fromCamera.z;      // 透视投影
+    vec3 toCamera = (w2c * vec4(to,1.0)).xyz;
+    toCamera.xy = toCamera.xy / toCamera.z;
+
+    // 裁剪：两端点都在近裁剪面之前才绘制（避免投影异常）
+    if(fromCamera.z > 0.01 && toCamera.z > 0.01)
+    {
+        // 计算像素到线段的距离
+        float dist2 = fxLinePointDist2(fromCamera.xy, toCamera.xy, p);
+        float dist = sqrt(dist2);
+
+        // 线宽：自适应分辨率（分辨率越高线越细）
+        float PARTICLE_SIZE = 2. / iResolution.y;
+
+        // 距离转不透明度：距离 ≤ 线宽的像素被着色
+        // 越靠近线段中心颜色越深
+        float particleTemp = max(0.0, PARTICLE_SIZE - dist) / PARTICLE_SIZE;
+
+        if (dist < PARTICLE_SIZE)
+        {
+            // min 操作：多条线交汇处取最暗值（线的叠加效果）
+            // 1.-vec3(particleTemp) 将不透明度转为暗色
+            fragColor = min(fragColor, 1. - vec4(vec3(particleTemp), 0));
+        }
+    }
+}
+
+// -------------------------------------------------------------------
+// 2. 绘制到邻居的连线 — 封装 drawLine 并检查邻居有效性
+// -------------------------------------------------------------------
+void drawLineToNeighbor(int nid, vec3 pos, vec2 p, mat4 w2c, inout vec4 fragColor)
+{
+    if (nid >= 0)
+    {
+        fxParticle nData = fxGetParticle(nid);
+
+        // 只绘制到未撕裂邻居的线（断裂处自然留空）
+        if (!nData.disabled) drawLine(pos, nData.pos, p, w2c, fragColor);
+    }
+}
+
+// -------------------------------------------------------------------
+// 3. 主函数 — 每像素调用一次
+// -------------------------------------------------------------------
+void mainImage( out vec4 fragColor, in vec2 fragCoord )
+{
+    computeClothSide(iResolution);
+
+    // 像素的 NDC 坐标（归一化设备坐标）
+    vec2 p = (2.0*fragCoord-iResolution.xy)/iResolution.y;
+
+    // 构建相机矩阵（与 Buffer A/B 完全相同的相机参数）
+    vec3 cameraLookAt, cameraPos, cameraFwd, cameraLeft, cameraUp;
+    fxCalcCamera(cameraLookAt, cameraPos, cameraFwd, cameraLeft, cameraUp);
+
+    mat4 c2w = fxCalcCameraMat(iResolution, cameraLeft, cameraUp, cameraFwd, cameraPos);
+    mat4 w2c = inverse(c2w);
+
+    // 光照参数（保留但当前渲染未使用光照计算，纯线框风格）
+    const vec3 reverseLightDir = normalize(vec3(1.0,2.0,3.0));
+    const vec3 lightColor = vec3(0.5,0.5,0.5);
+    const vec3 ambientColor = vec3(0.05,0.05,0.05);
+
+    // 背景色：浅灰
+    fragColor = vec4(.7);
+
+    // 从 Buffer B 获取本像素最近的 4 个粒子
+    ivec4 old = fxGetClosest( ivec2(fragCoord) );
+
+    // 只使用最近的第 1 个粒子（old[0]），因为最近的粒子最有可能该像素"属于"它
+    for(int j=0; j<1; j++)
+    {
+        int particle = old[j];
+        if (particle < 0 || particle >= MAX_PARTICLES) continue;
+        fxParticle data = fxGetParticle(particle);
+        if (!data.disabled)
+        {
+            // 绘制该粒子与四个直接邻居之间的连线
+            // 注意：这里只画直接邻居（i=1），而非所有约束层级
+            // 因为可视化的目的只是展示布料网格的"表面"
+            drawLineToNeighbor(above(particle), data.pos, p, w2c, fragColor);
+            drawLineToNeighbor(below(particle), data.pos, p, w2c, fragColor);
+            drawLineToNeighbor(left(particle), data.pos, p, w2c, fragColor);
+            drawLineToNeighbor(right(particle), data.pos, p, w2c, fragColor);
+        }
+    }
+}

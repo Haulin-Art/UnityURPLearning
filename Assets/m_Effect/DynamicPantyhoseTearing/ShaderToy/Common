@@ -1,0 +1,17 @@
+// ============================================================================
+// Common — 公共参数
+// ============================================================================
+
+// 速度场注入
+const float INJECTION_MAG     = 5.0;       // 径向注入强度(像素/帧)
+const float INJECTION_FALLOFF = 0.005;     // 衰减(像素²), 越小半径越大
+const float VEL_DISSIPATION   = 0.995;     // 速度耗散
+const float MAX_SPEED         = 10.0;      // 最大速度(像素/帧)
+
+// 染料场
+const float DYE_INJECTION     = 1.0;
+const float DYE_FALLOFF       = 0.005;     // 与速度注入同半径
+const float DYE_DISSIPATION   = 0.998;
+
+// 显示
+#define DISPLAY_MODE 0   // 0=速度场, 1=染料场, 2=UV位移场

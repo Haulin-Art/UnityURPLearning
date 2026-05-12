@@ -1,0 +1,292 @@
+#pragma kernel InitKernel
+#pragma kernel PredictAndSourceKernel
+#pragma kernel ConstraintKernel
+#pragma kernel VelocityUpdateKernel
+#pragma kernel HoleAdvectionKernel
+
+// ── Simulation parameters / 模拟参数 ──
+float _TexSize;             // 网格分辨率
+float _DT;                  // 时间步长
+float _PretensionFactor;    // 静止距离因子 (<1 = 预张力)
+float _Stiffness;           // 约束刚度 (0~1)
+float _Damping;             // 速度阻尼 (0~1)
+float _Radius;              // 画笔半径 (UV空间)
+float _KeyDown;             // 鼠标是否按下 (0/1)
+float4 _PenPos;             // xy=当前画笔UV, zw=上一帧画笔UV
+float _MaxVel;              // 速度上限，防数值爆炸
+float _RetractionStrength;  // 破洞边缘回缩强度
+
+// ── 线性采样器（用于空洞平流和位移采样）──
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+// ── 只读纹理（绑定对应的 RenderTexture）──
+Texture2D<float2> _HoleTex;         // 空洞读取（用于半拉格朗日平流）
+Texture2D<float2> _PosTex;          // 位置读取（用于采样器访问）
+
+// ── 可写缓冲：可读可写（各 kernel 按需绑定）──
+RWTexture2D<float2> _PosReadBuf;    // 位置读缓冲
+RWTexture2D<float2> _PosWriteBuf;   // 位置写缓冲
+RWTexture2D<float2> _VelBuf;        // 速度缓冲
+RWTexture2D<float>  _InvMassBuf;    // 逆质量缓冲 (1=有效, 0=破洞),二值图
+RWTexture2D<float2> _HoleWriteBuf;  // 空洞写缓冲
+
+// ===================================================================
+// InitKernel: 初始化所有纹理（启动时运行一次）
+// InitKernel: initialize all textures (run once at Start)
+// ===================================================================
+[numthreads(8, 8, 1)]
+void InitKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    float2 uv = ((float2)pos + 0.5) / _TexSize;
+
+    _PosWriteBuf[pos] = uv;          // 初始位置 = 像素UV
+    _VelBuf[pos] = float2(0, 0);     // 初始速度 = 0
+    _InvMassBuf[pos] = 1.0;          // 全部有效
+    _HoleWriteBuf[pos] = float2(0, 0); // 无破洞
+}
+
+// ===================================================================
+// PredictAndSourceKernel: 预测位置 + 鼠标破洞输入
+// PredictAndSourceKernel: predict positions + mouse hole input
+// ===================================================================
+[numthreads(8, 8, 1)]
+void PredictAndSourceKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    float2 uv = ((float2)pos + 0.5) / _TexSize;
+
+    // ── 预测位置 / predict position ──
+    float2 stablePos = _PosReadBuf[pos];
+    float2 vel = _VelBuf[pos];
+    float2 pred = stablePos + vel * _DT;
+    _PosWriteBuf[pos] = pred;
+
+    // ── 读取当前逆质量 / read current invMass ──
+    float im_old = _InvMassBuf[pos];  // 0=已是破洞(永不可逆), 1=完好质点
+
+    // ── 鼠标破洞输入 / mouse hole input ──
+    float dist = length(uv - _PenPos.xy);
+    float inHole = (1.0 - smoothstep(_Radius * 0.8, _Radius, dist)) * _KeyDown;
+
+    // 也检查与上一帧位置的连线（防止快速移动时轨迹断裂）
+    float2 penDir = _PenPos.xy - _PenPos.zw;
+    float penLen = length(penDir);
+    if (penLen > 1e-6)
+    {
+        float t = saturate(dot(uv - _PenPos.zw, penDir) / (penLen * penLen));
+        float lineDist = length(uv - _PenPos.zw - penDir * t);
+        inHole = max(inHole, (1.0 - smoothstep(_Radius * 0.8, _Radius, lineDist)) * _KeyDown);
+    }
+
+    if (inHole > 0.01)
+    {
+        // 标记为破洞质点（永不可逆）/ mark as hole particle (irreversible)
+        _InvMassBuf[pos] = 0.0;
+        _HoleWriteBuf[pos] = float2(1, 0);
+    }
+    else
+    {
+        // 保持原有状态：已是破洞的依然是破洞 / preserve existing: holes stay holes
+        _InvMassBuf[pos] = im_old;
+    }
+}
+
+// ===================================================================
+// ConstraintKernel: PBD 距离约束求解 + 破洞边缘回缩力
+// ConstraintKernel: PBD distance constraint solve + hole-edge retraction
+// ===================================================================
+[numthreads(8, 8, 1)]
+void ConstraintKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    float h = 1.0 / _TexSize;
+    float restDist = _PretensionFactor * h;  // 静止距离（带预张力）
+
+    float im_self = _InvMassBuf[pos];
+
+    // 破洞质点不动、不参与约束 / hole particles don't move or participate
+    if (im_self < 0.001)
+    {
+        _PosWriteBuf[pos] = _PosReadBuf[pos];
+        return;
+    }
+
+    float2 pred_self = _PosReadBuf[pos];
+    float2 correction = float2(0, 0);
+    float validCount = 0.0;
+
+    // ── 邻居偏移与远离方向 / neighbor offsets and away-directions ──
+    int2 off0 = int2(1, 0);  float2 away0 = float2(-1, 0);
+    int2 off1 = int2(-1, 0); float2 away1 = float2(1, 0);
+    int2 off2 = int2(0, 1);  float2 away2 = float2(0, -1);
+    int2 off3 = int2(0, -1); float2 away3 = float2(0, 1);
+
+    // ── 右邻居 / right neighbor ──
+    {
+        int2 npix = pos + off0;
+        float im_n = _InvMassBuf[npix];
+        if (im_n < 0.001)
+        {
+            // 邻居是破洞 → 显式回缩力（远离破洞）/ neighbor is hole → retract away
+            correction += away0 * _RetractionStrength * h;
+        }
+        else
+        {
+            float2 pred_n = _PosReadBuf[npix];
+            float2 delta = pred_n - pred_self;
+            float dist = length(delta);
+            if (dist > 1e-6)
+            {
+                float2 n = delta / dist;
+                float C = dist - restDist;
+                float w = im_self / (im_self + im_n);
+                correction += _Stiffness * C * n * w;
+                validCount += 1.0;
+            }
+        }
+    }
+
+    // ── 左邻居 / left neighbor ──
+    {
+        int2 npix = pos + off1;
+        float im_n = _InvMassBuf[npix];
+        if (im_n < 0.001)
+        {
+            correction += away1 * _RetractionStrength * h;
+        }
+        else
+        {
+            float2 pred_n = _PosReadBuf[npix];
+            float2 delta = pred_n - pred_self;
+            float dist = length(delta);
+            if (dist > 1e-6)
+            {
+                float2 n = delta / dist;
+                float C = dist - restDist;
+                float w = im_self / (im_self + im_n);
+                correction += _Stiffness * C * n * w;
+                validCount += 1.0;
+            }
+        }
+    }
+
+    // ── 上邻居 / up neighbor ──
+    {
+        int2 npix = pos + off2;
+        float im_n = _InvMassBuf[npix];
+        if (im_n < 0.001)
+        {
+            correction += away2 * _RetractionStrength * h;
+        }
+        else
+        {
+            float2 pred_n = _PosReadBuf[npix];
+            float2 delta = pred_n - pred_self;
+            float dist = length(delta);
+            if (dist > 1e-6)
+            {
+                float2 n = delta / dist;
+                float C = dist - restDist;
+                float w = im_self / (im_self + im_n);
+                correction += _Stiffness * C * n * w;
+                validCount += 1.0;
+            }
+        }
+    }
+
+    // ── 下邻居 / down neighbor ──
+    {
+        int2 npix = pos + off3;
+        float im_n = _InvMassBuf[npix];
+        if (im_n < 0.001)
+        {
+            correction += away3 * _RetractionStrength * h;
+        }
+        else
+        {
+            float2 pred_n = _PosReadBuf[npix];
+            float2 delta = pred_n - pred_self;
+            float dist = length(delta);
+            if (dist > 1e-6)
+            {
+                float2 n = delta / dist;
+                float C = dist - restDist;
+                float w = im_self / (im_self + im_n);
+                correction += _Stiffness * C * n * w;
+                validCount += 1.0;
+            }
+        }
+    }
+
+    _PosWriteBuf[pos] = pred_self + correction;
+}
+
+// ===================================================================
+// VelocityUpdateKernel: 根据位置差更新速度，写入新的稳定位置
+// VelocityUpdateKernel: update velocity from position delta, write new stable pos
+// ===================================================================
+[numthreads(8, 8, 1)]
+void VelocityUpdateKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+
+    float2 oldPos = _PosReadBuf[pos];    // 预测前稳定位置
+    float2 newPos = _PosWriteBuf[pos];   // 约束求解后位置
+    float2 oldVel = _VelBuf[pos];
+
+    // ── PBD 速度更新 / PBD velocity update ──
+    float2 vNew = (newPos - oldPos) / max(_DT, 1e-6);
+
+    // ── 阻尼 / damping ──
+    vNew *= (1.0 - _Damping);
+
+    // ── 速度限幅 / velocity clamp ──
+    vNew = clamp(vNew, -_MaxVel, _MaxVel);
+
+    _VelBuf[pos] = vNew;
+
+    // ── 写回稳定位置作为下帧起点 / write back stable position ──
+    _PosWriteBuf[pos] = newPos;
+}
+
+// ===================================================================
+// HoleAdvectionKernel: 半拉格朗日法平流空洞图
+// HoleAdvectionKernel: semi-Lagrangian advection of hole map
+// ===================================================================
+[numthreads(8, 8, 1)]
+void HoleAdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    float2 uv = ((float2)pos + 0.5) / _TexSize;
+
+    // ── 后向追踪 / backward trace ──
+    float2 vel = _VelBuf[pos];
+    float2 advectUV = uv - vel * _DT;
+
+    // ── 线性采样上一帧空洞 / sample previous hole map ──
+    float advectHole = _HoleTex.SampleLevel(samplerLinearClamp, advectUV, 0).x;
+
+    // ── 同时在此 kernel 添加鼠标破洞 / also add mouse holes ──
+    float dist = length(uv - _PenPos.xy);
+    float inHole = (1.0 - smoothstep(_Radius * 0.8, _Radius, dist)) * _KeyDown;
+
+    // 轨迹连线 / line between current and previous pen position
+    float2 penDir = _PenPos.xy - _PenPos.zw;
+    float penLen = length(penDir);
+    if (penLen > 1e-6)
+    {
+        float t = saturate(dot(uv - _PenPos.zw, penDir) / (penLen * penLen));
+        float lineDist = length(uv - _PenPos.zw - penDir * t);
+        inHole = max(inHole, (1.0 - smoothstep(_Radius * 0.8, _Radius, lineDist)) * _KeyDown);
+    }
+    // ── 空洞一旦设下就永久保留 / once a hole, always a hole ──
+    float holeMask = max(advectHole, inHole);
+
+    _HoleWriteBuf[pos] = float2(holeMask, 0);
+}

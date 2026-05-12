@@ -1,0 +1,188 @@
+#pragma kernel AdvectionKernel
+#pragma kernel PressureKernel
+#pragma kernel ProjectionKernel
+#pragma kernel DyeKernel;
+
+#include "UnityCG.cginc"
+
+// ── 模拟参数 ──
+float texSize;          // 纹理大小（网格分辨率）
+float dt;               // 时间步长
+float4 penPos;          // xy=当前画笔UV, zw=上一帧画笔UV
+float3 Force;           // xy=力的方向, z=力的大小
+float radius;           // 画笔半径
+bool keyDown;           // 是否按下
+float advectSpeed;      // 平流速度系数
+float2 attenuation;     // x=速度衰减, y=染料衰减
+
+// 线性采样器（纹理采样用）
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+// 可读写缓冲（用于 ping-pong 交换）
+RWTexture2D<float2> VelocityRead;
+RWTexture2D<float2> VelocityWrite;
+RWTexture2D<float> PressureRead;
+RWTexture2D<float> PressureWrite;
+RWTexture2D<float3> DyeRead;
+RWTexture2D<float3> DyeWrite;
+
+// 只读纹理（用于 SampleLevel 采样）
+Texture2D<float2> VelocityTex;
+Texture2D<float> PressureTex;
+Texture2D<float3> DyeTex;
+
+// 连接当前画笔位置与上一帧位置，避免快速移动时轨迹断裂
+float drawLine(float2 uv, float2 endP, float2 startP, float width, float edgeSmooth)
+{
+    float2 dir = endP - startP;
+    float2 startUV = uv - startP;
+    float proj = clamp(dot(dir, startUV) / max(dot(dir, dir), 1e-5), 0.0, 1.0);
+    float2 projP = startP + proj * dir;
+    float distProjP = length(uv - projP);
+    float linee = smoothstep(width * 0.5, width * edgeSmooth, distProjP);
+    return linee;
+}
+
+// ── Advection: 速度平流 + 扩散 + 外力 ──
+[numthreads(8, 8, 1)]
+void AdvectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+
+    // 当前像素的速度
+    float2 old_color = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+
+    // 沿速度方向回溯，计算平流后的采样UV
+    float2 adUV = uv - advectSpeed * old_color * dt;
+    adUV = clamp(adUV, 0.0, 1.0);
+
+    // 5点采样做扩散（中心 + 右 + 左 + 上 + 下）
+    float2 w = float2(1.0 / texSize, 0.0);
+    float2 adData = VelocityTex.SampleLevel(samplerLinearClamp, adUV, 0).xy;
+    float2 adr = VelocityTex.SampleLevel(samplerLinearClamp, adUV + w.xy, 0).xy;
+    float2 adl = VelocityTex.SampleLevel(samplerLinearClamp, adUV - w.xy, 0).xy;
+    float2 add = VelocityTex.SampleLevel(samplerLinearClamp, adUV + w.yx, 0).xy;
+    float2 adu = VelocityTex.SampleLevel(samplerLinearClamp, adUV - w.yx, 0).xy;
+
+    // 平流项与扩散项混合（90%平流 + 10%扩散）
+    float2 velocity = adData.xy;
+    float2 kuosan = (adData + adr + adl + adu + add) * 0.2;
+    velocity = 0.9 * adData.xy + 0.1 * kuosan.xy;
+
+    // 外力项：画笔轨迹 × 力方向 × 力大小
+    float2 ff = keyDown * Force.xy * drawLine(uv, penPos.xy, penPos.zw, radius, 0.1);
+    ff = keyDown * normalize(uv-penPos.xy) * step( length(uv-penPos.xy), radius);
+    
+    velocity += ff * dt * Force.z;
+
+    // 速度限制，防止数值爆炸
+    velocity = clamp(velocity, -5.0, 5.0);
+
+    // 速度衰减
+    velocity = lerp(velocity, 0.0, attenuation.x);
+
+    VelocityWrite[pixel_pos] = velocity;
+}
+
+
+// 计算散度 ∇·u（用于压力求解）
+float ComputeDivergence(uint2 pos)
+{
+    float2 u_right = VelocityTex[pos + int2(1, 0)];
+    float2 u_left = VelocityTex[pos - int2(1, 0)];
+    float2 u_up = VelocityTex[pos - int2(0, 1)];
+    float2 u_down = VelocityTex[pos + int2(0, 1)];
+
+    float dudx = (u_right.x - u_left.x) * 0.5;
+    float dvdy = (u_down.y - u_up.y) * 0.5;
+
+    return dudx + dvdy;
+}
+
+// ── Pressure: Jacobi 迭代求解压力 Poisson 方程 ──
+[numthreads(8, 8, 1)]
+void PressureKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    uint2 utexSize;
+    VelocityTex.GetDimensions(utexSize.x, utexSize.y);
+
+    // 边界固定为0（Dirichlet 边界条件）
+    if (pixel_pos.x <= 1 || pixel_pos.x >= utexSize.x - 2 ||
+        pixel_pos.y <= 1 || pixel_pos.y >= utexSize.y - 2)
+    {
+        PressureWrite[pixel_pos] = 0.0;
+        return;
+    }
+
+    // 4邻域压力采样
+    float p_left = PressureRead[pixel_pos - uint2(1, 0)].x;
+    float p_right = PressureRead[pixel_pos + uint2(1, 0)].x;
+    float p_up = PressureRead[pixel_pos - uint2(0, 1)].x;
+    float p_down = PressureRead[pixel_pos + uint2(0, 1)].x;
+
+    // Jacobi 迭代: p_new = (p_left + p_right + p_up + p_down - ∇·u) / 4
+    float div_u = ComputeDivergence(pixel_pos);
+    float p_new = (p_left + p_right + p_up + p_down - div_u) * 0.25;
+
+    PressureWrite[pixel_pos] = p_new;
+}
+
+// ── Projection: 用压力梯度修正速度，确保不可压缩性 ──
+[numthreads(8, 8, 1)]
+void ProjectionKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    uint2 utexSize;
+    VelocityRead.GetDimensions(utexSize.x, utexSize.y);
+
+    // 边缘像素保留原速
+    if (pixel_pos.x <= 1 || pixel_pos.x >= utexSize.x - 2 ||
+        pixel_pos.y <= 1 || pixel_pos.y >= utexSize.y - 2)
+    {
+        float2 old_vel = VelocityRead[pixel_pos];
+        VelocityWrite[pixel_pos] = old_vel;
+        return;
+    }
+
+    // 计算压力梯度 ∇p
+    float p_right = PressureTex[pixel_pos + uint2(1, 0)];
+    float p_left = PressureTex[pixel_pos - uint2(1, 0)];
+    float p_up = PressureTex[pixel_pos - uint2(0, 1)];
+    float p_down = PressureTex[pixel_pos + uint2(0, 1)];
+
+    float dpdx = (p_right - p_left) * 0.5;
+    float dpdy = (p_down - p_up) * 0.5;
+
+    // 投影修正: v_new = v_old - ∇p
+    float2 old_vel = VelocityRead[pixel_pos].xy;
+    float2 new_vel = old_vel - float2(dpdx, dpdy);
+
+    VelocityWrite[pixel_pos] = new_vel;
+}
+
+// ── Dye: 染料平流 + 画笔添加 ──
+[numthreads(8, 8, 1)]
+void DyeKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pixel_pos = id.xy;
+    float2 uv = ((float2)id.xy + 0.5) / texSize;
+
+    // 沿速度方向平流染料
+    float2 old_vel = VelocityTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+    float2 adUV = uv - advectSpeed * old_vel * dt;
+    adUV = clamp(adUV, 0.0, 1.0);
+    float3 newCol = DyeTex.SampleLevel(samplerLinearClamp, adUV, 0);
+
+    // 画笔轨迹处添加染料（颜色随UV变化）
+    float3 addCol = float3(uv, 1) * drawLine(uv, penPos.xy, penPos.zw, radius, 0.1);
+
+    // 染料衰减 + 新增
+    DyeWrite[pixel_pos] = newCol * (1.0 - attenuation.y) + addCol * keyDown;
+}

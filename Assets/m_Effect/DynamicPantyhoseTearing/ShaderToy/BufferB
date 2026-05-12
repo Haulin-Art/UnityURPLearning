@@ -1,0 +1,29 @@
+// ============================================================================
+// Buffer B — 染料场（被速度场驱动的半拉格朗日平流）
+// iChannel0 = Buffer A（速度场）, iChannel1 = Buffer B（自循环）
+// R = 染料浓度
+// ============================================================================
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord)
+{
+    vec2 uv = fragCoord / iResolution.xy;
+
+    // 1. 读速度，反向追溯采样上一帧染料
+    vec2 vel = texture(iChannel0, uv).rg;
+    vec2 prevUV = (fragCoord - vel) / iResolution.xy;
+    float dye = texture(iChannel1, prevUV).r;
+
+    // 2. 鼠标点击注入染料
+    if (iMouse.z > 0.0)
+    {
+        vec2 dir = fragCoord - iMouse.xy;
+        dye += exp(-dot(dir, dir) * DYE_FALLOFF) * DYE_INJECTION;
+    }
+
+    // 3. 耗散
+    dye *= DYE_DISSIPATION;
+    dye = clamp(dye, 0.0, 1.0);
+    if (iFrame < 2) dye = 0.0;
+
+    fragColor = vec4(dye, 0.0, 0.0, 1.0);
+}

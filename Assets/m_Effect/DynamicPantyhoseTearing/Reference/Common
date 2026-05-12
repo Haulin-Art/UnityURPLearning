@@ -1,0 +1,226 @@
+// ============================================================================
+// Common — 所有 Pass 共享的公共函数、数据结构、哈希函数与相机系统
+// 本文件被 BufferA / BufferB / Image 三个 Pass 共同引用
+// ============================================================================
+
+// -------------------------------------------------------------------
+// 1. 哈希函数 — 用于随机数生成和空间索引搜索
+// -------------------------------------------------------------------
+
+// GPU 上的高质量哈希函数，输入一个 uvec4，输出伪随机的 uvec4
+// 采用多轮异或+乘法混合，利用位运算的雪崩效应保证均匀分布
+uvec4 hash(uvec4 x){
+    x = ((x >> 16u) ^ x.yzwx) * 0x45d9f3bu;
+    x = ((x >> 16u) ^ x.yzwx) * 0x45d9f3bu;
+    x = ((x >> 16u) ^ x.yzwx) * 0x45d9f3bu;
+    x = ((x >> 16u) ^ x.yzwx) * 0x45d9f3bu;
+    //x = (x >> 16u) ^ x;
+    return x;
+}
+
+// 基于 IQ (Inigo Quilez) 经典整数哈希的噪声函数
+// 将整数 k 映射到 [0.0, 1.0) 区间的伪随机浮点数
+// 核心技巧：利用 IEEE 754 浮点数的位表示，在指数位写入 bias 得到 1.0~2.0 区间的值，再减 1.0
+float hash( int k ) {
+    uint n = uint(k);
+    n = (n << 13U) ^ n;
+    n = n * (n * n * 15731U + 789221U) + 1376312589U;
+    return uintBitsToFloat( (n>>9U) | 0x3f800000U ) - 1.0;
+}
+
+// -------------------------------------------------------------------
+// 2. 相机系统 — 提供固定的第三人称视角
+// -------------------------------------------------------------------
+
+// 计算相机的基本参数（观察点、位置、三个方向轴）
+// 相机位于 (0, 1, 3)，看向原点，形成典型的 3/4 视角
+void fxCalcCamera(out vec3 cameraLookAt, out vec3 cameraPos, out vec3 cameraFwd, out vec3 cameraLeft, out vec3 cameraUp)
+{
+    cameraLookAt = vec3(0.0, 0.0f, 0.0);  // 相机看向原点
+    cameraPos    = vec3(0, 1, 3);          // 相机位置：前方+上方
+
+    cameraFwd  = normalize(cameraLookAt - cameraPos);                        // 前向向量（指向原点）
+    cameraLeft  = -normalize(cross(cameraFwd, vec3(0.0,1.0,0.0)));          // 左向量（叉积得出）
+    cameraUp   = normalize(cross(cameraLeft, cameraFwd)) * 0.5;             // 上向量，×0.5 给画面更多横向空间感
+}
+
+// 构造相机矩阵（世界到裁剪空间的变换矩阵）
+// 将相机的三个轴和位置组合为 4×4 矩阵
+mat4 fxCalcCameraMat(vec3 resolution, vec3 cameraLeft, vec3 cameraUp, vec3 cameraFwd, vec3 cameraPos)
+{
+    return mat4(vec4(-0.5*resolution.y / resolution.x * cameraLeft, 0.0),
+        vec4(-0.5*cameraUp, 0.0),
+        vec4(cameraFwd, 0.0),
+        vec4(cameraPos, 1.0));
+}
+
+// 从屏幕像素坐标计算世界空间中的射线方向
+// fragCoord: 像素坐标，iResolution: 屏幕分辨率
+// 返回值：从相机出发穿过该像素的世界空间方向向量（归一化）
+vec3 fxCalcRay(in vec2 fragCoord, in vec3 iResolution, in vec3 cameraFwd, in vec3 cameraUp, in vec3 cameraLeft)
+{
+    vec2 screenPos = (fragCoord.xy / iResolution.xy) * 1.0 - 0.5;  // 屏幕坐标归一化到 [-0.5, 0.5]
+    return normalize(cameraFwd - screenPos.x * cameraLeft - screenPos.y * cameraUp);
+}
+
+// -------------------------------------------------------------------
+// 3. 辅助数学函数
+// -------------------------------------------------------------------
+
+const float MAX_TEMP = 1000.0;  // 保留常量（实际未使用）
+
+// 2D 向量长度的平方（避免开根号的开销）
+float length2(vec2 v)
+{
+    return dot(v, v);
+}
+
+// 计算点 p 到线段 ab 的最短距离的平方
+// 核心技巧：通过 clamp 将投影参数 h 限制在 [0,1]，确保在线段范围内计算
+// 返回的是距离的平方，避免开根号的开销
+float fxLinePointDist2(vec2 a, vec2 b, vec2 p)
+{
+    p -= a, b -= a;
+    float h = clamp(dot(p, b) / dot(b, b), 0., 1.);  // p 在 b 方向上的投影比例，限制在 [0,1] 即线段范围
+    return length2(p - b * h);                         // p 到投影点的距离平方
+}
+
+// -------------------------------------------------------------------
+// 4. 粒子数据读写 — 核心数据结构与纹理编解码
+// -------------------------------------------------------------------
+
+// 从 Buffer B 读取当前像素存储的 4 个最近粒子 ID
+// iChannel1 = Buffer B（Voronoi 索引缓冲区）
+ivec4 fxGetClosestInternal(sampler2D sampler, ivec2 xy)
+{
+    return ivec4(texelFetch(sampler, xy, 0));
+}
+
+#define fxGetClosest(X) fxGetClosestInternal(iChannel1, X)
+
+// 粒子数据分两个槽位存储：POS=当前位置, PREV=上一帧位置
+#define POS 0
+#define PREV 1
+#define NUM_PARTICLE_DATA_TYPES 2   // 每个粒子占用 2 个 texel
+
+// 根据粒子 ID 和数据类型（POS/PREV）计算其在纹理中的二维坐标
+// 纹理布局：粒子按 index = id*2 + dataType 顺序排列在一维纹理中
+// width = iResolution.x（纹理宽度）
+ivec2 fxLocFromIDInternal(int width, int id, int dataType)
+{
+    int index = id * NUM_PARTICLE_DATA_TYPES + dataType;
+    return ivec2( index % width, index / width);  // 一维索引转二维坐标
+}
+
+#define fxLocFromID(X, Y) fxLocFromIDInternal(int(iResolution.x), X, Y)
+
+// -------------------------------------------------------------------
+// 5. 粒子结构体与序列化
+// -------------------------------------------------------------------
+
+// 粒子在 GPU 中的逻辑表示（不直接存储，而是从纹理解码/编码）
+struct fxParticle
+{
+    vec3 pos;       // 当前帧的世界空间位置
+    vec3 prev;      // 上一帧的世界空间位置（Verlet 积分用，隐含速度）
+    bool pinned;    // 是否为固定粒子（边缘钉住，不被重力/风力移动）
+    bool disabled;  // 是否已撕裂/失活（不再参与物理和渲染）
+};
+
+// 从粒子缓冲区纹理读取指定 ID 的粒子
+// iChannel0 = Buffer A（粒子位置缓冲区）
+fxParticle fxGetParticleInternal(sampler2D sampler, int resolutionWidth, int id)
+{
+    vec4 particleData0 = texelFetch(sampler, fxLocFromIDInternal(resolutionWidth, id, POS), 0);
+    vec4 particleData1 = texelFetch(sampler, fxLocFromIDInternal(resolutionWidth, id, PREV), 0);
+
+    fxParticle particle;
+    particle.pos = particleData0.xyz;            // POS 槽的 xyz = 当前位置
+    particle.disabled = particleData0.w != 0.;   // POS 槽的 w = 失活标记
+    particle.prev = particleData1.xyz;           // PREV 槽的 xyz = 上一帧位置
+    particle.pinned = particleData1.w != 0.;     // PREV 槽的 w = 固定标记
+
+    return particle;
+}
+
+// 将粒子结构体编码为纹理数据（根据 dataType 选择编码 POS 或 PREV）
+vec4 fxSaveParticle(fxParticle p, int dataType)
+{
+    switch(dataType)
+    {
+    case POS:
+        return vec4(p.pos, p.disabled ? 1. : 0.);   // xyz=位置, w=失活标记
+    case PREV:
+        return vec4(p.prev, p.pinned ? 1. : 0.);    // xyz=上一帧位置, w=固定标记
+    }
+}
+
+#define fxGetParticle(X) fxGetParticleInternal(iChannel0, int(iResolution.x), X)
+
+// 读取特定粒子的原始纹理数据（不解析为结构体）
+vec4 fxGetParticleDataInternal(sampler2D sampler, int resolutionWidth, int id, int dataType)
+{
+    return texelFetch(sampler, fxLocFromIDInternal(resolutionWidth, id, dataType), 0);
+}
+
+#define fxGetParticleData(X, Y) fxGetParticleDataInternal(iChannel0, int(iResolution.x), X, Y)
+
+// -------------------------------------------------------------------
+// 6. 键盘输入与全局常量
+// -------------------------------------------------------------------
+
+// 从 ShaderToy 键盘缓冲区读取按键状态
+// iChannel3 = ShaderToy 内置键盘输入纹理（128 个键，每个键对应一个 texel）
+#define keyDown(ascii)    ( texelFetch(iChannel3,ivec2(ascii,0),0).x > 0.)
+
+#define KEY_SPACE 32       // 空格键的 ASCII 码
+
+const float SIDE_LEN = 4.; // 布料在世界空间中的边长
+
+// -------------------------------------------------------------------
+// 7. 布料网格参数与邻居查找
+// -------------------------------------------------------------------
+
+// 全局变量，由 computeClothSide() 初始化
+int CLOTH_SIDE = 0;    // 布料每条边有多少个粒子（网格为 CLOTH_SIDE × CLOTH_SIDE）
+int MAX_PARTICLES = 0; // 总粒子数 = CLOTH_SIDE²
+
+// 根据当前屏幕分辨率计算布料网格的大小
+// 粒子利用率随分辨率升高而降低（高分辨率时不需要那么密的粒子）
+// particleUse 范围：~0.58(高分) ~ 0.7(低分)
+void computeClothSide(vec3 res)
+{
+    float particleUse = 0.7 * (1. - 0.6 * smoothstep(1000., 1200., res.y));
+    CLOTH_SIDE = int(sqrt(res.x * res.y / float(NUM_PARTICLE_DATA_TYPES)) * particleUse);
+    MAX_PARTICLES = CLOTH_SIDE * CLOTH_SIDE;
+}
+
+// -------------------------------------------------------------------
+// 8. 邻居查找函数 — 布料网格的四向拓扑关系
+// -------------------------------------------------------------------
+// 关键设计：如果输入已经是 -1（表示之前的邻居已失效），继续返回 -1
+// 这样约束循环不需要在每层都检查终止条件，大幅简化迭代逻辑
+
+// 上方邻居（行号 -1），边界外返回 -1
+int above(int i)
+{
+    return i >= 0 && i >= CLOTH_SIDE ? i - CLOTH_SIDE : -1;
+}
+
+// 下方邻居（行号 +1），边界外返回 -1
+int below(int i)
+{
+    return i >= 0 && i < (CLOTH_SIDE * (CLOTH_SIDE - 1)) ? i + CLOTH_SIDE : -1;
+}
+
+// 左方邻居（列号 -1），边界外返回 -1
+int left(int i)
+{
+    return i >= 0 && (i % CLOTH_SIDE) != 0 ? i - 1 : -1;
+}
+
+// 右方邻居（列号 +1），边界外返回 -1
+int right(int i)
+{
+    return i >= 0 && (i % CLOTH_SIDE) != CLOTH_SIDE - 1 ? i + 1 : -1;
+}

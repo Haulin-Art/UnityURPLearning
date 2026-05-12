@@ -1,0 +1,194 @@
+// ============================================================================
+// Buffer B — Voronoi 空间索引 Pass（最近粒子追踪）
+// ============================================================================
+// 职责：为屏幕上的每个像素维护距离它最近的 4 个粒子 ID
+//
+// 数据流：
+//   输入：iChannel0=BufferA（粒子位置数据）, iChannel1=本Buffer上帧结果
+//   输出：每像素的 RGBA 四个通道分别存储 4 个最近粒子的 ID
+//         (0,0) 像素特殊用途：存储全局状态（分辨率/鼠标/计时器）
+//
+// 原理：借鉴 Gijs 的 Voronoi Tracking 技术
+//   https://www.shadertoy.com/view/WltSz7
+//   不需要每帧全量遍历所有粒子，而是利用时间/空间连续性增量更新
+// ============================================================================
+
+// -------------------------------------------------------------------
+// 1. 插入排序 — 维护最近 4 个粒子的有序列表
+// -------------------------------------------------------------------
+// 将新候选粒子 (i_, d_) 按距离从小到大的顺序插入到 ids/dis 数组中
+// ids[0] 总是最近粒子，ids[3] 是第 4 近的
+// 注意：跳过重复 ID（any(equal(ivec4(i_),i))）
+
+void insertion_sort(inout ivec4 i, inout vec4 d, int i_, float d_)
+{
+    if(any(equal(ivec4(i_),i))) return;   // 避免重复插入同一粒子
+    if     (d_ < d[0])
+        i = ivec4(i_,i.xyz),    d = vec4(d_,d.xyz);   // 插入为新的最近粒子
+    else if(d_ < d[1])
+        i = ivec4(i.x,i_,i.yz), d = vec4(d.x,d_,d.yz); // 插入为第2近
+    else if(d_ < d[2])
+        i = ivec4(i.xy,i_,i.z), d = vec4(d.xy,d_,d.z); // 插入为第3近
+    else if(d_ < d[3])
+        i = ivec4(i.xyz,i_),    d = vec4(d.xyz,d_);    // 插入为第4近
+}
+
+// -------------------------------------------------------------------
+// 2. 粒子到屏幕像素的距离计算
+// -------------------------------------------------------------------
+// 将粒子从世界坐标投影到屏幕空间，计算与像素坐标的欧氏距离平方
+// w2cNew: 世界坐标→相机空间的变换矩阵
+// 返回：距离平方（失活粒子返回极大值 1e20）
+
+float distance2Particle(int id, vec2 fragCoord, mat4 w2cNew)
+{
+    if(id==-1) return 1e20;                        // 无效 ID，返回无穷远
+    vec4 worldPos = fxGetParticleData(id, POS);    // 从 Buffer A 读取粒子世界坐标
+    if (worldPos.w != 0.) return 1e20;             // 失活粒子（w=1），跳过
+    vec3 screenPos = (w2cNew * vec4(worldPos.xyz,1.0)).xyz;  // 世界→相机→屏幕
+    screenPos.xy = screenPos.xy / screenPos.z;               // 透视除法
+    vec2 delta = (screenPos.xy)-fragCoord;                   // 像素到粒子投影的偏移
+    return dot(delta, delta);                                // 距离平方
+}
+
+// -------------------------------------------------------------------
+// 3. 主函数 — 每像素调用一次
+// -------------------------------------------------------------------
+void mainImage( out vec4 fragColor, vec2 fragCoord )
+{
+    ivec2 iFragCoord = ivec2(fragCoord);
+    computeClothSide(iResolution);
+
+    // -------------------------------------------------------------------
+    // 3a. (0,0) 像素的特殊处理 — 全局状态管理
+    // -------------------------------------------------------------------
+    if(iFragCoord == ivec2(0))
+    {
+        vec4 state = texelFetch(iChannel1, ivec2(0), 0);
+
+        // 需要重置的条件：
+        //   首帧 / 分辨率改变 / 按下空格键 / 自动模式超时(>30秒)
+        if (iFrame == 0 ||
+            iResolution.x * iResolution.y != abs(state.x) ||
+            keyDown(KEY_SPACE) ||
+            state.w > 30.)
+        {
+            // state.x 存负的分辨率像素总数（用于在其他 Pass 中检测是否需要重置）
+            state = vec4(-iResolution.x * iResolution.y, 0.0, 0.0, 0.0);
+        }
+        else
+        {
+            state.x = abs(state.x);  // 标记为已初始化，其他 Pass 读到正值即知不需要重置
+        }
+
+        // 鼠标按下时，记录鼠标位置（用于 Buffer A 的切割线起点）
+        if (iMouse.z > 0.)
+        {
+            state.yz = iMouse.xy;
+        }
+
+        // 无鼠标时累积自动模式计时器
+        if (state.yz == vec2(0))
+        {
+            state.w += iTimeDelta;
+        }
+
+        fragColor = state;
+        return;
+    }
+
+    // -------------------------------------------------------------------
+    // 3b. 普通像素 — 查找最近的 4 个粒子
+    // -------------------------------------------------------------------
+
+    // 像素的归一化设备坐标（NDC），范围 [-aspect, aspect] × [-1, 1]
+    vec2 p = (2.0*fragCoord-iResolution.xy)/iResolution.y;
+
+    // 构建相机变换矩阵
+    vec3 cameraLookAt, cameraPos, cameraFwd, cameraLeft, cameraUp;
+    fxCalcCamera(cameraLookAt, cameraPos, cameraFwd, cameraLeft, cameraUp);
+
+    mat4 c2w = fxCalcCameraMat(iResolution, cameraLeft, cameraUp, cameraFwd, cameraPos);
+    mat4 w2c = inverse(c2w);  // 世界→相机变换，用于将 3D 粒子投影到屏幕
+
+    // 初始化：4 个最近粒子 ID 设为 -1（无效），距离设为极大值
+    ivec4 new = ivec4(-1);
+    vec4 dis = vec4(1e6);
+
+    // -------------------------------------------------------------------
+    // 阶段 1：时间一致性搜索（利用上一帧的结果）
+    // -------------------------------------------------------------------
+    // 从上一帧同一像素的 4 个最近粒子开始
+    // 对于每个粒子，额外随机抽查它一个方向的邻居（因为布料在移动）
+    ivec4 old   = fxGetClosest( iFragCoord );
+    for(int j=0; j<4; j++){
+        int id = old[j];
+        float dis2 = distance2Particle(id, p, w2c);
+        insertion_sort( new, dis, id, dis2 );
+
+        // 随机抽查该粒子的一个邻居（利用帧号+j 做轮转，覆盖四个方向）
+        int nid;
+        switch((iFrame + int(j)) % 4)
+        {
+            case 0: nid = above(id); break;
+            case 1: nid = below(id); break;
+            case 2: nid = left(id); break;
+            case 3: nid = right(id); break;
+        }
+
+        if (nid >= 0)
+        {
+            float dis2 = distance2Particle(nid, p, w2c);
+            insertion_sort( new, dis, nid, dis2 );
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // 阶段 2：空间一致性搜索（借用相邻像素的结果）
+    // -------------------------------------------------------------------
+    // 策略：在当前像素周围 15×15 范围内，随机抽取 32 个像素
+    // 将这些像素的第 1 近粒子（old[0]）作为候选
+    // 原理：相邻像素的最近粒子大概率也在本像素附近
+    uint searchRange = 15u;
+    uint searchCount = 32u;
+
+    for(uint i=0u; i<searchCount; ++i)
+    {
+        // 为每个采样生成基于位置的随机偏移（同一像素同一帧的 hash 相同 → 确定性）
+        uvec4 h0 = hash(uvec4(fragCoord, fragCoord) * i);
+
+        // 在 15×15 范围内随机取一个像素
+        ivec4 old   = fxGetClosest( iFragCoord + ivec2( h0.xy % searchRange - searchRange / 2u) );
+        for(int j=0; j<1; j++){
+            int id = old[j];
+            float dis2 = distance2Particle(id, p, w2c);
+            insertion_sort( new, dis, id, dis2 );
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // 阶段 3：全局随机搜索（防御性搜索，确保不遗漏粒子）
+    // -------------------------------------------------------------------
+    // 正常帧只做 1 次全局随机搜索，首帧做 100 次（需要建立初始索引）
+    int searchIterations = 1;
+    if (iFrame < 5)
+    {
+        searchIterations = 100;  // 前 5 帧大量搜索以快速建立索引
+    }
+    for(int k = 0; k < searchIterations; k++){
+        // 基于像素坐标 + 帧号生成唯一 hash，确保确定性
+        float h = hash(
+            iFragCoord.x +
+            iFragCoord.y*int(iResolution.x) +
+            iFrame*int(iResolution.x*iResolution.y) +
+            k
+        );
+
+        // 随机选取一个粒子 ID 作为候选
+        int id = int(h*float(MAX_PARTICLES));
+        insertion_sort(new, dis, id, distance2Particle(id, p, w2c));
+    }
+
+    // 输出：RGBA 四个通道分别存储 4 个最近粒子的 ID
+    fragColor = vec4(new);
+}

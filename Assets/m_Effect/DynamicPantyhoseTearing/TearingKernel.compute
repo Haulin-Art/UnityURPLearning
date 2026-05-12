@@ -1,0 +1,171 @@
+#pragma kernel InitKernel
+#pragma kernel TearingKernel
+
+// ── 模拟参数 ──
+float _TexSize;             // 网格分辨率
+float _DT;                  // 时间步长
+float4 _PenPos;             // xy=当前画笔UV, zw=上一帧画笔UV
+float _Radius;              // 画笔半径
+float _KeyDown;             // 是否按下 (0/1)
+float _RetractionStrength;  // 回缩强度 (0~1)
+float _Damping;             // 弹性记忆: 位移向零点回归速率
+float _StretchStiffness;    // 拉伸刚度: 越大越难拉伸
+
+// ── 只读纹理（用于 SampleLevel 线性采样）──
+Texture2D<float2>  _HoleTex;    // 空洞字段 0=完好 1=空洞
+Texture2D<float4> _DispTex;    // 位移字段
+
+// ── 可写缓冲（ping-pong 写目标）──
+RWTexture2D<float2>  _HoleWrite;
+RWTexture2D<float4> _DispWrite;
+
+// ── 线性采样器 ──
+SamplerState samplerLinearClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+struct pixelParticle
+{
+    float2 prevUV;     // 上一帧位置
+    float2 curUV;      // 当前位置
+    float pressure;
+    bool pinned;       // 是否为固定粒子（边缘钉住，不被重力/风力移动）
+    bool disabled;     // 是否禁用（空洞或被固定）
+};
+pixelParticle getPaticleData(uint2 pos)
+{
+    pixelParticle p;
+    float2 uv = ((float2)pos + 0.5) / _TexSize;
+    float4 disp = _DispTex.SampleLevel(samplerLinearClamp, uv, 0);
+
+    float2 velocity = (disp.xy - disp.zw);
+    float2 add_UV = uv + velocity*_DT;
+    float4 add_disp = _DispTex.SampleLevel(samplerLinearClamp, add_UV, 0);
+
+    // 获取上一帧速度与当前帧速度，通过这两个可以获得速度
+    p.prevUV = disp.zw;
+    p.curUV = add_disp.xy;
+    // 根据是否位置UV边界判断是不是固定点，固定点的位置是不变的
+    p.pinned = uv.x < 0.01 || uv.x > 0.99 || uv.y < 0.01 || uv.y > 0.99;
+    //位置在空洞位置在空洞判断是否禁用
+    float2 hole = _HoleTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+    float2 add_hole = _HoleTex.SampleLevel(samplerLinearClamp, add_UV, 0).xy;
+
+    p.disabled = add_hole.x > 0.5;
+
+    p.pressure = hole.y; // 目前未使用压力，可以根据需要添加压力计算逻辑
+    return p;
+}
+void constraint(inout int2 nid, inout pixelParticle p, float edgeLen)
+{
+    if (any(nid < 0)) return; // 任意分量越界或无效邻居索引，直接返回
+    //float2 uv = ((float2)nid + 0.5) / _TexSize;
+    pixelParticle n = getPaticleData(nid);
+
+    if (n.disabled)               // 邻居已撕裂，将其标记为无效，后续迭代不处理
+    {
+        nid = -1;
+        return;
+    }
+
+    float2 deltaPos = n.curUV - p.curUV;   // 当前粒子指向邻居的向量
+    float len = length(deltaPos);    // 当前实际距离
+    float2 dir = deltaPos / len;       // 单位方向向量
+
+    float error = len - edgeLen;     // 距离误差（正=拉伸, 负=压缩）
+
+    // 关键设计：压缩误差仅取 0.5%，布料可自然折叠而不会弹跳
+    if (error < 0.) error *= 0.005;
+
+    // 撕裂检测：比较"当前粒子上一帧位置"与"邻居当前位置"的距离
+    // 如果相对位移超过 edgeLen × 5，说明布料被过度拉伸，触发撕裂
+    if (distance(p.prevUV, n.curUV) > edgeLen * 5.0) p.disabled = true;
+
+    // 位置修正：固定粒子的权重为 1.0（对方全量移动），普通粒子权重 0.7
+    // 这样 pinned 粒子完全不动，普通粒子各承担大约一半的修正量
+    float f = n.pinned ? 1.0 : .7;
+    p.curUV += dir * error * f;
+
+    p.pressure = lerp(p.pressure, n.pressure, 0.25);
+    p.pressure += abs(error);
+
+}
+
+// ===================================================================
+// InitKernel: 初始化位移场为像素UV位置（仅运行一次）
+// ===================================================================
+[numthreads(8, 8, 1)]
+void InitKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    _DispWrite[pos] = float4(((float2)pos + 0.5) / _TexSize,((float2)pos + 0.5) / _TexSize);
+    _HoleWrite[pos] = float2(0,0);
+}
+
+// ===================================================================
+// TearingKernel: 单 kernel 完成弹性回缩 + 拉伸极限 + 空洞输入
+// ===================================================================
+[numthreads(8, 8, 1)]
+void TearingKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    float2 uv = ((float2)pos + 0.5) / _TexSize;
+    float h = 1.0 / _TexSize;
+
+
+    float2  hole_self = _HoleTex.SampleLevel(samplerLinearClamp, uv, 0);
+    float2 disp_self = _DispTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+
+
+    float distToPen = length(uv - _PenPos.xy);
+    float inHole = (1.0 - smoothstep(_Radius*0.8, _Radius, distToPen)) * _KeyDown;
+    float erzhiinHole = (1.0 - step(_Radius,distToPen)) * _KeyDown;
+
+    
+    ////*********************** 以下为新部分 ********************************
+    pixelParticle p = getPaticleData(pos);
+
+    float ccc = 0.0;
+    // 仅对非固定、未撕裂的粒子执行
+    if (!p.disabled && !p.pinned)
+    {
+
+        p.prevUV = p.curUV; // 保存当前uv坐标到上一帧
+
+        p.curUV += float2(0,-0.005)*_DT;
+
+
+        int2 a, b, l, r;
+        a = b = l = r = pos;
+
+        float rlen = h; // 粒子间距
+
+        for (float i = 1.; i < 20; ++i)
+        {
+            a += int2( 0,  1);   // 链式向上迭代
+            b += int2( 0, -1);   // 链式向下迭代
+            r += int2( 1,  0);   // 链式向右迭代
+            l += int2(-1,  0);   // 链式向左迭代
+
+            float sLen = rlen * i;    // 第 i 层的期望长度 = 基础距离 × i
+            constraint(a, p, sLen);       // 约束上方第 i 个邻居
+            constraint(b, p, sLen);       // 约束下方第 i 个邻居
+            constraint(r, p, sLen);       // 约束右方第 i 个邻居
+            constraint(l, p, sLen);       // 约束左方第 i 个邻居
+        }
+    }
+
+    float2 velocity = (p.curUV - p.prevUV);
+    float2 add_UV = uv + velocity*_DT;
+    float2 add_hole = _HoleTex.SampleLevel(samplerLinearClamp, add_UV, 0).xy;
+    float4 add_disp = _DispTex.SampleLevel(samplerLinearClamp, add_UV, 0);
+
+
+    // ── 写入 ──
+    _DispWrite[pos] = float4(p.curUV, p.prevUV);
+    _HoleWrite[pos] = float2(saturate(hole_self.x+erzhiinHole),p.pressure);
+}
+
