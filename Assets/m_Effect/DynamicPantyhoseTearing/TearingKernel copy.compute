@@ -81,6 +81,9 @@ void constraint(inout int2 nid, inout pixelParticle p, float edgeLen)
     p.curUV += dir * error * f;
 }
 
+
+
+
 /*
 // ── 8 邻域偏移与预归一化方向 ──
 static const int2 _Offsets[8] = {
@@ -242,9 +245,13 @@ void TearingKernel(uint3 id : SV_DispatchThreadID)
         }
     }
 
+    int2 gridPos = Grid2Uint2(pos, 16);
+
     // ── 写入 ──
     //_DispWrite[pos] = float4(disp_self + lache*_DT, 0, 0);
+    //_DispWrite[pos] = float4(float2(gridPos)/16, p.prevUV);
     _DispWrite[pos] = float4(p.curUV, p.prevUV);
     _HoleWrite[pos] = float2(saturate(hole_self.x+erzhiinHole),0);
+    //_HoleWrite[pos] = float2(saturate(hole_self.x+erzhiinHole),0);
 }
 

@@ -1,5 +1,7 @@
 #pragma kernel InitKernel
 #pragma kernel TearingKernel
+#pragma kernel InitParticleKernel
+#pragma kernel UpdateParticleKernel
 
 // ── 模拟参数 ──
 float _TexSize;             // 网格分辨率
@@ -19,6 +21,16 @@ Texture2D<float4> _DispTex;    // 位移字段
 RWTexture2D<float2>  _HoleWrite;
 RWTexture2D<float4> _DispWrite;
 
+
+// 粒子数据信息
+Texture2D<float4> _ParticlePosRead;
+RWTexture2D<float4> _ParticlePosWrite;
+float _ParticleGridSize;
+Texture2D<float> _ParticleStateRead;
+RWTexture2D<float> _ParticleStateWrite;
+
+
+
 // ── 线性采样器 ──
 SamplerState samplerLinearClamp
 {
@@ -27,86 +39,32 @@ SamplerState samplerLinearClamp
     AddressV = Clamp;
 };
 
-struct pixelParticle
+
+
+// 通过1D索引反算Uint2区域索引（行主序）
+// index : 1D索引
+// width : 每一行有多少个区域（列数）
+uint2 PointID2Uint2(uint index, uint width)
 {
-    float2 prevUV;     // 上一帧位置
-    float2 curUV;      // 当前位置
-    float pressure;
-    bool pinned;       // 是否为固定粒子（边缘钉住，不被重力/风力移动）
-    bool disabled;     // 是否禁用（空洞或被固定）
-};
-pixelParticle getPaticleData(uint2 pos)
-{
-    pixelParticle p;
-    float2 uv = ((float2)pos + 0.5) / _TexSize;
-    float4 disp = _DispTex.SampleLevel(samplerLinearClamp, uv, 0);
-
-    float2 velocity = (disp.xy - disp.zw);
-    float2 add_UV = uv + velocity*_DT;
-    float4 add_disp = _DispTex.SampleLevel(samplerLinearClamp, add_UV, 0);
-
-    // 获取上一帧速度与当前帧速度，通过这两个可以获得速度
-    p.prevUV = disp.zw;
-    p.curUV = add_disp.xy;
-    // 根据是否位置UV边界判断是不是固定点，固定点的位置是不变的
-    p.pinned = uv.x < 0.01 || uv.x > 0.99 || uv.y < 0.01 || uv.y > 0.99;
-    //位置在空洞位置在空洞判断是否禁用
-    float2 hole = _HoleTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
-    float2 add_hole = _HoleTex.SampleLevel(samplerLinearClamp, add_UV, 0).xy;
-
-    p.disabled = add_hole.x > 0.5;
-
-    p.pressure = hole.y; // 目前未使用压力，可以根据需要添加压力计算逻辑
-    return p;
+    uint y = index / width;
+    uint x = index - y * width;
+    return uint2(x, y);
 }
-void constraint(inout int2 nid, inout pixelParticle p, float edgeLen)
-{
-    if (any(nid < 0)) return; // 任意分量越界或无效邻居索引，直接返回
-    //float2 uv = ((float2)nid + 0.5) / _TexSize;
-    pixelParticle n = getPaticleData(nid);
-
-    if (n.disabled)               // 邻居已撕裂，将其标记为无效，后续迭代不处理
-    {
-        nid = -1;
-        return;
-    }
-
-    float2 deltaPos = n.curUV - p.curUV;   // 当前粒子指向邻居的向量
-    float len = length(deltaPos);    // 当前实际距离
-    float2 dir = deltaPos / len;       // 单位方向向量
-
-    float error = len - edgeLen;     // 距离误差（正=拉伸, 负=压缩）
-
-    // 关键设计：压缩误差仅取 0.5%，布料可自然折叠而不会弹跳
-    if (error < 0.) error *= 0.005;
-
-    // 撕裂检测：比较"当前粒子上一帧位置"与"邻居当前位置"的距离
-    // 如果相对位移超过 edgeLen × 5，说明布料被过度拉伸，触发撕裂
-    if (distance(p.prevUV, n.curUV) > edgeLen * 5.0) p.disabled = true;
-
-    // 位置修正：固定粒子的权重为 1.0（对方全量移动），普通粒子权重 0.7
-    // 这样 pinned 粒子完全不动，普通粒子各承担大约一半的修正量
-    float f = n.pinned ? 1.0 : .7;
-    p.curUV += dir * error * f;
-
-    p.pressure = lerp(p.pressure, n.pressure, 0.25);
-    p.pressure += abs(error);
-
-}
-
 // ===================================================================
-// InitKernel: 初始化位移场为像素UV位置（仅运行一次）
+// InitKernel: 初始化缓存纹理为粒子 cell 坐标（仅运行一次）
+// _DispTex.xy = 该像素上一帧最近的粒子 cell 坐标（整数）
 // ===================================================================
 [numthreads(8, 8, 1)]
 void InitKernel(uint3 id : SV_DispatchThreadID)
 {
     uint2 pos = id.xy;
-    _DispWrite[pos] = float4(((float2)pos + 0.5) / _TexSize,((float2)pos + 0.5) / _TexSize);
-    _HoleWrite[pos] = float2(0,0);
+    float2 uv = ((float2)pos + 0.5) / _TexSize;
+    _DispWrite[pos] = float4(floor(uv * _ParticleGridSize), 0, 0);
+    _HoleWrite[pos] = float2(0, 0);
 }
 
 // ===================================================================
-// TearingKernel: 单 kernel 完成弹性回缩 + 拉伸极限 + 空洞输入
+// TearingKernel: P2G — 将粒子位置转换为可视化 mask
 // ===================================================================
 [numthreads(8, 8, 1)]
 void TearingKernel(uint3 id : SV_DispatchThreadID)
@@ -115,57 +73,149 @@ void TearingKernel(uint3 id : SV_DispatchThreadID)
     float2 uv = ((float2)pos + 0.5) / _TexSize;
     float h = 1.0 / _TexSize;
 
+    float mask = 0.0;
 
-    float2  hole_self = _HoleTex.SampleLevel(samplerLinearClamp, uv, 0);
-    float2 disp_self = _DispTex.SampleLevel(samplerLinearClamp, uv, 0).xy;
+    /////* 方法讲解：
+    /*
+    通过不断记录最接近当前像素的粒子 cell 坐标
+    在每次的最开始，使用上一帧的最优粒子 cell，采样它的位置
+    然后通过位移逆向得到另一个搜索区域，围绕该区域采样，比较出本帧的最优粒子
+    最终写入本帧最优粒子的 cell 坐标（不是 UV 位置），供下一帧使用
+    */
+    //////
+    uint2 last_OptPos = uint2(_DispTex[pos].xy);          // 上一帧最优粒子的 cell 坐标
+    if (last_OptPos.x >= (uint)_ParticleGridSize) last_OptPos.x = 0;
+    if (last_OptPos.y >= (uint)_ParticleGridSize) last_OptPos.y = 0;
 
+    // 读缓存粒子的数据，用于位移引导
+    float4 cachedParticle = _ParticlePosRead[last_OptPos];
+    float2 cachedCurPos  = cachedParticle.xy;
+    float  cachedState   = _ParticleStateRead[last_OptPos];
 
-    float distToPen = length(uv - _PenPos.xy);
-    float inHole = (1.0 - smoothstep(_Radius*0.8, _Radius, distToPen)) * _KeyDown;
-    float erzhiinHole = (1.0 - step(_Radius,distToPen)) * _KeyDown;
+    // 如果缓存粒子已撕裂，回退到像素所在网格 cell
+    if (cachedState > 0.5)
+        last_OptPos = uint2(floor(uv * _ParticleGridSize));
 
-    
-    ////*********************** 以下为新部分 ********************************
-    pixelParticle p = getPaticleData(pos);
+    // 位移逆向引导：粒子从 home 偏移了多少，就逆向偏移搜索中心
+    float2 homeUV  = (float2(last_OptPos) + 0.5) / _ParticleGridSize;
+    float2 curRef  = _ParticlePosRead[last_OptPos].xy;
+    float2 posDelta = homeUV - curRef;
+    uint2 dirUV = uint2(floor((uv + posDelta) * _ParticleGridSize));
+    dirUV = clamp(dirUV, 0, (uint)(_ParticleGridSize - 1));
 
-    float ccc = 0.0;
-    // 仅对非固定、未撕裂的粒子执行
-    if (!p.disabled && !p.pinned)
+    // 搜索最接近 uv 的粒子（3×3 区域，过滤 disabled）
+    float bestDist = 1e6;
+    float2 bestPos  = float2(0, 0);
+    int2   bestCell = int2(0, 0);
+
+    for (int dy = -1; dy <= 1; dy++)
     {
-
-        p.prevUV = p.curUV; // 保存当前uv坐标到上一帧
-
-        p.curUV += float2(0,-0.005)*_DT;
-
-
-        int2 a, b, l, r;
-        a = b = l = r = pos;
-
-        float rlen = h; // 粒子间距
-
-        for (float i = 1.; i < 20; ++i)
+        for (int dx = -1; dx <= 1; dx++)
         {
-            a += int2( 0,  1);   // 链式向上迭代
-            b += int2( 0, -1);   // 链式向下迭代
-            r += int2( 1,  0);   // 链式向右迭代
-            l += int2(-1,  0);   // 链式向左迭代
+            int2 nID = int2(dirUV) + int2(dx, dy);
+            if (any(nID < 0) || nID.x >= (int)_ParticleGridSize || nID.y >= (int)_ParticleGridSize)
+                continue;
 
-            float sLen = rlen * i;    // 第 i 层的期望长度 = 基础距离 × i
-            constraint(a, p, sLen);       // 约束上方第 i 个邻居
-            constraint(b, p, sLen);       // 约束下方第 i 个邻居
-            constraint(r, p, sLen);       // 约束右方第 i 个邻居
-            constraint(l, p, sLen);       // 约束左方第 i 个邻居
+            float st = _ParticleStateRead[nID];
+            if (st > 0.5) continue;  // 跳过已撕裂的粒子
+
+            float2 np = _ParticlePosRead[nID].xy;
+            float d = length(uv - np);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                bestPos  = np;
+                bestCell = nID;
+            }
         }
     }
 
-    float2 velocity = (p.curUV - p.prevUV);
-    float2 add_UV = uv + velocity*_DT;
-    float2 add_hole = _HoleTex.SampleLevel(samplerLinearClamp, add_UV, 0).xy;
-    float4 add_disp = _DispTex.SampleLevel(samplerLinearClamp, add_UV, 0);
-
-
-    // ── 写入 ──
-    _DispWrite[pos] = float4(p.curUV, p.prevUV);
-    _HoleWrite[pos] = float2(saturate(hole_self.x+erzhiinHole),p.pressure);
+    mask = step(bestDist, h * 3.0);
+    _DispWrite[pos] = float4(bestCell, 0, 0);  // 存 cell 坐标，不是 UV 位置
+    _HoleWrite[pos] = float2(mask, 0);
 }
 
+
+/// 参数分别为 期望距离、当前粒子位置、邻居粒子ID
+float2 particleConstraint(float eLen, float2 cPos, int2 nID)
+{
+    if (nID.x < 0 || nID.y < 0 || nID.x >= _ParticleGridSize || nID.y >= _ParticleGridSize) return float2(0, 0);
+
+    float particleState = _ParticleStateRead[nID];
+    if (particleState > 0.5) return float2(0, 0);
+
+    float4 neiborParticle = _ParticlePosRead[nID];
+    float2 nPos = neiborParticle.xy;
+
+    float2 deltaPos = nPos - cPos.xy;   // 当前粒子指向邻居的向量
+    float len = length(deltaPos);    // 当前实际距离
+    float2 dir = deltaPos / len;       // 单位方向向量
+
+    float error = len - eLen;     // 距离误差（正=拉伸, 负=压缩）
+
+    // 关键设计：压缩误差仅取 0.5%，布料可自然折叠而不会弹跳
+    if (error < 0.) error *= 0.005;
+
+    // 位置修正：固定粒子的权重为 1.0（对方全量移动），普通粒子权重 0.5
+    // 这样 pinned 粒子完全不动，普通粒子各承担大约一半的修正量
+    bool pinned = nID.x == 0 || nID.y == 0 || nID.x == _ParticleGridSize-1 || nID.y == _ParticleGridSize-1 ? true : false;
+    float f = pinned ? 1.0 : .5;
+
+    return dir * error * f;
+}
+
+[numthreads(8, 8, 1)]
+void InitParticleKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    float2 uv = ((float2)pos + 0.5) / _ParticleGridSize;
+    _ParticlePosWrite[pos] = float4(uv, uv);
+    _ParticleStateWrite[pos] = 0.0;
+}
+[numthreads(8, 8, 1)]
+void UpdateParticleKernel(uint3 id : SV_DispatchThreadID)
+{
+    // 如果当前点是边缘固定点，不更新
+    if (id.x == 0 || id.y == 0 || id.x == _ParticleGridSize-1 || id.y == _ParticleGridSize-1)
+    {
+        _ParticlePosWrite[id.xy] = _ParticlePosRead[id.xy];
+        return;
+    }
+    uint2 pos = id.xy;
+    float2 uv = ((float2)pos + 0.5) / _ParticleGridSize;
+
+    float4 particlePos      = _ParticlePosRead[id.xy];
+    float2 lastPos          = particlePos.zw;           // 上一帧位置
+    float2 curPos           = particlePos.xy;           // 当前帧位置
+
+    // 更新失活数据：用粒子当前位置比较，不是 home UV
+    float particleState = _ParticleStateRead[id.xy];
+    float distToPen = length(curPos - _PenPos.xy);
+    float erzhiinHole = (1.0 - step(_Radius, distToPen)) * _KeyDown;
+    float newState = saturate(particleState + erzhiinHole);
+    _ParticleStateWrite[pos] = newState;
+
+    // 判断当前粒子是否失活
+    if (newState > 0.5)
+    {
+        _ParticlePosWrite[id.xy] = float4(uv, uv);
+        return;
+    }
+
+    float2 velocity         = (curPos - lastPos);       // 当前帧速度
+    float2 gravity          = float2(0, -0.0005);        // 重力
+    float  expectedDistance = 1.0 / _ParticleGridSize;  // 期望距离
+
+    // Verlet 更新
+    float2 new_pos = curPos + velocity + gravity * _DT * _DT; // 更新当前帧位置
+
+    // 更新约束
+    float2 upConstraint    = particleConstraint(expectedDistance, new_pos, id.xy + int2(0, 1));
+    float2 downConstraint  = particleConstraint(expectedDistance, new_pos, id.xy - int2(0, 1));
+    float2 leftConstraint  = particleConstraint(expectedDistance, new_pos, id.xy - int2(1, 0));
+    float2 rightConstraint = particleConstraint(expectedDistance, new_pos, id.xy + int2(1, 0));
+
+    new_pos += (upConstraint + downConstraint + leftConstraint + rightConstraint) * _DT;
+
+    _ParticlePosWrite[pos] = float4(new_pos, curPos);
+}
